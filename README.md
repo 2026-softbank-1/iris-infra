@@ -3,8 +3,10 @@
 Iris 플랫폼의 AWS 자원, Kubernetes 공통 설정, Helm 차트와 운영 절차를 관리하는 저장소입니다.
 서비스 소스와 API / Worker의 배포 오케스트레이션은 각 서비스·백엔드 저장소에서 관리합니다.
 
-현재는 **디렉토리와 기본 파일을 준비한 scaffold**입니다. Terraform 리소스, Helm manifest,
-IAM 정책과 운영 스크립트의 실제 배포 동작은 아직 구현하지 않았습니다.
+현재는 **bootstrap S3 버킷·GitHub CI 인증 구현과 나머지 구성의 scaffold**가 준비되어 있습니다.
+`terraform/bootstrap/aws`는 state 버킷·versioning·암호화·public access block을 관리합니다.
+`terraform/account/aws`는 GitHub OIDC와 bootstrap 자동 배포 역할을 관리합니다.
+그 외 Terraform 리소스, Helm manifest, IAM 정책과 운영 스크립트의 실제 배포 동작은 아직 구현하지 않았습니다.
 `.scaffold`가 있는 Terraform stack은 팀 명령에서 plan/apply를 차단합니다.
 구현·검증 후 해당 표시를 제거하고 아래 순서로 진행합니다.
 
@@ -32,7 +34,7 @@ contracts/                          # 백엔드·CLI 연동 규격 초안
 examples/                           # AWS·로컬 values와 BuildKit 샘플 위치
 scripts/                            # 검증과 팀 명령
 docs/                              # 아키텍처, 결정 기록, runbook
-.github/workflows/                  # AWS 인증 없는 Terraform 검증
+.github/workflows/                  # PR 검증, main bootstrap 자동 apply
 ```
 
 ## 도구
@@ -73,7 +75,10 @@ make smoke-test TARGET=local-workload
 ```
 
 bootstrap / smoke-test / export-targets는 현재 미구현 안내와 함께 종료합니다.
-plan·apply·OCI push workflow는 로컬 구현 검증 이후 추가합니다. 초기 CI는 fmt/init/validate만 수행하며 AWS 인증을 사용하지 않습니다.
+PR에서는 fmt/init/validate와 mock IAM 테스트를 실행합니다.
+main에서는 검증 성공 후 OIDC 인증과 bootstrap 자동 apply를 실행합니다.
+최초 역할 생성과 GitHub 변수 설정은 [Terraform CI runbook](docs/runbooks/terraform-ci.md)에 있습니다.
+후속 stack 배포와 OCI push workflow는 해당 리소스 구현 후 추가합니다.
 
 ## 문서
 
@@ -81,6 +86,7 @@ plan·apply·OCI push workflow는 로컬 구현 검증 이후 추가합니다. �
 - [아키텍처와 책임](docs/architecture.md)
 - [설계 결정](docs/decisions/README.md)
 - [계정 준비와 bootstrap](docs/runbooks/bootstrap.md)
+- [Terraform CI와 main 자동 배포](docs/runbooks/terraform-ci.md)
 - [플랫폼 배포](docs/runbooks/deploy-platform.md)
 - [문제 확인](docs/runbooks/troubleshooting.md)
 - [철거](docs/runbooks/teardown.md)
