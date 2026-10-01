@@ -17,14 +17,36 @@ cp backend.hcl.example backend.hcl
 
 저장소 루트에서 관리자 AWS 프로필과 AWS_ACCOUNT_ID를 지정하고
 `make tf-init STACK=account/aws`, `make tf-plan STACK=account/aws`,
-`make tf-apply STACK=account/aws`를 사용합니다. 최초 계획은 OIDC provider·역할·inline policy 2개로 총 4개 생성입니다.
+`make tf-apply STACK=account/aws`를 사용합니다. OIDC provider·역할·inline policy 2개에 더해
+네트워크 관리형 정책과 기존 역할에 대한 attachment를 관리합니다.
 이 stack은 배포 인증의 기반이므로 관리자가 로컬에서 적용하고 CI에서는 직접 apply하지 않습니다.
 CI 역할의 권한은 bootstrap 버킷 설정, 배포 root 4개의 state·lock,
-현재 foundation의 빌드 입력 S3·CodeBuild·로그 그룹·빌드 역할 2개 관리로 제한됩니다.
+현재 foundation의 빌드 입력 S3·CodeBuild·로그 그룹·빌드 역할 2개 및 태그로 제한된 네트워크 관리로 구성됩니다.
 CodeBuild에 전달할 수 있는 역할은 빌드용 CodeBuild 역할 하나입니다.
 state와 state 버킷 삭제, account state 접근과 CI 자기 역할·OIDC 변경은 허용하지 않습니다.
 기존 bootstrap 전용 CI에서는 이 stack의 변경된 정책을 관리자가 먼저 적용한 후 배포 코드를 main에 반영합니다.
-후속 VPC·EKS stack을 연결할 때 필요한 권한도 먼저 추가합니다.
+네트워크 코드의 main 반영 전에 아래 관리형 정책을 먼저 적용합니다. 후속 EKS 권한도 먼저 추가해야 합니다.
+
+## 네트워크 CI 권한
+
+`ci-network.tf`는 `<project>-<environment>-foundation-network` 관리형 정책을 기존 CI 역할에 연결합니다.
+기존 state·빌드 inline policy와 주소는 유지합니다. 관리형 정책을 사용해 역할의 inline 정책 합산
+크기 한도를 소비하지 않으며 mock 테스트에서 관리형 정책의 6,144자 한도를 검사합니다.
+
+생성 대상은 VPC·subnet·route table·IGW·EIP·zonal NAT·SG·SG rule이며 EC2 작업을 개별 열거합니다.
+ARN은 지정 계정·리전·네트워크 리소스 종류로, 생성은 `Project`, `Environment`, `ManagedBy=Terraform`,
+`Component=network` request tag로 제한합니다. 기존 부모·변경·삭제 작업은 같은 resource tag를 요구합니다.
+태그 생성은 허용된 `ec2:CreateAction`에만 연결하고 이후 소유권 태그 값 변경·삭제는 허용하지 않습니다.
+소유권 태그가 누락된 기존 자원을 import할 때는 관리자 확인이 필요합니다.
+
+resource-level 권한을 지원하지 않는 네트워크 `Describe` API만 `Resource="*"`와 지정 리전 조건을 사용합니다.
+`DescribeVpcAttribute`는 VPC ARN·소유권 태그로 제한합니다. 이 정책에는 EC2 instance/ENI 생성·변경,
+EKS 생성, S3 state, IAM 변경 권한이 없으며 CI는 자신의 역할·관리형 정책을 수정할 수 없습니다.
+관련 action/resource/condition 조합은 [AWS EC2 권한 참조](https://docs.aws.amazon.com/service-authorization/latest/reference/list_ec2.html)를 기준으로 합니다.
+
+`terraform -chdir=terraform/account/aws test`는 기존 trust/state/build 보호와 새 네트워크 권한·태그 범위를
+mock으로 검사하며 실제 AWS IAM 충분성을 보장하지 않습니다. administrator account 적용 → foundation plan 검토 →
+별도 승인된 main 반영/배포 순서를 따릅니다. 네트워크 생성과 비용 발생은 foundation 적용 시 시작합니다.
 
 bootstrap에서 S3 backend를 준비한 후 backend.hcl을 사용해 init합니다.
 

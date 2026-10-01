@@ -3,10 +3,11 @@
 Iris 플랫폼의 AWS 자원, Kubernetes 공통 설정, Helm 차트와 운영 절차를 관리하는 저장소입니다.
 서비스 소스와 API / Worker의 배포 오케스트레이션은 각 서비스·백엔드 저장소에서 관리합니다.
 
-현재는 **bootstrap S3 버킷·GitHub CI 인증 구현과 나머지 구성의 scaffold**가 준비되어 있습니다.
+현재는 **bootstrap S3 버킷·GitHub CI 인증·foundation 빌드 자원·공유 VPC 네트워크 구현**이 준비되어 있습니다.
 `terraform/bootstrap/aws`는 state 버킷·versioning·암호화·public access block을 관리합니다.
 `terraform/account/aws`는 GitHub OIDC와 bootstrap 자동 배포 역할을 관리합니다.
-그 외 Terraform 리소스, Helm manifest, IAM 정책과 운영 스크립트의 실제 배포 동작은 아직 구현하지 않았습니다.
+foundation은 VPC·서브넷·IGW·NAT·라우팅·관리→앱 API 접근용 SG를 정의하며, 네트워크 CI 권한은 account에서 관리자가 먼저 적용합니다.
+EKS, Helm manifest, 팀 IAM과 운영 스크립트의 실제 배포 동작은 아직 구현하지 않았습니다.
 `.scaffold`가 있는 Terraform stack은 팀 명령에서 plan/apply를 차단합니다.
 구현·검증 후 해당 표시를 제거하고 아래 순서로 진행합니다.
 
@@ -75,10 +76,11 @@ make smoke-test TARGET=local-workload
 ```
 
 bootstrap / smoke-test / export-targets는 현재 미구현 안내와 함께 종료합니다.
-PR에서는 fmt/init/validate와 mock IAM 테스트를 실행합니다.
-main에서는 검증 성공 후 OIDC 인증과 bootstrap 자동 apply를 실행합니다.
+PR에서는 fmt/init/validate와 mock IAM·네트워크 테스트를 실행합니다.
+main에서는 검증 성공 후 OIDC 인증과 bootstrap → foundation 자동 apply를 실행합니다.
 최초 역할 생성과 GitHub 변수 설정은 [Terraform CI runbook](docs/runbooks/terraform-ci.md)에 있습니다.
-후속 stack 배포와 OCI push workflow는 해당 리소스 구현 후 추가합니다.
+네트워크 입력·경로·후속 출력은 [foundation README](terraform/environments/aws/dev/foundation/README.md)에 있습니다.
+후속 EKS stack과 OCI push workflow는 해당 리소스 구현 후 연결합니다.
 
 ## 문서
 

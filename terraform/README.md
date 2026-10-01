@@ -5,8 +5,9 @@
 
 허용 STACK: `bootstrap/aws`, `account/aws`, `aws/dev/foundation`, `aws/dev/management`, `aws/dev/workload`.
 `bootstrap/aws`는 state용 S3 버킷과 보호 설정을 구현했습니다.
-`account/aws`는 GitHub OIDC provider와 bootstrap 자동 배포 역할을 관리합니다. 팀 IAM 정책은 후속 구현합니다.
-그 외 root는 아직 리소스가 없는 scaffold입니다. 구현 후 `.scaffold`를 제거합니다.
+`account/aws`는 GitHub OIDC provider와 자동 배포 역할의 state·빌드·네트워크 권한을 관리합니다. 팀 IAM 정책은 후속 구현합니다.
+`aws/dev/foundation`은 빌드 자원과 공유 VPC·서브넷·라우팅·NAT·추가 SG를 구현했습니다.
+management/workload root는 아직 리소스가 없는 scaffold입니다. 구현 후 `.scaffold`를 제거합니다.
 AWS provider와 버전 조건은 공통 설정하며 후속 root의 출력·remote state 연결은 구현 단계에서 추가합니다.
 
 S3 backend는 `use_lockfile = true`, 암호화와 계정 제한을 사용합니다.
