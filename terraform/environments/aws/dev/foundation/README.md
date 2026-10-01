@@ -22,5 +22,11 @@ cp backend.hcl.example backend.hcl
 
 bootstrap에서 S3 backend를 준비한 후 backend.hcl을 사용해 init합니다.
 
+main CI는 bootstrap 적용 후 이 stack을 자동 적용합니다. CI 역할의 foundation 정책은
+관리자가 account stack에서 먼저 적용해야 합니다. 기존 foundation 자원과 state가 있다면
+위 S3 key로 state를 이전하거나 import한 후 자동 배포를 연결합니다.
+현재 빌드 자원만 배포하며, CodeBuild 프로젝트 생성 자체는 빌드를 시작하지 않습니다.
+VPC·EKS 등 후속 자원은 코드·입력·의존성과 CI 권한을 함께 준비합니다.
+
 실행 순서와 의존 관계는 [bootstrap runbook](../../../../../docs/runbooks/bootstrap.md)을 참고합니다.
 provider lock 파일은 첫 init 이후 commit합니다.

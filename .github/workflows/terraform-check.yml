@@ -37,23 +37,26 @@ jobs:
           terraform_wrapper: false
       - name: Scaffold checks
         run: make scaffold-check
+      - name: Test Terraform CI stack orchestration
+        run: python3 scripts/tests/test-tf-ci.py
       - name: Format, init without backend, and validate
         run: make tf-check
       - name: Test GitHub role trust and permissions
         run: terraform -chdir=terraform/account/aws test
 
   deploy:
-    name: Apply bootstrap on main
+    name: Apply implemented stacks on main
     needs: check
     if: >-
       github.ref == 'refs/heads/main' &&
       (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     permissions:
       contents: read
       id-token: write
     concurrency:
+      # Keep the existing group to serialize with bootstrap-only runs still in progress.
       group: terraform-apply-bootstrap-aws
       cancel-in-progress: false
     env:
