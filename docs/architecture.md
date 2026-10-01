@@ -2,7 +2,7 @@
 
 초기 대상은 AWS 관리 EKS, AWS 앱 EKS, 로컬 k3d입니다. 현재 bootstrap의 S3 state,
 account의 GitHub CI OIDC·네트워크 CI 권한, foundation의 공유 VPC 네트워크와
-CodeBuild·빌드 입력 S3·로그·빌드 역할을 구현했습니다.
+CodeBuild·빌드 입력 S3·로그·빌드 역할·플랫폼 ECR을 구현했습니다.
 EKS와 플랫폼 배포는 아직 scaffold이며 아래 그림은 목표 아키텍처입니다.
 
 ```mermaid
@@ -23,6 +23,12 @@ flowchart TD
 Terraform은 AWS 자원과 EKS·node group·관리형 addon·IAM·Access Entry를 소유합니다.
 Helm bootstrap은 baseline과 외부 addon을, 플랫폼 chart는 플랫폼 워크로드를 소유합니다.
 사용자 앱 release는 Worker가 iris-service로 관리합니다. ALB는 컨트롤러가 소유하며 Terraform에서 중복 선언하지 않습니다.
+
+플랫폼 서비스는 각 GitHub 저장소의 main에서 OIDC publisher 역할로 `iris/was`,
+`iris/code-analyzer-agent`, `iris/error-check-agent`에 이미지를 게시합니다.
+foundation이 저장소를 소유하고 account가 exact repository ARN과 GitHub subject로 IAM 범위를 정합니다.
+사용자 앱의 `iris/services/*` 생성·CodeBuild push와 캐시는 기존 Build Worker 경로를 사용합니다.
+`iris-web`은 정적 사이트로 별도 후속 배포합니다. [빌드 템플릿](../examples/github-actions/README.md)의 digest 출력을 후속 배포가 사용합니다.
 
 foundation의 공통 Worker 역할을 management의 Pod Identity와 workload의 Access Entry가 참조합니다.
 두 클러스터가 상대 state를 읽는 순환 의존은 만들지 않습니다. 공유 VPC 경로·보안 그룹으로 관리→대상 API 접근을 구현합니다.

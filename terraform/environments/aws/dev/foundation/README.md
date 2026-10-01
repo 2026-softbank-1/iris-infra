@@ -1,10 +1,11 @@
 # 공통 VPC·ECR·IAM
 
-상태: 빌드 자원(`build.tf`)과 공유 VPC 네트워크(`network.tf`)를 구현했습니다. 코드 구현 상태이며 실제 AWS 적용 여부는 state와 plan으로 확인합니다.
+상태: 빌드 자원(`build.tf`), 공유 VPC 네트워크(`network.tf`), 플랫폼 ECR(`ecr-platform.tf`)을 구현했습니다. 코드 구현 상태이며 실제 AWS 적용 여부는 state와 plan으로 확인합니다.
 
 - 구현: 소스 스냅샷 S3(SSE-S3, 1일 만료), CodeBuild `iris-dev-build`(privileged, MEDIUM, 15분), CodeBuild 서비스 역할(`iris/services/*` ECR push), Build Worker 역할(Pod Identity 용).
 - `buildspec.yml` 은 iris-was Build Worker 가 넘기는 환경변수와 짝을 이룹니다. 바꿀 때 두 저장소를 함께 봅니다. Railpack CLI 는 install 단계에서 고정 버전·체크섬으로 받습니다.
 - 서비스별 ECR 저장소(`iris/services/{service_id}`)는 Build Worker 가 만듭니다.
+- 플랫폼 ECR은 `iris/was`, `iris/code-analyzer-agent`, `iris/error-check-agent`입니다. 정적 사이트인 `iris-web`은 별도 후속 배포입니다.
 - 네트워크: 공유 VPC, public subnet 2개, 관리용·앱용 private subnet 각 2개, IGW, zonal NAT, routing, 관리→앱 API 접근용 추가 SG 2개.
 - EKS·Deployer Worker IAM과 실제 API 접근 연결은 후속 구현입니다.
 
@@ -26,10 +27,24 @@ bootstrap에서 S3 backend를 준비한 후 backend.hcl을 사용해 init합니�
 main CI는 bootstrap 적용 후 이 stack을 자동 적용합니다. CI 역할의 foundation 정책은
 관리자가 account stack에서 먼저 적용해야 합니다. 기존 foundation 자원과 state가 있다면
 위 S3 key로 state를 이전하거나 import한 후 자동 배포를 연결합니다.
-main 반영 시 빌드 자원과 네트워크가 자동 적용됩니다. 네트워크 코드 반영 전에 account의
+main 반영 시 빌드 자원과 네트워크·플랫폼 ECR이 자동 적용됩니다. 네트워크 코드 반영 전에 account의
 `foundation-network` 관리형 정책을 관리자 인증으로 먼저 적용해야 합니다.
 CodeBuild 프로젝트 생성 자체는 빌드를 시작하지 않으며 이번 변경에서 CodeBuild를 VPC에 연결하지 않습니다.
 EKS 등 후속 자원은 코드·입력·의존성과 CI 권한을 함께 준비합니다.
+
+## 플랫폼 ECR
+
+account와 같은 `terraform/config/platform-ecr-repositories.json`을 읽어 `${project}/${suffix}`로 생성합니다.
+account와 foundation의 AWS 계정·리전·project를 맞추고, main 반영 전 account의
+`platform-ecr-resources` 정책을 관리자 인증으로 먼저 적용합니다. ECR은 VPC·subnet 출력에 의존하지 않습니다.
+
+저장소는 AES256 암호화, push 스캔, immutable 태그, `force_delete=false`와 `prevent_destroy=true`를 사용합니다.
+untagged 이미지만 30일 후 만료하며 tagged 배포·롤백 이미지는 보존합니다. 같은 이름의 기존 저장소가 있다면
+생성 전에 import를 검토합니다. 코드를 제거해 이미지를 정리하지 않으며 ECR 저장·전송 비용이 발생합니다.
+registry 전체 스캔 설정은 변경하지 않습니다. ENHANCED registry라면 실제 스캔 필터 포함 여부를 확인합니다.
+
+`platform_ecr_repository_urls`와 `platform_ecr_repository_arns`는 suffix를 key로 출력합니다.
+다른 서비스 저장소에서 사용할 OIDC·빌드·push 예시는 [서비스 빌드 템플릿](../../../../../examples/github-actions/README.md)을 참고합니다.
 
 ## 네트워크 입력과 경로
 

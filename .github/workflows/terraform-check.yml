@@ -43,7 +43,7 @@ jobs:
         run: make tf-check
       - name: Test GitHub role trust and permissions
         run: terraform -chdir=terraform/account/aws test
-      - name: Test foundation network topology with mock providers
+      - name: Test foundation network and platform ECR with mock providers
         run: terraform -chdir=terraform/environments/aws/dev/foundation test
 
   deploy:

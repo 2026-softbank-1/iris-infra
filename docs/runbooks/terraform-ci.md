@@ -2,7 +2,7 @@
 
 `.github/workflows/terraform-check.yml`이 전체 흐름을 관리합니다.
 
-- PR: scaffold, CI 실행 순서 테스트, fmt, backend 없는 init/validate, mock IAM·foundation 네트워크 테스트를 수행합니다. AWS 자원은 변경하지 않습니다.
+- PR: scaffold, CI 실행 순서 테스트, fmt, backend 없는 init/validate, mock IAM·foundation 네트워크·플랫폼 ECR 테스트를 수행합니다. AWS 자원은 변경하지 않습니다.
 - main push(머지 포함): 검증 성공 후 GitHub OIDC로 AWS 인증하고 구현된 stack을 순서대로 init → plan → apply합니다. 각 stack은 저장한 plan을 그대로 적용합니다.
 - Actions의 Run workflow: main을 선택하면 같은 검증·배포를 실행합니다. 다른 브랜치에서는 검증만 실행합니다.
 
@@ -11,7 +11,7 @@
 | 순서 | STACK | S3 state key | 현재 동작 |
 | --- | --- | --- | --- |
 | 1 | `bootstrap/aws` | `bootstrap/aws/terraform.tfstate` | state 버킷 설정 적용 |
-| 2 | `aws/dev/foundation` | `aws/dev/foundation/terraform.tfstate` | 빌드 자원·공유 VPC·subnet·IGW·NAT·routing·추가 SG 적용 |
+| 2 | `aws/dev/foundation` | `aws/dev/foundation/terraform.tfstate` | 빌드 자원·공유 VPC·subnet·IGW·NAT·routing·추가 SG·플랫폼 ECR 적용 |
 | 3 | `aws/dev/management` | `aws/dev/management/terraform.tfstate` | `.scaffold`가 있어 건너뜀 |
 | 4 | `aws/dev/workload` | `aws/dev/workload/terraform.tfstate` | `.scaffold`가 있어 건너뜀 |
 
@@ -52,13 +52,15 @@ terraform -chdir=terraform/account/aws output -raw terraform_apply_role_arn
 ```
 
 기존 GitHub OIDC provider가 있다면 해당 ARN을 `aws_iam_openid_connect_provider.github`로 import합니다.
-OIDC provider, 역할, 기존 inline policy 2개에 네트워크 관리형 정책·attachment가 추가됩니다.
+OIDC provider, CI 역할, 기존 inline policy 2개에 플랫폼 ECR inline policy와 네트워크 관리형 정책·attachment가 추가됩니다.
 `bootstrap-state-bucket` 정책은 state 버킷 설정과 위 4개 state의 읽기·쓰기, lock 읽기·쓰기·삭제를 허용합니다.
 state 본문·이전 버전·state 버킷 삭제와 account state 접근은 허용하지 않습니다.
 `foundation-build-resources` 정책은 현재 foundation의 빌드 입력 버킷, CodeBuild 프로젝트,
 로그 그룹, CodeBuild·Build Worker 역할 2개의 관리를 허용합니다.
 `iam:PassRole`은 해당 CodeBuild 역할을 CodeBuild에 전달할 때만 허용합니다.
-CI 자신의 인증 역할·OIDC provider 관리, ECR 저장소 생성과 사용자 빌드 시작 권한은 포함하지 않습니다.
+이 빌드 정책에는 CI 자신의 인증 역할·OIDC provider 관리, ECR 저장소 생성과 사용자 빌드 시작 권한이 없습니다.
+별도 `platform-ecr-resources` 정책은 inventory의 플랫폼 ECR 3개에만 저장소·태그·스캔·lifecycle 관리를 허용합니다.
+사용자 앱 ECR(`iris/services/*`) 생성과 이미지 push 권한은 CI에 추가하지 않습니다.
 로그 그룹 탐색은 리소스 제한을 지원하지 않아 지정 리전의 `logs:DescribeLogGroups`만 `*`를 사용합니다.
 `iris-dev-foundation-network` 관리형 정책은 지정 계정·리전과 `Project=iris`, `Environment=dev`,
 `ManagedBy=Terraform`, `Component=network` 태그의 VPC·subnet·routing·IGW·EIP·NAT·SG·SG rule을 관리합니다.
@@ -66,6 +68,20 @@ CI 자신의 인증 역할·OIDC provider 관리, ECR 저장소 생성과 사용
 리소스 제한을 지원하지 않는 네트워크 Describe API는 지정 리전에서만 `*`를 사용합니다.
 EKS/instance/ENI 생성과 CI 자체 IAM 변경은 포함하지 않습니다. 기존 inline 정책의 크기 한도를
 소비하지 않도록 관리형 정책으로 분리하며 account가 그 정책과 attachment를 소유합니다.
+
+## 플랫폼 ECR 적용과 서비스 이미지 빌드
+
+ECR 코드가 main에 반영되기 전에 관리자가 account의 `platform-ecr-resources` 정책을 적용합니다.
+Foundation 실제 plan에서 기존 네트워크·빌드 자원의 삭제·교체가 없는지 검토하고 별도 배포 승인 후 적용합니다.
+account와 foundation의 AWS 계정·리전·project는 같아야 하며 새 서비스 workflow에 state 권한을 주지 않습니다.
+
+서비스별 publisher 입력은 기본 `{}`입니다. 각 저장소의 실제 OIDC subject prefix를 확인한 후
+account에 입력·적용하고 `github_ecr_publisher_role_arns`를 GitHub 변수로 전달합니다.
+복사 경로·입력 예시·main 업로드 조건은 [서비스 빌드 템플릿](../../examples/github-actions/README.md)에 있습니다.
+정적 web 배포와 EKS에서의 digest 이미지 배포는 후속 작업입니다.
+
+`platform-ecr-check.yml`은 AWS 인증 없이 inventory, actionlint, ShellCheck, fake 도구 테스트와 scratch 빌드를 수행합니다.
+실제 AWS의 push/pull·스캔 결과는 별도 승인된 운영 검증으로 확인합니다.
 
 ## 기존 bootstrap 전용 CI 확장
 
