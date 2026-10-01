@@ -7,7 +7,7 @@
 - 서비스별 ECR 저장소(`iris/services/{service_id}`)는 Build Worker 가 만듭니다.
 - 플랫폼 ECR은 `iris/was`, `iris/code-analyzer-agent`, `iris/error-check-agent`입니다. 정적 사이트인 `iris-web`은 별도 후속 배포입니다.
 - 네트워크: 공유 VPC, public subnet 2개, 관리용·앱용 private subnet 각 2개, IGW, zonal NAT, routing, 관리→앱 API 접근용 추가 SG 2개.
-- EKS·Deployer Worker IAM과 실제 API 접근 연결은 후속 구현입니다.
+- EKS 와 Deploy Worker IAM(ECR 태그만, 클러스터 권한 없음)은 후속 구현입니다. 앱 EKS API 접근은 Argo CD 만 합니다(ADR 0002).
 
 독립 root module이며 state key는 `aws/dev/foundation/terraform.tfstate`입니다.
 기본 입력은 `variables.tf`에 있습니다. 후속 EKS·IAM 연결은 아래 출력 계약을 사용합니다.

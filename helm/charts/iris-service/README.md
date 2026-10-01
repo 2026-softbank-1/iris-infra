@@ -1,9 +1,16 @@
 # iris-service
 
-상태: scaffold. `사용자 앱 Deployment, Service, Ingress와 선택적인 migration Job`를 구현할 위치입니다.
-현재 templates에는 manifest가 없으며 install/upgrade해도 앱이나 정책이 배포되지 않습니다.
-`values.schema.json`은 객체 형식만 확인하는 임시 schema입니다.
+사용자 앱 공통 chart 입니다. Argo CD 가 Git tag `iris-service-<version>` 으로 읽고,
+GitOps 저장소의 `services/{service_id}/prod/values.yaml`(Deploy Worker 작성)과 합쳐 렌더링합니다.
 
-구현 시 values·schema·templates를 함께 추가하고 AWS·로컬 샘플로 lint/render를 검증합니다.
-변경 시 `Chart.yaml` version을 올립니다. values 합성 순서는 차트 기본값 → 타겟 기본값 → 배포별 값입니다.
-앱 values 검증 원본은 이 차트의 values.schema.json입니다. repository + digest 또는 tag 중 하나를 사용하도록 schema와 template을 구현합니다. AWS는 digest, 로컬 import는 commit 기반 tag를 사용합니다.
+| 리소스 | 이름 | 내용 |
+|---|---|---|
+| Deployment | `app` | rolling update(maxSurge 1·maxUnavailable 0), `automountServiceAccountToken: false`, readiness probe |
+| Service | `app` | ClusterIP `service.port` → `http`(containerPort) |
+| Ingress | `app` | `route.className: alb` 면 ALB group 공유·target-type ip·HTTPS redirect·health check 설정 |
+| NetworkPolicy | `allow-load-balancer` | `networkPolicy.allowedCidrs` 가 있을 때만. 그 CIDR 에서 containerPort 로만 허용 |
+
+- values 계약과 필드 의미: [contracts/deployment.md](../../../contracts/deployment.md). schema 가 모르는 키를 거절합니다.
+- `ci/` 의 values 는 Deploy Worker 출력(AWS)과 로컬 k3d 모양입니다. `make helm-check` 가 lint·render 에 씁니다.
+- 바꾸면 `Chart.yaml` version 을 올리고 tag 를 만든 뒤 ApplicationSet `targetRevision` 을 올립니다.
+- namespace 에 `elbv2.k8s.aws/pod-readiness-gate-inject: enabled` 라벨이 있어야 rollout 이 ALB target health 를 기다립니다(ApplicationSet `managedNamespaceMetadata`).

@@ -1,5 +1,5 @@
 apiVersion: v2
 name: iris-service
-description: "Iris scaffold: 사용자 앱 Deployment, Service, Ingress와 선택적인 migration Job"
+description: "Iris 사용자 앱 공통 chart: Deployment, Service, ALB Ingress, 선택적인 NetworkPolicy"
 type: application
-version: 0.1.0
+version: 0.2.0

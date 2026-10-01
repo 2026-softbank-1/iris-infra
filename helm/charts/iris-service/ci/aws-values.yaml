@@ -1,0 +1,12 @@
+# Deploy Worker 가 쓰는 values 와 같은 모양입니다(JSON 은 YAML 입니다). helm-check 가 사용합니다.
+{
+  "command": ["node", "dist/main.js"],
+  "containerPort": 8080,
+  "health": { "path": "/health", "timeoutSeconds": 300 },
+  "image": {
+    "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "repository": "000000000000.dkr.ecr.ap-northeast-2.amazonaws.com/iris/services/12"
+  },
+  "release": { "id": 345, "sourceSha": "0000000000000000000000000000000000000000" },
+  "route": { "host": "my-app.apps.example.com" }
+}

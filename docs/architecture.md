@@ -2,27 +2,33 @@
 
 초기 대상은 AWS 관리 EKS, AWS 앱 EKS, 로컬 k3d입니다. 현재 bootstrap의 S3 state,
 account의 GitHub CI OIDC·네트워크 CI 권한, foundation의 공유 VPC 네트워크와
-CodeBuild·빌드 입력 S3·로그·빌드 역할·플랫폼 ECR을 구현했습니다.
+CodeBuild·빌드 입력 S3·로그·빌드 역할·플랫폼 ECR, iris-service chart를 구현했습니다.
 EKS와 플랫폼 배포는 아직 scaffold이며 아래 그림은 목표 아키텍처입니다.
 
 ```mermaid
 flowchart TD
   Bootstrap[bootstrap: S3 state] --> Account[account: IAM / GitHub OIDC]
-  Bootstrap --> Foundation[foundation: VPC / ECR / 공통 IAM]
+  Bootstrap --> Foundation[foundation: VPC / ECR / CodeBuild / 공통 IAM]
   Foundation --> Management[관리 EKS]
   Foundation --> Workload[앱 EKS]
-  Management --> Platform[API / Worker / Agent / PostgreSQL]
-  Management --> Build[고정 SHA BuildKit Job]
-  Build --> ECR[ECR 이미지와 OCI chart]
-  ECR --> Worker[Deployer Worker]
-  Platform --> Worker
-  Worker --> Workload
+  Management --> Platform[API / Build Worker / Deploy Worker / PostgreSQL]
+  Platform --> Build[CodeBuild: Dockerfile / Railpack]
+  Build --> ECR[ECR 서비스 이미지]
+  Platform -->|values.yaml commit| GitOps[gitops-environments]
+  Chart[이 저장소 helm/charts/iris-service<br/>Git tag] --> Argo[Argo CD ApplicationSet<br/>관리 EKS]
+  GitOps --> Argo
+  Argo --> Workload
   CLI[로컬 CLI / 같은 chart 버전] --> Local[로컬 k3d]
 ```
 
+사용자 앱 배포는 GitOps입니다([0002](decisions/0002-gitops-deployment.md)). Deploy Worker는 `gitops-environments`의
+`services/{service_id}/prod/values.yaml`만 커밋하고, Argo CD가 이 저장소의 `iris-service` chart(Git tag 고정)와 그 values로
+앱 EKS에 배포합니다. Deploy Worker는 앱 EKS API에 접근하지 않습니다.
+
 Terraform은 AWS 자원과 EKS·node group·관리형 addon·IAM·Access Entry를 소유합니다.
-Helm bootstrap은 baseline과 외부 addon을, 플랫폼 chart는 플랫폼 워크로드를 소유합니다.
-사용자 앱 release는 Worker가 iris-service로 관리합니다. ALB는 컨트롤러가 소유하며 Terraform에서 중복 선언하지 않습니다.
+Helm bootstrap은 baseline과 외부 addon(Argo CD, AWS Load Balancer Controller 등)을, 플랫폼 chart는 플랫폼 워크로드를 소유합니다.
+사용자 앱 리소스는 Argo CD가 iris-service로 관리합니다. 앱 외부 트래픽은 ALB Ingress group 으로 ALB 하나를 공유하며,
+ALB는 컨트롤러가 소유하므로 Terraform에서 중복 선언하지 않습니다.
 
 플랫폼 서비스는 각 GitHub 저장소의 main에서 OIDC publisher 역할로 `iris/was`,
 `iris/code-analyzer-agent`, `iris/error-check-agent`에 이미지를 게시합니다.
@@ -30,7 +36,7 @@ foundation이 저장소를 소유하고 account가 exact repository ARN과 GitHu
 사용자 앱의 `iris/services/*` 생성·CodeBuild push와 캐시는 기존 Build Worker 경로를 사용합니다.
 `iris-web`은 정적 사이트로 별도 후속 배포합니다. [빌드 템플릿](../examples/github-actions/README.md)의 digest 출력을 후속 배포가 사용합니다.
 
-foundation의 공통 Worker 역할을 management의 Pod Identity와 workload의 Access Entry가 참조합니다.
+앱 EKS의 Access Entry는 관리 EKS의 Argo CD application-controller 역할에 줍니다. Build·Deploy Worker 역할은 앱 EKS 권한이 없습니다.
 두 클러스터가 상대 state를 읽는 순환 의존은 만들지 않습니다. 공유 VPC 경로·보안 그룹으로 관리→대상 API 접근을 구현합니다.
 IAM 인증과 Namespace RBAC를 함께 검증합니다. NetworkPolicy는 CNI의 실제 enforcement를 확인합니다.
 
@@ -45,5 +51,5 @@ foundation의 source/target SG는 관리→앱 private Kubernetes API TCP 443 �
 EKS 기본 SG·노드 통신은 재사용 모듈이 소유합니다. 실제 접근은 기존 SG 합산 규칙과 IAM/RBAC를 함께 검증하며,
 이번 네트워크 기반 구현만으로 실제 연결이나 클러스터 격리가 완성되지는 않습니다.
 
-소스 SHA·배포 이력은 플랫폼 DB, 실제 env는 SSM·Kubernetes Secret, 이미지·chart package는 ECR,
-state는 S3에 저장합니다. 사용자 배포마다 이 저장소에 프로젝트 디렉토리나 commit을 만들지 않습니다.
+소스 SHA·배포 이력은 플랫폼 DB, 배포 desired state는 `gitops-environments`, 이미지는 ECR, state는 S3에 저장합니다.
+사용자 배포마다 이 저장소에 프로젝트 디렉토리나 commit을 만들지 않습니다.

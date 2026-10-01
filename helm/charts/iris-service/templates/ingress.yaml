@@ -1,0 +1,35 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: app
+  labels:
+    {{- include "iris-service.labels" . | nindent 4 }}
+  {{- if eq .Values.route.className "alb" }}
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+    {{- with .Values.route.groupName }}
+    alb.ingress.kubernetes.io/group.name: {{ . | quote }}
+    {{- end }}
+    {{- with .Values.health.path }}
+    alb.ingress.kubernetes.io/healthcheck-path: {{ . | quote }}
+    {{- end }}
+    # ALB health check 는 Host 헤더를 서비스 도메인으로 보낼 수 없어, Host 를 검사하는 앱은 4xx 를 줍니다.
+    # 앱 상태는 Host 를 넣는 readiness probe 가 보고, ALB 는 응답이 오는지(5xx·timeout 아님)만 봅니다.
+    alb.ingress.kubernetes.io/success-codes: 200-499
+  {{- end }}
+spec:
+  ingressClassName: {{ .Values.route.className | quote }}
+  rules:
+    - host: {{ .Values.route.host | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: app
+                port:
+                  name: http
