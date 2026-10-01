@@ -60,7 +60,7 @@ Settings → Secrets and variables → Actions → Variables에서 다음 값을
 
 ## 배포와 확인
 
-bootstrap과 account의 `.terraform.lock.hcl`을 코드와 함께 commit합니다.
+각 stack과 EKS module의 `.terraform.lock.hcl`을 코드와 함께 commit합니다.
 CI는 commit된 lock 파일을 변경하지 않고 provider를 설치합니다.
 현재 bootstrap 입력은 계정·리전을 variables에서 받으며 project=iris, environment=dev 기본값을 사용합니다.
 로컬 `.tfvars`의 다른 입력을 사용하는 경우 CI 입력도 함께 맞춰야 합니다.
@@ -77,5 +77,33 @@ plan 파일은 같은 job에서 apply한 뒤 삭제하며 artifact로 공개하�
 OIDC 인증 실패 시 repository variable의 역할 ARN과 실제 subject prefix·main 브랜치 조건을 확인합니다.
 S3 AccessDenied는 state key와 `.tflock` 권한을 확인합니다.
 
+## Provider lock 파일 갱신
+
+로컬 Mac은 `darwin_arm64`, GitHub Actions runner는 `linux_amd64`를 사용합니다.
+CI는 `-lockfile=readonly`로 초기화하므로 두 플랫폼의 provider 체크섬을 미리 등록해야 합니다.
+Mac에서만 초기화한 lock 파일은 Linux에서 provider 설치 후 체크섬 검증 오류를 일으킬 수 있습니다.
+
+저장소 루트에서 다음 명령으로 6개 lock 파일을 갱신합니다.
+`providers lock`은 공식 registry에서 각 플랫폼 패키지를 내려받아 검증하며 AWS 자원을 변경하지 않습니다.
+provider 버전은 기존 lock의 선택을 유지합니다.
+
+```bash
+for dir in \
+  terraform/bootstrap/aws \
+  terraform/account/aws \
+  terraform/environments/aws/dev/foundation \
+  terraform/environments/aws/dev/management \
+  terraform/environments/aws/dev/workload \
+  terraform/modules/eks; do
+  terraform -chdir="$dir" providers lock \
+    -platform=darwin_arm64 -platform=linux_amd64
+done
+```
+
+공식 패키지 서명과 lock 파일 diff를 확인한 뒤 `make tf-check`를 실행합니다.
+provider를 의도적으로 업그레이드할 때도 두 플랫폼의 체크섬을 갱신하고,
+변경된 lock 파일 전체를 코드와 함께 commit합니다.
+
 공식 문서: [GitHub OIDC in AWS](https://docs.github.com/en/actions/how-tos/secure-your-work/security-harden-deployments/oidc-in-aws),
-[Terraform S3 backend](https://developer.hashicorp.com/terraform/language/backend/s3).
+[Terraform S3 backend](https://developer.hashicorp.com/terraform/language/backend/s3),
+[Terraform providers lock](https://developer.hashicorp.com/terraform/cli/commands/providers/lock).
