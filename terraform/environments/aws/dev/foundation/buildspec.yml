@@ -1,0 +1,58 @@
+# CodeBuild 프로젝트 iris-dev-build 의 buildspec (build.tf 가 읽는다).
+# iris-was Build Worker(app/services/build_service.py)가 StartBuild 환경변수로 넘기는 값:
+#   SOURCE_URL ROOT_DIRECTORY BUILDER DOCKERFILE_PATH REGISTRY IMAGE_REPO IMAGE_TAG
+#   SERVICE_ID, railpack 이면 RAILPACK_BUILD_CMD·RAILPACK_START_CMD(선택)
+# Worker 는 실패 단계로 원인을 나눈다: install 은 인프라 오류(재시도),
+# pre_build 는 BUILD_CONFIG_REQUIRED, build 는 BUILD_FAILED.
+version: 0.2
+
+env:
+  shell: bash
+  variables:
+    # CLI 와 BuildKit frontend 는 같은 버전을 쓴다. 올릴 때 checksums.txt 의 x86_64 musl 값도 바꾼다.
+    RAILPACK_VERSION: "0.40.1"
+    RAILPACK_SHA256: "2842de93e68713af9037e0bc0a398d7da78f3b96aa4804303a638db2bc69bd30"
+
+phases:
+  install:
+    commands:
+      # ponytail: 표준 이미지에 빌드마다 설치한다(8MB). 커스텀 이미지는 캐시되지 않아 프로비저닝이 느리다.
+      #   GitHub 장애가 잦으면 S3 나 ECR 에 미러링한다.
+      - |
+        if [ "$BUILDER" = railpack ]; then
+          curl -fsSL -o /tmp/railpack.tgz \
+            "https://github.com/railwayapp/railpack/releases/download/v${RAILPACK_VERSION}/railpack-v${RAILPACK_VERSION}-x86_64-unknown-linux-musl.tar.gz"
+          echo "${RAILPACK_SHA256}  /tmp/railpack.tgz" | sha256sum -c -
+          tar -xzf /tmp/railpack.tgz -C /usr/local/bin railpack
+        fi
+  pre_build:
+    commands:
+      - mkdir -p /src && curl -fsSL "$SOURCE_URL" | tar -xz --strip-components=1 -C /src
+      - cd "/src/$ROOT_DIRECTORY"
+      - aws ecr get-login-password | docker login -u AWS --password-stdin "$REGISTRY"
+      - docker buildx create --use --driver docker-container
+      - |
+        if [ "$BUILDER" = railpack ]; then
+          args=()
+          if [ -n "${RAILPACK_BUILD_CMD:-}" ]; then args+=(--build-cmd "$RAILPACK_BUILD_CMD"); fi
+          if [ -n "${RAILPACK_START_CMD:-}" ]; then args+=(--start-cmd "$RAILPACK_START_CMD"); fi
+          railpack prepare . --plan-out /tmp/plan.json "${args[@]}"
+        fi
+  build:
+    commands:
+      - |
+        cd "/src/$ROOT_DIRECTORY"
+        cache="type=registry,ref=$IMAGE_REPO:cache"
+        common=(
+          --platform linux/amd64 --push -t "$IMAGE_REPO:$IMAGE_TAG"
+          --cache-from "$cache"
+          --cache-to "mode=max,image-manifest=true,oci-mediatypes=true,$cache"
+        )
+        if [ "$BUILDER" = railpack ]; then
+          docker buildx build "${common[@]}" \
+            --build-arg "BUILDKIT_SYNTAX=ghcr.io/railwayapp/railpack-frontend:v${RAILPACK_VERSION}" \
+            --build-arg "cache-key=$SERVICE_ID" \
+            -f /tmp/plan.json .
+        else
+          docker buildx build "${common[@]}" -f "$DOCKERFILE_PATH" .
+        fi
