@@ -1,7 +1,12 @@
 locals {
   state_bucket_name = "${var.project}-tfstate-${var.aws_account_id}-${var.aws_region}"
   state_bucket_arn  = "arn:aws:s3:::${local.state_bucket_name}"
-  bootstrap_key     = "bootstrap/aws/terraform.tfstate"
+  deployment_state_keys = [
+    "bootstrap/aws/terraform.tfstate",
+    "aws/dev/foundation/terraform.tfstate",
+    "aws/dev/management/terraform.tfstate",
+    "aws/dev/workload/terraform.tfstate",
+  ]
 }
 
 resource "aws_iam_openid_connect_provider" "github" {
@@ -11,7 +16,7 @@ resource "aws_iam_openid_connect_provider" "github" {
 
 resource "aws_iam_role" "terraform_apply" {
   name        = "${var.project}-${var.environment}-github-terraform"
-  description = "GitHub Actions main-branch deployment of the Terraform state bucket"
+  description = "GitHub Actions main-branch deployment of bootstrap and implemented dev stacks"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -67,16 +72,16 @@ resource "aws_iam_role_policy" "terraform_apply" {
         Resource = local.state_bucket_arn
       },
       {
-        Sid      = "ReadAndWriteBootstrapState"
+        Sid      = "ReadAndWriteDeploymentState"
         Effect   = "Allow"
         Action   = ["s3:GetObject", "s3:PutObject"]
-        Resource = "${local.state_bucket_arn}/${local.bootstrap_key}"
+        Resource = [for key in local.deployment_state_keys : "${local.state_bucket_arn}/${key}"]
       },
       {
-        Sid      = "ManageBootstrapStateLock"
+        Sid      = "ManageDeploymentStateLocks"
         Effect   = "Allow"
         Action   = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"]
-        Resource = "${local.state_bucket_arn}/${local.bootstrap_key}.tflock"
+        Resource = [for key in local.deployment_state_keys : "${local.state_bucket_arn}/${key}.tflock"]
       },
     ]
   })

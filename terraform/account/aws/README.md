@@ -17,10 +17,14 @@ cp backend.hcl.example backend.hcl
 
 저장소 루트에서 관리자 AWS 프로필과 AWS_ACCOUNT_ID를 지정하고
 `make tf-init STACK=account/aws`, `make tf-plan STACK=account/aws`,
-`make tf-apply STACK=account/aws`를 사용합니다. 최초 계획은 3개 생성입니다.
+`make tf-apply STACK=account/aws`를 사용합니다. 최초 계획은 OIDC provider·역할·inline policy 2개로 총 4개 생성입니다.
 이 stack은 배포 인증의 기반이므로 관리자가 로컬에서 적용하고 CI에서는 직접 apply하지 않습니다.
-CI 역할의 현재 권한은 bootstrap 버킷 설정과 해당 state·lock 파일로 제한됩니다.
-후속 VPC·EKS stack을 연결할 때 필요한 권한을 추가합니다.
+CI 역할의 권한은 bootstrap 버킷 설정, 배포 root 4개의 state·lock,
+현재 foundation의 빌드 입력 S3·CodeBuild·로그 그룹·빌드 역할 2개 관리로 제한됩니다.
+CodeBuild에 전달할 수 있는 역할은 빌드용 CodeBuild 역할 하나입니다.
+state와 state 버킷 삭제, account state 접근과 CI 자기 역할·OIDC 변경은 허용하지 않습니다.
+기존 bootstrap 전용 CI에서는 이 stack의 변경된 정책을 관리자가 먼저 적용한 후 배포 코드를 main에 반영합니다.
+후속 VPC·EKS stack을 연결할 때 필요한 권한도 먼저 추가합니다.
 
 bootstrap에서 S3 backend를 준비한 후 backend.hcl을 사용해 init합니다.
 
