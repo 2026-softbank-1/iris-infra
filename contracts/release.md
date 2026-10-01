@@ -1,15 +1,17 @@
 # release
 
-상태: 합의 전 초안.
+상태: 합의됨 (2026-10-02, [ADR 0002](../docs/decisions/0002-gitops-deployment.md)).
 
-차트 원본은 이 저장소에서 관리하고 Chart.yaml version을 올려 OCI 패키지를 배포합니다.
-Worker는 지정한 버전, CLI는 같은 버전을 번들하여 사용합니다. latest를 자동 선택하지 않습니다.
+## chart 전달
 
-배포 기록: source SHA, image reference, chart version, target ID, 비밀값 없는 values snapshot/ref.
-AWS는 image digest를 기록하고 로컬 tag 사용 시 이미지 ID도 기록합니다.
-현재 성공 버전과 시도 중인 버전은 구분하며 상태·이력은 플랫폼 PostgreSQL에서 갱신합니다.
+chart 원본은 이 저장소의 `helm/charts/iris-service` 입니다. `Chart.yaml` version 을 올리면 같은 이름의 Git tag
+`iris-service-<version>` 을 만듭니다. Argo CD ApplicationSet 은 이 tag 를 `targetRevision` 으로 고정해 읽습니다.
+latest·브랜치를 자동 선택하지 않습니다. OCI 패키지는 로컬 CLI 가 필요로 할 때 추가합니다.
 
-ECR 저장소는 helm/iris-service. push 목적지는 `oci://REGISTRY/helm`,
-설치 목적지는 `oci://REGISTRY/helm/iris-service`와 명시한 버전입니다.
+## 배포 기록
 
-TODO: chart 패키지 전달, 배포 상태 전이, 실패·복구 처리와 이력 보존 규칙을 확정합니다.
+배포 이력·상태는 플랫폼 PostgreSQL(iris-was `releases`)이 원본입니다.
+기록: source SHA, image digest, GitOps commit SHA, 이전 정상 release. 비밀값 없는 values 는 GitOps commit 으로 재현합니다.
+현재 성공 버전(lastKnownGood)과 시도 중인 버전을 구분하며, 실패 시 GitOps revert commit 으로 되돌립니다.
+
+TODO: chart version 을 release 마다 기록할지(현재는 ApplicationSet 공통 고정), 이력 보존 기간을 정합니다.

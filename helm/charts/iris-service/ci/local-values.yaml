@@ -1,0 +1,12 @@
+# 로컬 k3d: commit tag 이미지와 Traefik Ingress 입니다. helm-check 가 사용합니다.
+image:
+  repository: demo
+  tag: commit-0000000
+release:
+  id: 1
+health:
+  timeoutSeconds: 120
+route:
+  host: demo.localhost
+  className: traefik
+  groupName: ""

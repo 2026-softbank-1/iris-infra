@@ -8,7 +8,8 @@ Iris 플랫폼의 AWS 자원, Kubernetes 공통 설정, Helm 차트와 운영 �
 `terraform/account/aws`는 GitHub OIDC와 bootstrap 자동 배포 역할을 관리합니다.
 foundation은 VPC·서브넷·IGW·NAT·라우팅·관리→앱 API 접근용 SG를 정의하며, 네트워크 CI 권한은 account에서 관리자가 먼저 적용합니다.
 플랫폼 이미지 3개의 ECR과 서비스별 OIDC publisher 입력, [복사용 GitHub Actions 빌드 템플릿](examples/github-actions/README.md)을 제공합니다. 플랫폼 ECR의 CI 관리 권한도 account에서 먼저 적용합니다.
-EKS, Helm manifest, 팀 IAM과 운영 스크립트의 실제 배포 동작은 아직 구현하지 않았습니다.
+`helm/charts/iris-service`는 사용자 앱 chart로 구현했습니다(배포는 GitOps, [ADR 0002](docs/decisions/0002-gitops-deployment.md)).
+EKS, 팀 IAM과 운영 스크립트의 실제 배포 동작은 아직 구현하지 않았습니다.
 `.scaffold`가 있는 Terraform stack은 팀 명령에서 plan/apply를 차단합니다.
 구현·검증 후 해당 표시를 제거하고 아래 순서로 진행합니다.
 
@@ -21,7 +22,7 @@ terraform/
   environments/aws/dev/
     foundation/                     # VPC, ECR, 공통 workload IAM
     management/                     # 관리 EKS, Pod Identity
-    workload/                       # 앱 EKS, Worker Access Entry
+    workload/                       # 앱 EKS, Argo CD Access Entry
   modules/eks/                      # 두 EKS의 재사용 구성
 helm/charts/
   cluster-baseline/                  # Namespace, RBAC, Quota
@@ -64,7 +65,7 @@ AWS 계정 ID, state 버킷, 리전, EKS·노드 설정, 이미지와 도메인�
 `terraform.tfvars.example`과 `backend.hcl.example`을 각 stack에서 복사하여 로컬 설정을 만듭니다.
 실제 설정·state·plan·Secret은 Git에 올리지 않습니다. 예시의 `000000000000`은 실제 계정 ID로 교체합니다.
 
-구현 순서: **bootstrap → account / foundation → management / workload → baseline·애드온 → 서비스 샘플 → 플랫폼·빌드 연동 → 로컬 CLI → OCI 릴리스**.
+구현 순서: **bootstrap → account / foundation → management / workload → baseline·애드온 → 서비스 샘플 → 플랫폼·빌드 연동 → 로컬 CLI**. chart 는 Git tag 로 릴리스합니다(OCI 는 CLI 필요 시).
 bootstrap은 로컬 state로 S3를 만든 뒤 backend를 활성화하고 state를 이전합니다.
 
 ```bash
@@ -81,7 +82,7 @@ PR에서는 fmt/init/validate와 mock IAM·네트워크 테스트를 실행합�
 main에서는 검증 성공 후 OIDC 인증과 bootstrap → foundation 자동 apply를 실행합니다.
 최초 역할 생성과 GitHub 변수 설정은 [Terraform CI runbook](docs/runbooks/terraform-ci.md)에 있습니다.
 네트워크 입력·경로·후속 출력은 [foundation README](terraform/environments/aws/dev/foundation/README.md)에 있습니다.
-후속 EKS stack과 OCI chart push workflow는 해당 리소스 구현 후 연결합니다.
+후속 EKS stack 배포 workflow는 해당 리소스 구현 후 연결합니다.
 
 ## 문서
 

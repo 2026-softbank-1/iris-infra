@@ -1,0 +1,64 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app
+  labels:
+    {{- include "iris-service.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicas }}
+  # 이 시간 안에 rollout 이 끝나지 않으면 Degraded 가 되고 Deploy Worker 가 실패로 판정합니다.
+  progressDeadlineSeconds: {{ .Values.health.timeoutSeconds }}
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      {{- include "iris-service.selectorLabels" . | nindent 6 }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        {{- include "iris-service.selectorLabels" . | nindent 8 }}
+      annotations:
+        # digest 가 같아도 release 마다 rollout 되게 합니다.
+        iris/release-id: {{ .Values.release.id | quote }}
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: app
+          image: {{ include "iris-service.image" . | quote }}
+          {{- with .Values.command }}
+          # 이미지의 ENTRYPOINT·CMD 를 exec form 으로 덮어씁니다.
+          command:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.containerPort }}
+          # env 가 사용자 변수(envFrom)보다 우선하므로 아래 값은 덮어쓸 수 없습니다.
+          env:
+            - name: PORT
+              value: {{ .Values.containerPort | quote }}
+            - name: IRIS_PUBLIC_DOMAIN
+              value: {{ .Values.route.host | quote }}
+            {{- with .Values.release.sourceSha }}
+            - name: IRIS_GIT_COMMIT_SHA
+              value: {{ . | quote }}
+            {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          readinessProbe:
+            {{- if .Values.health.path }}
+            httpGet:
+              path: {{ .Values.health.path | quote }}
+              port: http
+              httpHeaders:
+                - name: Host
+                  value: {{ .Values.route.host | quote }}
+            {{- else }}
+            tcpSocket:
+              port: http
+            {{- end }}
+            periodSeconds: 5

@@ -1,2 +1,24 @@
-# TODO: 구현 시 기본값을 정의합니다. 실제 Secret 값은 기록하지 않습니다.
-{}
+# 공통 기본값입니다. 배포마다 달라지는 값(image, release, command, health.path, route.host)은
+# Deploy Worker 가 GitOps 저장소의 services/{service_id}/prod/values.yaml 로 넘깁니다.
+# 실제 Secret 값은 기록하지 않습니다.
+replicas: 1
+containerPort: 8080
+health:
+  timeoutSeconds: 300
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: "1"
+    memory: 512Mi
+service:
+  port: 80
+route:
+  className: alb
+  # 같은 group 의 Ingress 는 ALB 하나와 listener 규칙을 공유합니다.
+  groupName: iris-services
+networkPolicy:
+  # ALB(target-type ip)는 Pod IP 로 직접 보냅니다. ALB 서브넷 CIDR 을 넣으면 그 외 ingress 를 막습니다.
+  # 비어 있으면 NetworkPolicy 를 만들지 않습니다. VPC 구현 후 타겟 값으로 채웁니다.
+  allowedCidrs: []

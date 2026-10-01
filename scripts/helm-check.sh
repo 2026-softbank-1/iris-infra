@@ -2,18 +2,14 @@
 source "$(dirname "$0")/common.sh"
 require_command helm
 
-printf '%s\n' '현재 charts는 빈 scaffold입니다. 형식 검증만 수행하며 배포 동작은 검증하지 않습니다.'
-for name in cluster-baseline iris-platform iris-service; do
+printf '%s\n' 'cluster-baseline·iris-platform 은 빈 scaffold 라 형식만 검증합니다.'
+for name in cluster-baseline iris-platform; do
   helm lint --strict "$REPO_ROOT/helm/charts/$name"
 done
-for target in aws local; do
-  if [[ "$target" == aws ]]; then
-    defaults="$REPO_ROOT/clusters/aws-dev-workload/values/service-defaults.yaml"
-  else
-    defaults="$REPO_ROOT/clusters/local-workload/values/service-defaults.yaml"
-  fi
-  chart="$REPO_ROOT/helm/charts/iris-service"
-  sample="$REPO_ROOT/examples/$target-service-values.yaml"
-  helm lint --strict "$chart" -f "$defaults" -f "$sample"
-  helm template demo "$chart" -f "$defaults" -f "$sample" >/dev/null
+
+# iris-service 는 chart 의 ci/ values(Deploy Worker 출력과 같은 모양)로 schema·render 를 검증합니다.
+chart="$REPO_ROOT/helm/charts/iris-service"
+for values in "$chart"/ci/*.yaml; do
+  helm lint --strict "$chart" -f "$values"
+  helm template demo "$chart" -f "$values" >/dev/null
 done
