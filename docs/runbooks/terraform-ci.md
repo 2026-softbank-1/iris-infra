@@ -2,7 +2,7 @@
 
 `.github/workflows/terraform-check.yml`이 전체 흐름을 관리합니다.
 
-- PR: scaffold, CI 실행 순서 테스트, fmt, backend 없는 init/validate, mock IAM·foundation 네트워크·플랫폼 ECR 테스트를 수행합니다. AWS 자원은 변경하지 않습니다.
+- PR: scaffold, CI 실행 순서·ECR 빌드 스크립트 테스트, actionlint·ShellCheck, scratch 이미지 빌드, fmt, backend 없는 init/validate, mock IAM·foundation 네트워크·플랫폼 ECR 테스트를 수행합니다. AWS 자원은 변경하지 않습니다.
 - main push(머지 포함): 검증 성공 후 GitHub OIDC로 AWS 인증하고 구현된 stack을 순서대로 init → plan → apply합니다. 각 stack은 저장한 plan을 그대로 적용합니다.
 - Actions의 Run workflow: main을 선택하면 같은 검증·배포를 실행합니다. 다른 브랜치에서는 검증만 실행합니다.
 
@@ -80,7 +80,9 @@ account에 입력·적용하고 `github_ecr_publisher_role_arns`를 GitHub 변�
 복사 경로·입력 예시·main 업로드 조건은 [서비스 빌드 템플릿](../../examples/github-actions/README.md)에 있습니다.
 정적 web 배포와 EKS에서의 digest 이미지 배포는 후속 작업입니다.
 
-`platform-ecr-check.yml`은 AWS 인증 없이 inventory, actionlint, ShellCheck, fake 도구 테스트와 scratch 빌드를 수행합니다.
+`terraform-check.yml`의 `check` job이 AWS 인증 없이 inventory, actionlint, ShellCheck, fake 도구 테스트와 scratch 빌드를 수행합니다.
+검사 제한 시간은 30분이며 ECR 검사나 도구 설치·Docker 빌드가 실패해도 `deploy`는 실행되지 않습니다.
+AWS OIDC 인증 권한은 `deploy`에만 부여합니다. GitHub 필수 검사 설정에는 통합된 `check`를 사용합니다.
 실제 AWS의 push/pull·스캔 결과는 별도 승인된 운영 검증으로 확인합니다.
 
 ## 기존 bootstrap 전용 CI 확장
