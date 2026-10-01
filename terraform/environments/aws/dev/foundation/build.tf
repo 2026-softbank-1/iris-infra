@@ -147,7 +147,7 @@ resource "aws_codebuild_project" "build" {
   environment {
     type         = "LINUX_CONTAINER"
     compute_type = "BUILD_GENERAL1_MEDIUM"
-    # TODO: Railpack CLI 를 넣은 커스텀 이미지(iris/build-images/railpack)로 바꾼다. 지금은 Dockerfile 빌드만 된다.
+    # 표준 이미지(docker·buildx 포함, 호스트 캐시)를 쓰고 Railpack CLI 는 buildspec install 단계에서 받는다.
     image                       = "aws/codebuild/amazonlinux-x86_64-standard:5.0"
     image_pull_credentials_type = "CODEBUILD"
     privileged_mode             = true

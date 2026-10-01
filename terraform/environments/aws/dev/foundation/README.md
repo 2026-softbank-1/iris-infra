@@ -3,9 +3,9 @@
 상태: 빌드 자원만 구현했습니다(`build.tf`).
 
 - 구현: 소스 스냅샷 S3(SSE-S3, 1일 만료), CodeBuild `iris-dev-build`(privileged, MEDIUM, 15분), CodeBuild 서비스 역할(`iris/services/*` ECR push), Build Worker 역할(Pod Identity 용).
-- `buildspec.yml` 은 iris-was Build Worker 가 넘기는 환경변수와 짝을 이룹니다. 바꿀 때 두 저장소를 함께 봅니다.
+- `buildspec.yml` 은 iris-was Build Worker 가 넘기는 환경변수와 짝을 이룹니다. 바꿀 때 두 저장소를 함께 봅니다. Railpack CLI 는 install 단계에서 고정 버전·체크섬으로 받습니다.
 - 서비스별 ECR 저장소(`iris/services/{service_id}`)는 Build Worker 가 만듭니다.
-- 남은 일: VPC, subnet, routing, 공통 접근용 security group, helm/iris-service OCI 저장소, Deployer Worker IAM 역할, Railpack 커스텀 빌드 이미지.
+- 남은 일: VPC, subnet, routing, 공통 접근용 security group, helm/iris-service OCI 저장소, Deployer Worker IAM 역할.
 
 독립 root module이며 state key는 `aws/dev/foundation/terraform.tfstate`입니다.
 기본 입력은 `variables.tf`에 있습니다. 필요한 네트워크·노드·IAM 입력과 출력은 구현 시 추가합니다.
