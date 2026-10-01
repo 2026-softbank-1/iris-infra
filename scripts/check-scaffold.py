@@ -3,6 +3,7 @@
 import json
 from pathlib import Path
 import subprocess
+import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -49,6 +50,8 @@ def main():
             raise SystemExit(f"Expected an object schema: {schema}")
     for script in (ROOT / "scripts").glob("*.sh"):
         subprocess.run(["bash", "-n", str(script)], check=True)
+    subprocess.run([sys.executable, str(ROOT / "scripts/check-platform-ecr.py")], check=True)
+    subprocess.run(["bash", "-n", str(ROOT / "examples/github-actions/build-push-ecr.sh")], check=True)
     print("Scaffold files, JSON schemas and shell syntax: OK")
 
 

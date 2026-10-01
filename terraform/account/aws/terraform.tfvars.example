@@ -3,3 +3,7 @@ aws_region     = "ap-northeast-2"
 project        = "iris"
 environment    = "dev"
 github_oidc_subject_prefix = "repo:2026-softbank-1@334759803/iris-infra@1397906876"
+
+# 서비스 저장소의 실제 OIDC subject를 확인한 뒤 설정합니다.
+# 매핑 예시: examples/github-actions/README.md (저장소 루트 기준)
+github_ecr_publishers = {}

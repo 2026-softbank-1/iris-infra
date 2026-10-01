@@ -1,11 +1,11 @@
 # AWS 계정 공통 IAM
 
-GitHub OIDC provider와 main 브랜치의 Terraform 자동 apply 역할·정책을 관리합니다.
+GitHub OIDC provider와 main 브랜치의 Terraform 자동 apply 역할·정책, 선택적인 서비스 이미지 publisher 역할을 관리합니다.
 팀 IAM 그룹·사용자 정책은 아직 구현하지 않았습니다. 기존 IAM 자원은 import하고 관리자 비밀번호는 별도로 관리합니다.
 GitHub OIDC provider가 이미 있다면 새로 생성하지 않고 import해야 합니다.
 
 독립 root module이며 state key는 `account/aws/terraform.tfstate`입니다.
-기본 입력은 `variables.tf`에 있습니다. GitHub OIDC subject prefix는 API에서 조회한 값을 사용합니다.
+기본 입력은 `variables.tf`와 `ecr-platform.tf`에 있습니다. GitHub OIDC subject prefix는 API에서 조회한 값을 사용합니다.
 역할 ARN은 `terraform_apply_role_arn`으로 출력합니다.
 
 ```bash
@@ -17,15 +17,31 @@ cp backend.hcl.example backend.hcl
 
 저장소 루트에서 관리자 AWS 프로필과 AWS_ACCOUNT_ID를 지정하고
 `make tf-init STACK=account/aws`, `make tf-plan STACK=account/aws`,
-`make tf-apply STACK=account/aws`를 사용합니다. OIDC provider·역할·inline policy 2개에 더해
+`make tf-apply STACK=account/aws`를 사용합니다. OIDC provider·CI 역할·inline policy 3개에 더해
 네트워크 관리형 정책과 기존 역할에 대한 attachment를 관리합니다.
 이 stack은 배포 인증의 기반이므로 관리자가 로컬에서 적용하고 CI에서는 직접 apply하지 않습니다.
 CI 역할의 권한은 bootstrap 버킷 설정, 배포 root 4개의 state·lock,
-현재 foundation의 빌드 입력 S3·CodeBuild·로그 그룹·빌드 역할 2개 및 태그로 제한된 네트워크 관리로 구성됩니다.
+현재 foundation의 빌드 입력 S3·CodeBuild·로그 그룹·빌드 역할 2개, 태그로 제한된 네트워크 관리와 플랫폼 ECR 관리로 구성됩니다.
 CodeBuild에 전달할 수 있는 역할은 빌드용 CodeBuild 역할 하나입니다.
 state와 state 버킷 삭제, account state 접근과 CI 자기 역할·OIDC 변경은 허용하지 않습니다.
 기존 bootstrap 전용 CI에서는 이 stack의 변경된 정책을 관리자가 먼저 적용한 후 배포 코드를 main에 반영합니다.
 네트워크 코드의 main 반영 전에 아래 관리형 정책을 먼저 적용합니다. 후속 EKS 권한도 먼저 추가해야 합니다.
+
+## 플랫폼 ECR과 서비스 publisher
+
+`ecr-platform.tf`의 `platform-ecr-resources` inline 정책은 공통 inventory
+`terraform/config/platform-ecr-repositories.json`의 플랫폼 저장소 3개만 관리합니다.
+기존 state·빌드 정책과 Terraform 주소를 유지하며 이미지 push 권한은 추가하지 않습니다.
+ECR 코드의 main 반영 전에 관리자가 이 정책을 적용해야 합니다.
+
+`github_ecr_publishers` 기본값은 `{}`입니다. 실제 서비스 저장소의 OIDC subject prefix와
+허용할 ECR 이름을 입력하면 서비스별 역할·push 정책을 생성합니다. 각 역할은 정확한 저장소의
+main ref와 STS audience를 요구하며 지정된 플랫폼 ECR만 읽기·push할 수 있습니다.
+ECR 인증 token만 지정 리전의 `Resource="*"` 예외를 사용합니다.
+publisher에는 Terraform state·IAM 변경·저장소 생성·`iris/services/*` 권한이 없습니다.
+역할 ARN은 `github_ecr_publisher_role_arns`로 출력합니다.
+
+입력과 복사용 workflow는 [서비스 빌드 템플릿](../../../examples/github-actions/README.md)을 참고합니다.
 
 ## 네트워크 CI 권한
 
