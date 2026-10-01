@@ -1,0 +1,5 @@
+apiVersion: v2
+name: cluster-baseline
+description: "Iris scaffold: 고정 Namespace, ServiceAccount, RBAC, ResourceQuota, LimitRange와 검증된 NetworkPolicy"
+type: application
+version: 0.1.0

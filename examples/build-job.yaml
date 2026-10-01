@@ -1,0 +1,4 @@
+# TODO: contracts/build.md 합의 후 실행 가능한 검증용 Job을 추가합니다.
+# 실제 Job 생성은 백엔드 책임입니다. 현재 파일은 Kubernetes manifest가 아닙니다.
+# 고정 commit SHA, 전용 SA, 이미지 버전, resources, deadline, ECR push 설정이 필요합니다.
+{}

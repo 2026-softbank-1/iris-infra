@@ -42,3 +42,22 @@ terraform.rc
 # Optional: ignore plan files saved before destroying Terraform configuration
 # Uncomment the line below if you want to ignore planout files.
 # planout
+# Local backend configuration and saved plans
+backend.hcl
+*.tfplan
+tfplan
+*.tflock
+
+# Generated target data, packaged charts, local credentials and configuration
+.generated/
+dist/
+*.tgz
+.env
+.env.*
+!.env.example
+*.kubeconfig
+kubeconfig
+local/k3d.yaml
+.DS_Store
+
+# Commit .terraform.lock.hcl for each root after the first init.

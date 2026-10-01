@@ -1,0 +1,5 @@
+apiVersion: v2
+name: iris-platform
+description: "Iris scaffold: Control API, Deployer Worker, Agent, 플랫폼 PostgreSQL·PVC와 Secret 참조"
+type: application
+version: 0.1.0

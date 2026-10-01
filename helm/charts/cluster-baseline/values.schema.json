@@ -1,0 +1,6 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "cluster-baseline values (scaffold)",
+  "description": "구현 및 백엔드 합의 시 properties/required/제한을 추가합니다. 현재는 객체 형식만 검증합니다.",
+  "type": "object"
+}

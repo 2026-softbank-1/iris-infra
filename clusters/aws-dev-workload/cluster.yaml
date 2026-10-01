@@ -1,0 +1,8 @@
+# 프로젝트용 타겟 정의 초안입니다. Kubernetes manifest가 아닙니다.
+id: aws-dev-workload
+purpose: workload
+provider: aws
+region: ap-northeast-2
+terraformPath: terraform/environments/aws/dev/workload
+kubeContext: iris-dev-workload
+# 실제 클러스터 이름·endpoint·CA는 구현 후 Terraform 출력에서 전달합니다.

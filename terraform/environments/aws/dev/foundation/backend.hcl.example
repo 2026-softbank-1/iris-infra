@@ -1,0 +1,7 @@
+# 로컬 backend.hcl로 복사한 뒤 실제 버킷명과 계정을 입력합니다.
+bucket              = "iris-tfstate-000000000000-ap-northeast-2"
+key                 = "aws/dev/foundation/terraform.tfstate"
+region              = "ap-northeast-2"
+encrypt             = true
+use_lockfile        = true
+allowed_account_ids = ["000000000000"]
