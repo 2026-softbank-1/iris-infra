@@ -2,3 +2,11 @@ aws_account_id = "000000000000"
 aws_region     = "ap-northeast-2"
 project        = "iris"
 environment    = "dev"
+
+# CI도 variables.tf의 동일한 기본값을 사용합니다. example은 자동 로드되지 않습니다.
+# 다른 값을 사용할 때 main 배포 workflow의 TF_VAR 입력도 함께 맞추세요.
+vpc_cidr                = "10.40.0.0/16"
+availability_zones      = ["ap-northeast-2a", "ap-northeast-2c"]
+nat_gateway_mode        = "single"
+management_cluster_name = "iris-dev-management"
+workload_cluster_name   = "iris-dev-workload"

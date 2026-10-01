@@ -1,4 +1,8 @@
-mock_provider "aws" {}
+mock_provider "aws" {
+  mock_resource "aws_iam_policy" {
+    defaults = { arn = "arn:aws:iam::123456789012:policy/iris-dev-foundation-network" }
+  }
+}
 
 variables {
   aws_account_id             = "123456789012"
