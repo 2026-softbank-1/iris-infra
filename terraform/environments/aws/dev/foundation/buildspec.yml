@@ -2,8 +2,8 @@
 # iris-was Build Worker(app/services/build_service.py)가 StartBuild 환경변수로 넘기는 값:
 #   SOURCE_URL ROOT_DIRECTORY BUILDER DOCKERFILE_PATH REGISTRY IMAGE_REPO IMAGE_TAG
 #   SERVICE_ID, railpack 이면 RAILPACK_BUILD_CMD·RAILPACK_START_CMD(선택)
-# Worker 는 실패 단계로 원인을 나눈다: install 은 인프라 오류(재시도),
-# pre_build 는 BUILD_CONFIG_REQUIRED, build 는 BUILD_FAILED.
+# Worker 는 실패 단계로 원인을 나눈다. 플랫폼 준비(install)는 인프라 오류로 재시도하고,
+# 사용자 소스가 처음 해석되는 pre_build 는 BUILD_CONFIG_REQUIRED, build 는 BUILD_FAILED 다.
 version: 0.2
 
 env:
@@ -25,12 +25,12 @@ phases:
           echo "${RAILPACK_SHA256}  /tmp/railpack.tgz" | sha256sum -c -
           tar -xzf /tmp/railpack.tgz -C /usr/local/bin railpack
         fi
-  pre_build:
-    commands:
       - mkdir -p /src && curl -fsSL "$SOURCE_URL" | tar -xz --strip-components=1 -C /src
-      - cd "/src/$ROOT_DIRECTORY"
       - aws ecr get-login-password | docker login -u AWS --password-stdin "$REGISTRY"
       - docker buildx create --use --driver docker-container
+  pre_build:
+    commands:
+      - cd "/src/$ROOT_DIRECTORY"
       - |
         if [ "$BUILDER" = railpack ]; then
           args=()
