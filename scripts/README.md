@@ -12,7 +12,7 @@
 - `check-platform-ecr.py`: 플랫폼 ECR inventory의 형식·중복·이름 경계를 검사합니다. `make scaffold-check`에서도 실행합니다.
 - `tests/test-platform-ecr.py`, `tests/test-build-push-ecr.py`: inventory 오류와 fake AWS/Docker로 PR 빌드·main push, 계정 확인, 재시도 태그, digest·실패 처리를 검사합니다. `IRIS_ECR_DOCKER_TEST=1`은 Docker daemon으로 scratch fixture를 실제 빌드합니다.
 - account/foundation의 `tests/ecr-platform.tftest.hcl`: main OIDC·서비스별 ECR 권한, immutable·보존 정책과 기존 `iris/services/*` 경계를 mock으로 검사합니다.
-- [서비스 빌드 템플릿](../examples/github-actions/README.md): 서비스 저장소에 복사할 workflow·Bash script와 GitHub 변수 설정입니다. 별도의 `platform-ecr-check.yml`이 lint·스크립트 검사·scratch 빌드를 수행합니다.
+- [서비스 빌드 템플릿](../examples/github-actions/README.md): 서비스 저장소에 복사할 workflow·Bash script와 GitHub 변수 설정입니다. 기존 `terraform-check.yml`의 `check` job이 lint·스크립트 검사·scratch 빌드를 함께 수행하며 전부 통과해야 main 배포가 진행됩니다.
 - `bootstrap-cluster.sh`, `smoke-test.sh`, `export-targets.sh`: 현재 미구현이며 종료 코드 1을 반환합니다.
 
 구현 후 bootstrap/smoke-test는 선택한 cluster.yaml의 kube-context, AWS 계정과 대상 클러스터를 확인해야 합니다.

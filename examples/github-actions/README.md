@@ -96,7 +96,7 @@ bash scripts/build-push-ecr.sh build
 ## 검증과 보존
 
 이 인프라 저장소에서는 다음 검사로 inventory와 템플릿을 검증합니다.
-`.github/workflows/platform-ecr-check.yml`은 해당 파일 변경 시 같은 검사와 로컬 scratch 이미지 빌드를 수행합니다. 이 검사 workflow는 AWS 인증 권한이 없습니다. Terraform mock 테스트는 기존 Terraform CI가 발견하여 실행합니다.
+`.github/workflows/terraform-check.yml`의 `check` job은 같은 검사와 로컬 scratch 이미지 빌드, Terraform mock 테스트를 함께 수행합니다. 이 job은 AWS 인증 권한이 없으며 모든 검사가 통과해야 main의 `deploy` job이 진행됩니다. 서비스 저장소에서 사용할 위 빌드·push workflow는 별도로 복사합니다.
 
 ```bash
 python3 scripts/check-platform-ecr.py
@@ -104,7 +104,7 @@ python3 scripts/tests/test-platform-ecr.py
 python3 scripts/tests/test-build-push-ecr.py
 bash -n examples/github-actions/build-push-ecr.sh
 shellcheck examples/github-actions/build-push-ecr.sh
-actionlint examples/github-actions/build-push-ecr.yml
+actionlint .github/workflows/terraform-check.yml examples/github-actions/build-push-ecr.yml
 ```
 
 Terraform mock 테스트와 fake 명령 테스트는 AWS를 변경하지 않습니다. 실제 Docker fixture 빌드에는 Docker daemon이 필요하며, 실제 AWS 인증과 push/pull은 별도 운영 검증입니다.
