@@ -1,4 +1,4 @@
-name: Terraform check
+name: Terraform CI and deploy
 
 on:
   pull_request:
@@ -9,16 +9,85 @@ on:
 permissions:
   contents: read
 
+env:
+  TF_IN_AUTOMATION: "true"
+  TF_INPUT: "false"
+
 jobs:
   check:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    concurrency:
+      group: terraform-check-${{ github.ref }}
+      cancel-in-progress: true
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Read Terraform version
+        id: terraform-version
+        shell: bash
+        run: |
+          version="$(tr -d '[:space:]' < .terraform-version)"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
       - uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: 1.16.4
+          terraform_version: ${{ steps.terraform-version.outputs.version }}
           terraform_wrapper: false
       - name: Scaffold checks
         run: make scaffold-check
       - name: Format, init without backend, and validate
         run: make tf-check
+      - name: Test GitHub role trust and permissions
+        run: terraform -chdir=terraform/account/aws test
+
+  deploy:
+    name: Apply bootstrap on main
+    needs: check
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    concurrency:
+      group: terraform-apply-bootstrap-aws
+      cancel-in-progress: false
+    env:
+      AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+      AWS_REGION: ${{ vars.AWS_REGION || 'ap-northeast-2' }}
+      TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+      AWS_ROLE_ARN: ${{ vars.TERRAFORM_APPLY_ROLE_ARN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Check deployment configuration
+        shell: bash
+        run: |
+          [[ "$AWS_ACCOUNT_ID" =~ ^[0-9]{12}$ && "$AWS_ACCOUNT_ID" != 000000000000 ]]
+          [[ -n "$AWS_REGION" && -n "$TF_STATE_BUCKET" ]]
+          [[ "$AWS_ROLE_ARN" == "arn:aws:iam::$AWS_ACCOUNT_ID:role/"* ]]
+      - name: Read Terraform version
+        id: terraform-version
+        shell: bash
+        run: |
+          version="$(tr -d '[:space:]' < .terraform-version)"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ steps.terraform-version.outputs.version }}
+          terraform_wrapper: false
+      - name: Authenticate to AWS with GitHub OIDC
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          role-session-name: iris-terraform-${{ github.run_id }}
+          aws-region: ${{ env.AWS_REGION }}
+          allowed-account-ids: ${{ env.AWS_ACCOUNT_ID }}
+      - name: Initialize S3 state, plan, and apply
+        run: bash scripts/tf-ci.sh apply

@@ -1,2 +1,4 @@
-# TODO: 후속 stack에 전달할 비밀값이 아닌 출력만 정의합니다.
-# 계정 자격 증명, kubeconfig와 환경변수 실제 값은 출력하지 않습니다.
+output "terraform_apply_role_arn" {
+  description = "GitHub repository variable TERRAFORM_APPLY_ROLE_ARN에 설정할 역할 ARN."
+  value       = aws_iam_role.terraform_apply.arn
+}

@@ -25,3 +25,13 @@ variable "environment" {
   type        = string
   default     = "dev"
 }
+
+variable "github_oidc_subject_prefix" {
+  description = "GitHub API actions/oidc/customization/sub의 sub_claim_prefix. main 브랜치만 신뢰합니다."
+  type        = string
+
+  validation {
+    condition     = can(regex("^repo:[A-Za-z0-9_.-]+(@[0-9]+)?/[A-Za-z0-9_.-]+(@[0-9]+)?$", var.github_oidc_subject_prefix))
+    error_message = "repo:OWNER/REPO 또는 repo:OWNER@ID/REPO@ID 형식의 subject prefix가 필요합니다."
+  }
+}

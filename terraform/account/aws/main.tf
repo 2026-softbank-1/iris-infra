@@ -1,2 +1,83 @@
-# TODO: 팀 IAM 그룹·정책, GitHub OIDC provider, repo·브랜치 claim을 제한하는 CI 역할. 기존 IAM 자원은 import하고 관리자 비밀번호는 별도로 관리합니다.
-# 현재는 리소스를 선언하지 않은 scaffold입니다.
+locals {
+  state_bucket_name = "${var.project}-tfstate-${var.aws_account_id}-${var.aws_region}"
+  state_bucket_arn  = "arn:aws:s3:::${local.state_bucket_name}"
+  bootstrap_key     = "bootstrap/aws/terraform.tfstate"
+}
+
+resource "aws_iam_openid_connect_provider" "github" {
+  url            = "https://token.actions.githubusercontent.com"
+  client_id_list = ["sts.amazonaws.com"]
+}
+
+resource "aws_iam_role" "terraform_apply" {
+  name        = "${var.project}-${var.environment}-github-terraform"
+  description = "GitHub Actions main-branch deployment of the Terraform state bucket"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Action = "sts:AssumeRoleWithWebIdentity"
+      Principal = {
+        Federated = aws_iam_openid_connect_provider.github.arn
+      }
+      Condition = {
+        StringEquals = {
+          "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
+          "token.actions.githubusercontent.com:sub" = "${var.github_oidc_subject_prefix}:ref:refs/heads/main"
+        }
+      }
+    }]
+  })
+}
+
+resource "aws_iam_role_policy" "terraform_apply" {
+  name = "bootstrap-state-bucket"
+  role = aws_iam_role.terraform_apply.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "ReadBucketConfiguration"
+        Effect = "Allow"
+        Action = [
+          "s3:ListBucket",
+          "s3:GetBucket*",
+          "s3:GetAccelerateConfiguration",
+          "s3:GetEncryptionConfiguration",
+          "s3:GetLifecycleConfiguration",
+          "s3:GetReplicationConfiguration",
+          "s3:ListTagsForResource",
+        ]
+        Resource = local.state_bucket_arn
+      },
+      {
+        Sid    = "ManageBootstrapBucket"
+        Effect = "Allow"
+        Action = [
+          "s3:CreateBucket",
+          "s3:PutBucketVersioning",
+          "s3:PutEncryptionConfiguration",
+          "s3:PutBucketPublicAccessBlock",
+          "s3:PutBucketTagging",
+          "s3:TagResource",
+          "s3:UntagResource",
+        ]
+        Resource = local.state_bucket_arn
+      },
+      {
+        Sid      = "ReadAndWriteBootstrapState"
+        Effect   = "Allow"
+        Action   = ["s3:GetObject", "s3:PutObject"]
+        Resource = "${local.state_bucket_arn}/${local.bootstrap_key}"
+      },
+      {
+        Sid      = "ManageBootstrapStateLock"
+        Effect   = "Allow"
+        Action   = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"]
+        Resource = "${local.state_bucket_arn}/${local.bootstrap_key}.tflock"
+      },
+    ]
+  })
+}
