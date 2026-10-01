@@ -1,0 +1,21 @@
+# 합의 전 예시. 이미지·host·Secret 참조는 실제 값으로 교체합니다.
+image:
+  repository: 000000000000.dkr.ecr.ap-northeast-2.amazonaws.com/apps/demo
+  digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+containerPort: 3000
+service:
+  port: 80
+envSecretName: app-demo-env
+health:
+  path: /health
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+ingress:
+  enabled: true
+  className: alb
+  host: demo.apps.example.com

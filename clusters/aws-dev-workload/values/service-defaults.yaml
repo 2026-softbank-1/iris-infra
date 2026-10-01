@@ -1,0 +1,4 @@
+# iris-service와 백엔드에서 합의할 타겟 기본값 초안입니다.
+ingress:
+  enabled: false
+  className: alb
