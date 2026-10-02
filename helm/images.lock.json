@@ -15,6 +15,8 @@
     "registry.k8s.io/kube-state-metrics/kube-state-metrics:v2.20.0": "sha256:42cfe3723a5f058171c627537fb57a3ea0f26e4380fa18555a95cb1a1b4cfc5b",
     "public.ecr.aws/eks/aws-load-balancer-controller:v3.5.0": "sha256:298acdff5a571731276aaea3d5cc450a264e4ad710a5bddf3e518f68a3f9f6cb",
     "registry.k8s.io/metrics-server/metrics-server:v0.9.0": "sha256:d9862115e7c7881280d3d75ca26bda8ffc0fc213315979575bf23ce9826205c0",
+    "docker.io/otel/opentelemetry-collector-contrib:0.161.0": "sha256:fd328de2552466ad78385e1b1289c3f2402b1c45f265b252aab1955b42845ac1",
+    "docker.io/grafana/loki:3.6.12": "sha256:2483b71b28b15dee230f85512cae2b20c4b5f6e98a6eabe686cbccfa5ea3ba4a",
     "public.ecr.aws/aws-cli/aws-cli:2.37.7": "sha256:95f8d1e6d31aaa16997d1406eb532b0ca6a9830fe8a859c37a0fd223f10959e5",
     "docker.io/library/python:3.12-alpine": "sha256:4c47124a8391cb7a9f571164147d154777cf012a4ece5f86097130d7a4478111"
   },

@@ -1,4 +1,6 @@
-{{- $addons := dict "aws-load-balancer-controller" (dict "repo" "https://aws.github.io/eks-charts" "version" "3.5.0" "ns" "kube-system") "metrics-server" (dict "repo" "https://kubernetes-sigs.github.io/metrics-server/" "version" "3.14.0" "ns" "kube-system") "kube-prometheus-stack" (dict "repo" "https://prometheus-community.github.io/helm-charts" "version" "91.8.2" "ns" "observability") }}
+{{- $addons := dict "aws-load-balancer-controller" (dict "repo" "https://aws.github.io/eks-charts" "version" "3.5.0" "ns" "kube-system") "metrics-server" (dict "repo" "https://kubernetes-sigs.github.io/metrics-server/" "version" "3.14.0" "ns" "kube-system") "kube-prometheus-stack" (dict "repo" "https://prometheus-community.github.io/helm-charts" "version" "91.8.2" "ns" "observability") "opentelemetry-collector" (dict "repo" "https://open-telemetry.github.io/opentelemetry-helm-charts" "version" "0.175.0" "ns" "observability") "loki" (dict "repo" "https://grafana.github.io/helm-charts" "version" "7.3.0" "ns" "observability") }}
+{{- /* Logs and user metrics are received (OTel gateway) and stored (Loki) in management only. */}}
+{{- $enabled := dict "management" (list "aws-load-balancer-controller" "metrics-server" "kube-prometheus-stack" "opentelemetry-collector" "loki") "workload" (list "aws-load-balancer-controller" "metrics-server" "kube-prometheus-stack") }}
 {{- range $purpose, $target := .Values.targets }}
 apiVersion: argoproj.io/v1alpha1
 kind: Application
@@ -24,7 +26,8 @@ spec:
     automated: {prune: false, selfHeal: true}
     syncOptions: [CreateNamespace=true, ServerSideApply=true]
 ---
-{{- range $name, $addon := $addons }}
+{{- range $name := index $enabled $purpose }}
+{{- $addon := index $addons $name }}
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:

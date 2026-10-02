@@ -283,7 +283,9 @@ def bootstrap():
         {'apiVersion':'argoproj.io/v1alpha1','kind':'AppProject','metadata':{'name':'iris-root','namespace':'argocd'},'spec':{'sourceRepos':[repo_url],'destinations':[{'server':management['endpoint'],'namespace':'argocd'}],'clusterResourceWhitelist':[],'namespaceResourceWhitelist':[{'group':'argoproj.io','kind':'Application'},{'group':'argoproj.io','kind':'AppProject'},{'group':'argoproj.io','kind':'ApplicationSet'}]}},
         {'apiVersion':'argoproj.io/v1alpha1','kind':'Application','metadata':{'name':'iris-addons','namespace':'argocd'},'spec':{'project':'iris-root','source':{'repoURL':repo_url,'targetRevision':sha,'path':'helm/gitops','helm':{'valuesObject':values}},'destination':{'server':management['endpoint'],'namespace':'argocd'},'syncPolicy':{'automated':{'prune':False,'selfHeal':True},'syncOptions':['ServerSideApply=true']}}}]
     apply(management,objects)
-    names=['iris-addons']+[f'iris-{p}-{a}' for p in targets for a in ('baseline','aws-load-balancer-controller','metrics-server','kube-prometheus-stack')]
+    addons=('baseline','aws-load-balancer-controller','metrics-server','kube-prometheus-stack')
+    # Logs and user metrics are received and stored in management only (helm/gitops applications.yaml).
+    names=['iris-addons']+[f'iris-{p}-{a}' for p in targets for a in addons+(('opentelemetry-collector','loki') if p=='management' else ())]
     def synced():
         apps=json.loads(kubectl(management,'get','applications','-n','argocd','-o','json'))['items']
         statuses={a['metadata']['name']:a.get('status',{}) for a in apps}
@@ -293,7 +295,7 @@ def bootstrap():
         return addons_healthy and root_ready and (not platform_enabled or 'iris-platform' in statuses)
     wait_for(synced,'Addon sync/health timeout; inspect Applications without exposing repository Secrets.',1800)
     if platform_enabled:
-        print('Root is Synced; eight addons are Synced/Healthy; iris-platform Application exists. Platform requires a manual full sync; deployment and ECR pull are not verified.')
+        print('Root is Synced; all addons are Synced/Healthy; iris-platform Application exists. Platform requires a manual full sync; deployment and ECR pull are not verified.')
     else:
         print('ArgoCD and eight addon Applications are Synced/Healthy. Platform ECR pull: not verified.')
 
