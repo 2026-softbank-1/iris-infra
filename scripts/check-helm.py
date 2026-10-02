@@ -153,7 +153,7 @@ def check_platform(directory, targets, bootstrap):
     agent=directory/'error-check-agent.yaml'; agent.write_text(json.dumps({'errorAgent':{'image':{'digest':digest}}}))
     command('lint','--strict',chart,'-f',cluster,'-f',only_api,'--kube-version',VERSIONS['kubernetes']+'.0','--namespace','iris-platform')
     docs=[x for x in yaml.safe_load_all(command('template','iris-platform',chart,'-f',cluster,'-f',only_api,'-f',agent,'--kube-version',VERSIONS['kubernetes']+'.0','--namespace','iris-platform')) if x]
-    assert {d['metadata']['name'] for d in docs if d['kind'] in {'Deployment','Job','Ingress'}}=={'iris-platform-api','iris-platform-migration'}, 'Only components with a digest deploy; the agent also needs enabled.'
+    assert {d['metadata']['name'] for d in docs if d['kind'] in {'Deployment','Job','Ingress'}}=={'iris-platform-api','iris-platform-migration','iris-platform-error-agent'}, 'Only components with a digest deploy.'
     enabled=directory/'gitops-platform.json';enabled.write_text(json.dumps({'revision':'a'*40,'targets':targets,'platform':{'enabled':True}}))
     docs=render(ROOT/'helm/gitops', enabled, namespace='argocd')
     assert sum(d['kind']=='Application' for d in docs)==12 and sum(d['kind']=='AppProject' for d in docs)==4

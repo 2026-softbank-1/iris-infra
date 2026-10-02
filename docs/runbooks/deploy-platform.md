@@ -7,7 +7,7 @@
 ## 배포 전 입력과 선행 조건
 
 1. [EKS 운영 경로](eks-access.md)로 management/workload, baseline, LBC, metrics, 관측 스택과 Argo를 먼저 준비합니다. `iris-platform` Namespace·Quota·기본 NetworkPolicy와 management ALB 앵커가 있어야 합니다.
-2. 이미지는 각 서비스 레포의 수동 배포 workflow가 ECR에 게시하고 digest를 GitOps 파일에 커밋합니다(iris-was: API·Build Worker·Deploy Worker를 골라서, migration은 API digest). WAS 이미지의 실행 UID는 1001입니다. Error Agent 소스에는 아직 루트 Dockerfile이 없으므로 별도 저장소에서 dependencies·모듈·numeric non-root USER를 포함한 이미지를 준비한 뒤 활성화합니다. Code Analyzer는 후속 작업입니다.
+2. 이미지는 각 서비스 레포의 수동 배포 workflow가 ECR에 게시하고 digest를 GitOps 파일에 커밋합니다(iris-was: API·Build Worker·Deploy Worker를 골라서, migration은 API digest). WAS 이미지의 실행 UID는 1001입니다. Error Agent는 iris-error-check-agent의 **Deploy platform** workflow가 `errorAgent.image.digest`를 커밋합니다(실행 UID 10001). 첫 실행 전에 Secret `iris-error-agent`(`LLM_API_KEY`, `AGENT_API_KEY`)를 만듭니다. Code Analyzer는 후속 작업입니다.
 3. WAS `.env` 파일 전체를 Secret `iris-platform-was-env` 하나로 만듭니다(`was.envSecret`, `database.secret` 공용). `DATABASE_URL`은 RDS master 계정 URL이며 TLS query 없이 넣습니다. 값을 바꾸면 Secret을 다시 만들고 Deployment를 재시작합니다.
 
    ```bash
@@ -31,7 +31,7 @@ Terraform 코드에는 foundation의 `deploy_worker_role_arn`과 management `iri
 
 ## 비밀값 없는 values와 정적 검사
 
-`clusters/aws-dev-management/values/platform.yaml`에 ECR 저장소·hostname·Secret/CA 이름·CodeBuild/S3·Argo URL·CIDR가 채워져 있습니다. digest는 이 파일에 넣지 않습니다. 기본 `errorAgent.enabled=false`를 유지하고 이미지와 keys/model이 준비됐을 때만 켭니다. 가짜 `ci/*` 값은 운영에 쓰지 않습니다.
+`clusters/aws-dev-management/values/platform.yaml`에 ECR 저장소·hostname·Secret/CA 이름·CodeBuild/S3·Argo URL·CIDR가 채워져 있습니다. digest는 이 파일에 넣지 않습니다. `errorAgent`는 켜져 있지만 digest가 커밋되기 전까지 Deployment를 만들지 않습니다. 가짜 `ci/*` 값은 운영에 쓰지 않습니다.
 
 ```sh
 make scaffold-check

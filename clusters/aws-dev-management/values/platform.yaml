@@ -65,12 +65,12 @@
     "terminationGracePeriodSeconds": 60
   },
   "errorAgent": {
-    "enabled": false,
+    "enabled": true,
     "image": {
       "repository": "187069338876.dkr.ecr.ap-northeast-2.amazonaws.com/iris/error-check-agent"
     },
-    "secret": "",
-    "model": "",
+    "secret": "iris-error-agent",
+    "model": "gpt-6.1-sol",
     "resources": {
       "requests": {
         "cpu": "100m",
