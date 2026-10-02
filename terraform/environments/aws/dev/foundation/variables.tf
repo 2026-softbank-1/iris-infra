@@ -60,7 +60,7 @@ variable "availability_zones" {
 variable "nat_gateway_mode" {
   description = "single: 슬롯 0의 zonal NAT 공유, per_az: 각 AZ의 zonal NAT 사용. 실제 적용 시 비용이 발생합니다."
   type        = string
-  default     = "single"
+  default     = "per_az"
 
   validation {
     condition     = contains(["single", "per_az"], var.nat_gateway_mode)

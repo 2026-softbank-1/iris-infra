@@ -1,24 +1,11 @@
 # 관리 EKS
 
-상태: scaffold. 실제 AWS 리소스는 아직 선언하지 않았습니다.
+private EKS1.35와 AZ별 m7i-flex.large 노드 1대씩을 공통 eks module로 생성합니다. foundation의 VPC/subnet/name/SSM/Argo IAM만 참조하며 상대 EKS의 state를 읽지 않습니다. service CIDR은 172.20.0.0/16입니다.
 
-구현할 내용: 공통 eks 모듈, 관리 node group, Pod Identity Agent, BuildKit·Worker ServiceAccount 역할 연결. foundation 출력만 참조합니다.
+관리 root는 Argo 3개 SA와 기존 build-worker SA의 Pod Identity를 연결합니다. 실제 Worker Pod/RBAC는 후속 범위입니다.
 
-독립 root module이며 state key는 `aws/dev/management/terraform.tfstate`입니다.
-기본 입력은 `variables.tf`에 있습니다. 필요한 네트워크·노드·IAM 입력과 출력은 구현 시 추가합니다.
+독립 state key는 `aws/dev/management/terraform.tfstate`입니다. 실제 계정·리전·버킷과 필수 `operator_principal_arn`을 로컬 example/backend로 준비합니다. IAM user/role ARN을 사용하며 STS 세션 ARN은 거부합니다. 운영자와 Argo deploy role은 cluster-admin입니다.
 
-```bash
-cd terraform/environments/aws/dev/management # 저장소 루트 기준
-cp terraform.tfvars.example terraform.tfvars
-cp backend.hcl.example backend.hcl
-# 두 파일의 계정·리전·버킷을 실제 값으로 수정
-```
+`.scaffold`를 제거하여 main CI 자동 apply 대상입니다. account IAM/session 선적용과 GitHub `EKS_OPERATOR_PRINCIPAL_ARN` 설정 뒤 사용자가 merge합니다. `make tf-init/tf-plan/tf-apply STACK=aws/dev/management`는 별도 배포 시 실제 AWS 작업입니다.
 
-저장소 루트에서 `make tf-init STACK=aws/dev/management`, `make tf-plan STACK=aws/dev/management`,
-`make tf-apply STACK=aws/dev/management`를 사용합니다. 리소스 구현·검증 후 `.scaffold`를 제거합니다.
-현재 파일을 그대로 실행하면 클라우드 구성은 생성되지 않습니다.
-
-bootstrap에서 S3 backend를 준비한 후 backend.hcl을 사용해 init합니다.
-
-실행 순서와 의존 관계는 [bootstrap runbook](../../../../../docs/runbooks/bootstrap.md)을 참고합니다.
-provider lock 파일은 첫 init 이후 commit합니다.
+`target` 출력과 `make export-targets`는 비밀값 없는 infrastructure contract만 전달합니다. [API 접근/설치/검증](../../../../../docs/runbooks/eks-access.md), [target 계약](../../../../../contracts/target.md)을 참고합니다.

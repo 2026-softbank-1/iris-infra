@@ -1,0 +1,32 @@
+{
+  "replicaCount": 2,
+  "serviceAccount": {
+    "create": true,
+    "name": "aws-load-balancer-controller"
+  },
+  "resources": {
+    "requests": {
+      "cpu": "100m",
+      "memory": "128Mi"
+    },
+    "limits": {
+      "memory": "512Mi"
+    }
+  },
+  "topologySpreadConstraints": [
+    {
+      "maxSkew": 1,
+      "topologyKey": "topology.kubernetes.io/zone",
+      "whenUnsatisfiable": "ScheduleAnyway",
+      "labelSelector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "aws-load-balancer-controller"
+        }
+      }
+    }
+  ],
+  "image": {
+    "repository": "public.ecr.aws/eks/aws-load-balancer-controller",
+    "tag": "v3.5.0@sha256:298acdff5a571731276aaea3d5cc450a264e4ad710a5bddf3e518f68a3f9f6cb"
+  }
+}

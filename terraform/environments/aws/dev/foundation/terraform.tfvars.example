@@ -7,6 +7,6 @@ environment    = "dev"
 # 다른 값을 사용할 때 main 배포 workflow의 TF_VAR 입력도 함께 맞추세요.
 vpc_cidr                = "10.40.0.0/16"
 availability_zones      = ["ap-northeast-2a", "ap-northeast-2c"]
-nat_gateway_mode        = "single"
+nat_gateway_mode        = "per_az"
 management_cluster_name = "iris-dev-management"
 workload_cluster_name   = "iris-dev-workload"

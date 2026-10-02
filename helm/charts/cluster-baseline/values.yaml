@@ -1,2 +1,21 @@
-# TODO: 구현 시 기본값을 정의합니다. 실제 Secret 값은 기록하지 않습니다.
-{}
+{
+  "namespaces": [
+    "observability",
+    "iris-apps"
+  ],
+  "applicationNamespace": "iris-apps",
+  "storageClass": {
+    "name": "gp3",
+    "reclaimPolicy": "Delete"
+  },
+  "quota": {
+    "requests.cpu": "2",
+    "requests.memory": "4Gi",
+    "limits.cpu": "4",
+    "limits.memory": "8Gi",
+    "pods": "30"
+  },
+  "networkPolicy": {
+    "enabled": true
+  }
+}

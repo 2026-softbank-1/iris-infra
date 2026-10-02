@@ -1,0 +1,205 @@
+{
+  "fullnameOverride": "monitoring",
+  "kubeControllerManager": {
+    "enabled": false
+  },
+  "kubeScheduler": {
+    "enabled": false
+  },
+  "kubeEtcd": {
+    "enabled": false
+  },
+  "kubeProxy": {
+    "enabled": false
+  },
+  "defaultRules": {
+    "rules": {
+      "etcd": false,
+      "kubeControllerManager": false,
+      "kubeSchedulerAlerting": false,
+      "kubeSchedulerRecording": false,
+      "kubeProxy": false
+    }
+  },
+  "prometheus": {
+    "prometheusSpec": {
+      "replicas": 1,
+      "retention": "3d",
+      "retentionSize": "15GB",
+      "resources": {
+        "requests": {
+          "cpu": "200m",
+          "memory": "512Mi"
+        },
+        "limits": {
+          "memory": "2Gi"
+        }
+      },
+      "storageSpec": {
+        "volumeClaimTemplate": {
+          "spec": {
+            "storageClassName": "gp3",
+            "accessModes": [
+              "ReadWriteOnce"
+            ],
+            "resources": {
+              "requests": {
+                "storage": "20Gi"
+              }
+            }
+          }
+        }
+      },
+      "image": {
+        "registry": "quay.io",
+        "repository": "prometheus/prometheus",
+        "tag": "v3.15.0-distroless",
+        "sha": "b2a413d5a03ea6a76782a508d1c7947440bba3b973931a25676e278431891b01"
+      }
+    }
+  },
+  "grafana": {
+    "replicas": 1,
+    "service": {
+      "type": "ClusterIP"
+    },
+    "persistence": {
+      "enabled": true,
+      "storageClassName": "gp3",
+      "size": "5Gi"
+    },
+    "resources": {
+      "requests": {
+        "cpu": "100m",
+        "memory": "128Mi"
+      },
+      "limits": {
+        "memory": "512Mi"
+      }
+    },
+    "image": {
+      "registry": "docker.io",
+      "repository": "grafana/grafana",
+      "tag": "13.2.3-distroless",
+      "sha": "202e5d5b3f8499e70ccac7991eea6d7da72d2790eb2e0597e7987acf724e7180"
+    },
+    "sidecar": {
+      "image": {
+        "registry": "quay.io",
+        "repository": "kiwigrid/k8s-sidecar",
+        "tag": "2.11.2",
+        "sha": "2912be006f62f9ea080194cf6d3afcd90daead8d101d0ba686a137a849f6a4f6"
+      }
+    },
+    "initChownData": {
+      "image": {
+        "registry": "docker.io",
+        "repository": "library/busybox",
+        "tag": "1.38.0",
+        "sha": "fd7dc98638c8e305f4dc34e979f1c0fdfdcaeb0fbf8fcff77ae834b6da3d7e6e"
+      }
+    },
+    "testFramework": {
+      "enabled": false
+    }
+  },
+  "alertmanager": {
+    "alertmanagerSpec": {
+      "replicas": 1,
+      "resources": {
+        "requests": {
+          "cpu": "50m",
+          "memory": "64Mi"
+        },
+        "limits": {
+          "memory": "256Mi"
+        }
+      },
+      "storage": {
+        "volumeClaimTemplate": {
+          "spec": {
+            "storageClassName": "gp3",
+            "accessModes": [
+              "ReadWriteOnce"
+            ],
+            "resources": {
+              "requests": {
+                "storage": "2Gi"
+              }
+            }
+          }
+        }
+      },
+      "image": {
+        "registry": "quay.io",
+        "repository": "prometheus/alertmanager",
+        "tag": "v0.34.1",
+        "sha": "e9733bafb1bdef9b00e25a21f8f99dc26a22224bf16641ad754d1649f4c3357a"
+      }
+    }
+  },
+  "prometheusOperator": {
+    "resources": {
+      "requests": {
+        "cpu": "100m",
+        "memory": "128Mi"
+      },
+      "limits": {
+        "memory": "512Mi"
+      }
+    },
+    "image": {
+      "registry": "quay.io",
+      "repository": "prometheus-operator/prometheus-operator",
+      "tag": "v0.94.1",
+      "sha": "7c88d4e7bae63bd8d0f8da986054337c23b4472fa8d3c6817f5bc4b8407a2d6a"
+    },
+    "prometheusConfigReloader": {
+      "image": {
+        "registry": "quay.io",
+        "repository": "prometheus-operator/prometheus-config-reloader",
+        "tag": "v0.94.1",
+        "sha": "06b52bd4dbe3ed6dd5905aadaf8b9987d9da4c31d37bb86deaadae68cee2d26b"
+      }
+    },
+    "admissionWebhooks": {
+      "patch": {
+        "image": {
+          "registry": "ghcr.io",
+          "repository": "jkroepke/kube-webhook-certgen",
+          "tag": "1.8.9",
+          "sha": "58e4ac2e15bf7785eb00ac90d03f9be1ff3f2fe0add6c71b54af6e5c80031148"
+        }
+      }
+    }
+  },
+  "kube-state-metrics": {
+    "image": {
+      "registry": "registry.k8s.io",
+      "repository": "kube-state-metrics/kube-state-metrics",
+      "tag": "v2.20.0",
+      "sha": "sha256:42cfe3723a5f058171c627537fb57a3ea0f26e4380fa18555a95cb1a1b4cfc5b"
+    }
+  },
+  "prometheus-node-exporter": {
+    "image": {
+      "registry": "quay.io",
+      "repository": "prometheus/node-exporter",
+      "tag": "v1.12.1",
+      "digest": "sha256:8c9bac11973b94b59be88d6e11fee4429aa743c8846cdc75d65b18db33f6a106"
+    }
+  },
+  "kubelet": {
+    "serviceMonitor": {
+      "tlsConfig": {
+        "insecureSkipVerify": false,
+        "ca": {
+          "configMap": {
+            "name": "kube-root-ca.crt",
+            "key": "ca.crt"
+          }
+        }
+      }
+    }
+  }
+}

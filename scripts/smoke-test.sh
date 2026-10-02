@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+# shellcheck source=scripts/common.sh
 source "$(dirname "$0")/common.sh"
-check_cluster "${TARGET:-}"
-fail "${TARGET}: smoke test 구현 대기. IAM/RBAC, image pull, health와 외부 접속 검사를 추가하세요."
+require_command python3
+selected="${1:-${TARGET:-}}"
+check_cluster "$selected"
+if [[ "$#" -gt 0 ]]; then shift; fi
+exec python3 "$REPO_ROOT/scripts/eks-ops.py" smoke "$selected" "$@"

@@ -4,5 +4,6 @@
 
 - [0001: 저장소와 배포 구조](0001-repository-and-deployment.md) (배포 방식은 0002로 대체)
 - [0002: GitOps(Argo CD) 배포와 chart 전달](0002-gitops-deployment.md)
+- [0003: Private EKS와 addon GitOps](0003-private-eks-and-gitops.md)
 
 새 결정은 `NNNN-짧은-이름.md`로 작성하고 상태, 배경, 결정, 영향, 검증 사항을 포함합니다.

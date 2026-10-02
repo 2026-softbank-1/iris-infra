@@ -35,3 +35,14 @@ variable "github_oidc_subject_prefix" {
     error_message = "repo:OWNER/REPO 또는 repo:OWNER@ID/REPO@ID 형식의 subject prefix가 필요합니다."
   }
 }
+
+variable "management_cluster_name" {
+  description = "Must match foundation's management cluster name."
+  type        = string
+  default     = "iris-dev-management"
+}
+variable "workload_cluster_name" {
+  description = "Must match foundation's workload cluster name."
+  type        = string
+  default     = "iris-dev-workload"
+}

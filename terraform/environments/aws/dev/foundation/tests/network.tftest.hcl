@@ -1,5 +1,6 @@
 # Mock apply resolves computed IDs without credentials or AWS API calls.
 mock_provider "aws" {
+  mock_data "aws_ssm_parameter" { defaults = { value = "ami-0123456789abcdef0" } }
   mock_resource "aws_iam_role" {
     defaults = { arn = "arn:aws:iam::123456789012:role/mock-build-role" }
   }
@@ -61,19 +62,19 @@ run "default_network" {
 
   assert {
     condition = (
-      length(aws_nat_gateway.egress) == 1 && length(aws_eip.nat) == 1 &&
+      length(aws_nat_gateway.egress) == 2 && length(aws_eip.nat) == 2 &&
       aws_nat_gateway.egress["0"].subnet_id == aws_subnet.public["0"].id &&
       aws_nat_gateway.egress["0"].allocation_id == aws_eip.nat["0"].id &&
       aws_nat_gateway.egress["0"].connectivity_type == "public" && aws_eip.nat["0"].domain == "vpc" &&
       alltrue([for key, route in aws_route.private_internet :
-        route.nat_gateway_id == aws_nat_gateway.egress["0"].id &&
+        route.nat_gateway_id == aws_nat_gateway.egress[local.private_subnets[key].slot].id &&
         route.destination_cidr_block == "0.0.0.0/0" && route.route_table_id == aws_route_table.private[key].id &&
         aws_route_table.private[key].vpc_id == aws_vpc.shared.id &&
         aws_route_table_association.private[key].subnet_id == aws_subnet.private[key].id &&
         aws_route_table_association.private[key].route_table_id == aws_route_table.private[key].id
       ])
     )
-    error_message = "Single NAT mode must send every private subnet through the slot 0 NAT, never directly through the IGW."
+    error_message = "Default per-AZ NAT routes must remain in the same AZ, never directly through the IGW."
   }
 
   assert {
@@ -132,21 +133,21 @@ run "default_network" {
   }
 }
 
-run "nat_per_az" {
+run "nat_single" {
   command = apply
-  variables { nat_gateway_mode = "per_az" }
+  variables { nat_gateway_mode = "single" }
 
   assert {
     condition = (
-      length(aws_nat_gateway.egress) == 2 && length(aws_eip.nat) == 2 &&
+      length(aws_nat_gateway.egress) == 1 && length(aws_eip.nat) == 1 &&
       alltrue([for slot, nat in aws_nat_gateway.egress :
         nat.subnet_id == aws_subnet.public[slot].id && nat.allocation_id == aws_eip.nat[slot].id
       ]) &&
       alltrue([for key, config in local.private_subnets :
-        aws_route.private_internet[key].nat_gateway_id == aws_nat_gateway.egress[config.slot].id
+        aws_route.private_internet[key].nat_gateway_id == aws_nat_gateway.egress["0"].id
       ])
     )
-    error_message = "Per-AZ mode must send private subnet egress through the NAT in its own AZ."
+    error_message = "Single NAT mode must use slot 0 for both AZs."
   }
 }
 

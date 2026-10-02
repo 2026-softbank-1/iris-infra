@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # CI deploys root stacks in dependency order. Account IAM is managed by an administrator.
+# shellcheck source=scripts/common.sh
 source "$(dirname "$0")/common.sh"
 
 action="${1:-}"
@@ -11,6 +12,7 @@ esac
 
 require_command terraform
 require_command aws
+require_command python3
 [[ "${AWS_ACCOUNT_ID:-}" =~ ^[0-9]{12}$ && "$AWS_ACCOUNT_ID" != 000000000000 ]] \
   || fail 'AWS_ACCOUNT_ID에 실제 12자리 계정 ID가 필요합니다.'
 [[ -n "${AWS_REGION:-}" && -n "${TF_STATE_BUCKET:-}" ]] \
@@ -34,6 +36,13 @@ for stack in "${stacks[@]}"; do
   enabled_stacks+=("$stack")
 done
 
+for enabled in "${enabled_stacks[@]}"; do
+  if [[ "$enabled" == aws/dev/management || "$enabled" == aws/dev/workload ]]; then
+    [[ "${TF_VAR_operator_principal_arn:-}" =~ ^arn:aws:iam::${AWS_ACCOUNT_ID}:(role|user)/[A-Za-z0-9/_+=,.@-]+$ ]] \
+      || fail 'Set TF_VAR_operator_principal_arn to the existing operator IAM user/role ARN before deploying EKS.'
+  fi
+done
+
 actual_account="$(aws sts get-caller-identity --query Account --output text)"
 [[ "$actual_account" == "$AWS_ACCOUNT_ID" ]] \
   || fail "AWS 계정 불일치: expected=$AWS_ACCOUNT_ID actual=$actual_account"
@@ -41,6 +50,7 @@ actual_account="$(aws sts get-caller-identity --query Account --output text)"
 export TF_IN_AUTOMATION=true TF_INPUT=false
 export TF_VAR_aws_account_id="$AWS_ACCOUNT_ID"
 export TF_VAR_aws_region="$AWS_REGION"
+export TF_VAR_state_bucket_name="$TF_STATE_BUCKET"
 
 plan_file=''
 trap 'if [[ -n "$plan_file" ]]; then rm -f "$plan_file"; fi' EXIT
@@ -58,6 +68,9 @@ for stack in "${enabled_stacks[@]}"; do
 
   plan_file="$(mktemp "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/iris-tfplan.XXXXXX")"
   terraform -chdir="$dir" plan -input=false -lock-timeout=5m -out="$plan_file"
+  if [[ "$stack" == aws/dev/foundation ]]; then
+    terraform -chdir="$dir" show -json "$plan_file" | python3 "$REPO_ROOT/scripts/check-foundation-plan.py"
+  fi
   if [[ "$action" == apply ]]; then
     terraform -chdir="$dir" apply -input=false -lock-timeout=5m "$plan_file"
   fi

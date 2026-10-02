@@ -1,2 +1,28 @@
-# TODO: 후속 stack에 전달할 비밀값이 아닌 출력만 정의합니다.
-# 계정 자격 증명, kubeconfig와 환경변수 실제 값은 출력하지 않습니다.
+output "target" {
+  description = "Infrastructure-only target contract. No credentials or complete state."
+  value = {
+    id                                      = "aws-dev-management"
+    kube_context                            = "iris-dev-management"
+    operator_principal_arn                  = var.operator_principal_arn
+    load_balancer_controller_role_arn       = module.eks.load_balancer_controller_role_arn
+    management_api_source_security_group_id = data.terraform_remote_state.foundation.outputs.management_api_source_security_group_id
+    workload_api_target_security_group_id   = data.terraform_remote_state.foundation.outputs.workload_api_target_security_group_id
+    account_id                              = var.aws_account_id
+    region                                  = var.aws_region
+    name                                    = module.eks.name
+    arn                                     = module.eks.arn
+    endpoint                                = module.eks.endpoint
+    ca_data                                 = module.eks.certificate_authority_data
+    vpc_id                                  = data.terraform_remote_state.foundation.outputs.vpc_id
+    subnet_ids_by_az                        = data.terraform_remote_state.foundation.outputs.management_subnet_ids_by_az
+    cluster_security_group_id               = module.eks.cluster_security_group_id
+    api_security_group_id                   = module.eks.api_security_group_id
+    node_security_group_id                  = module.eks.node_security_group_id
+    node_group_names_by_az                  = module.eks.node_group_names_by_az
+    argocd_management_role_arn              = data.terraform_remote_state.foundation.outputs.argocd_management_role_arn
+    argocd_role_arn                         = data.terraform_remote_state.foundation.outputs.argocd_deploy_role_arns["management"]
+    ssm_bridge_instance_id                  = data.terraform_remote_state.foundation.outputs.ssm_bridge_instance_id
+    ssm_bridge_security_group_id            = data.terraform_remote_state.foundation.outputs.ssm_bridge_security_group_id
+    api_port                                = 10443
+  }
+}

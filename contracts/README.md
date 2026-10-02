@@ -1,6 +1,6 @@
 # 연동 계약
 
-deployment·release 는 [ADR 0002](../docs/decisions/0002-gitops-deployment.md)로 합의했습니다. 나머지는 **합의 전 초안**이며 구현 전에 확정합니다.
+deployment·release는 [ADR 0002](../docs/decisions/0002-gitops-deployment.md)로 합의했습니다. target의 EKS infrastructure v1은 현재 운영 스크립트가 사용합니다. 플랫폼 target 등록/백엔드·CLI 연동과 나머지 문서는 **합의 전 초안**입니다.
 
 - [deployment](deployment.md): values schema, release, 이미지 참조
 - [target](target.md): 타겟 ID, 인증 참조, 출력 전달

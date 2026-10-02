@@ -1,2 +1,7 @@
-# TODO: chart/애드온 구현 후 타겟별 설정을 추가합니다.
-{}
+{
+  "namespaces": [
+    "observability",
+    "iris-apps"
+  ],
+  "applicationNamespace": "iris-apps"
+}
