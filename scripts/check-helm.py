@@ -187,6 +187,11 @@ def main():
         gitops = render(ROOT/'helm/gitops', values, namespace='argocd')
         # Platform is opt-in at bootstrap (GITOPS_PLATFORM_ENABLED); check_platform covers it.
         assert sum(d['kind']=='Application' for d in gitops)==11
+        for app in (d for d in gitops if d['kind']=='Application' and d['metadata']['name'].endswith('-aws-load-balancer-controller')):
+            # Re-sync must not rotate the LBC webhook certificate under running controllers.
+            ignored = {(i['kind'],i['name']) for i in app['spec']['ignoreDifferences']}
+            assert ignored=={('Secret','aws-load-balancer-tls'),('MutatingWebhookConfiguration','aws-load-balancer-webhook'),('ValidatingWebhookConfiguration','aws-load-balancer-webhook')}
+            assert 'RespectIgnoreDifferences=true' in app['spec']['syncPolicy']['syncOptions']
         assert sum(d['kind']=='AppProject' for d in gitops)==3
         appset = next(d for d in gitops if d['kind']=='ApplicationSet')['spec']
         chart_source, values_source = appset['template']['spec']['sources']
