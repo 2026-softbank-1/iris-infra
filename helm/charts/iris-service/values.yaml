@@ -22,3 +22,7 @@ networkPolicy:
   # ALB(target-type ip)는 Pod IP 로 직접 보냅니다. ALB 서브넷 CIDR 을 넣으면 그 외 ingress 를 막습니다.
   # 비어 있으면 NetworkPolicy 를 만들지 않습니다. VPC 구현 후 타겟 값으로 채웁니다.
   allowedCidrs: []
+  # egress 차단 대상: dev 공유 VPC 와 link-local(IMDS·Pod Identity Agent). 비어 있으면 egress 정책을 만들지 않습니다.
+  egressDeniedCidrs: ["10.40.0.0/16", "169.254.0.0/16"]
+  # 위에서 막은 VPC 안에서 예외로 열 대상(예: 사용자 DB {cidr, port}). 사용자 DB 설계 때 채웁니다.
+  egressAllowed: []

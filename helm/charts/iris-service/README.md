@@ -9,6 +9,9 @@ GitOps 저장소의 `services/{service_id}/prod/values.yaml`(Deploy Worker 작�
 | Service | `app` | ClusterIP `service.port` → `http`(containerPort) |
 | Ingress | `app` | `route.className: alb` 면 ALB group 공유·target-type ip·HTTPS redirect·health check 설정 |
 | NetworkPolicy | `allow-load-balancer` | `networkPolicy.allowedCidrs` 가 있을 때만. 그 CIDR 에서 containerPort 로만 허용 |
+| NetworkPolicy | `restrict-egress` | `networkPolicy.egressDeniedCidrs`(기본 VPC·link-local) 를 막고 같은 namespace·DNS·VPC 밖·`egressAllowed`(cidr·port)만 허용 |
+
+Pod 라벨 `iris/release-id` 는 로그·메트릭 수집(OTel → Loki `iris_release_id`)에 씁니다. selector 에는 없습니다.
 
 - values 계약과 필드 의미: [contracts/deployment.md](../../../contracts/deployment.md). schema 가 모르는 키를 거절합니다.
 - `ci/` 의 values 는 Deploy Worker 출력(AWS)과 로컬 k3d 모양입니다. `make helm-check` 가 lint·render 에 씁니다.
