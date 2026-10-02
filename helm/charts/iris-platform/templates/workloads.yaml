@@ -1,212 +1,105 @@
-{{- $root := . }}
-{{- range $key, $c := .Values.components }}
-{{- $name := printf "iris-%s" $key }}
-{{- $sa := $c.serviceAccountName | default $name }}
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: {{ $sa }}
-  labels:
-    {{- include "iris-platform.labels" $root | nindent 4 }}
-{{- if eq $c.automountServiceAccountToken false }}
-automountServiceAccountToken: false
-{{- end }}
+{{- $components := dict "api" .Values.api "build-worker" .Values.buildWorker "deploy-worker" .Values.deployWorker }}
+{{- range $component, $settings := $components }}
 ---
-{{- /* A digest for a component infra has not defined (no repository) is ignored, not fatal. */}}
-{{- if and $c.digest $c.repository }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ $name }}
+  name: {{ $.Release.Name }}-{{ $component }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
   labels:
-    {{- include "iris-platform.labels" $root | nindent 4 }}
-    app.kubernetes.io/name: {{ $name }}
+    {{- include "iris-platform.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $component }}
 spec:
-  replicas: {{ $c.replicas | default 1 }}
+  replicas: {{ $settings.replicas }}
   revisionHistoryLimit: 3
-  selector:
-    matchLabels:
-      app.kubernetes.io/name: {{ $name }}
   strategy:
     type: RollingUpdate
     rollingUpdate: {maxSurge: 1, maxUnavailable: 0}
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ $.Release.Name | quote }}
+      app.kubernetes.io/component: {{ $component }}
   template:
     metadata:
+      annotations:
+        checksum/config: {{ toJson $settings | sha256sum | quote }}
+        checksum/shared: {{ toJson (dict "database" $.Values.database "was" $.Values.was "awsRegion" $.Values.awsRegion) | sha256sum | quote }}
       labels:
-        app.kubernetes.io/name: {{ $name }}
-        app.kubernetes.io/part-of: iris-platform
+        {{- include "iris-platform.labels" $ | nindent 8 }}
+        app.kubernetes.io/component: {{ $component }}
+        iris.dev/database-client: "true"
     spec:
-      serviceAccountName: {{ $sa }}
+      serviceAccountName: {{ if eq $component "api" }}{{ $.Release.Name }}-api{{ else }}{{ $component }}{{ end }}
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: {{ default 30 $settings.terminationGracePeriodSeconds }}
       securityContext:
-        {{- include "iris-platform.podSecurityContext" $root | nindent 8 }}
-      # Workers stop gracefully on SIGTERM after finishing the current job.
-      terminationGracePeriodSeconds: 60
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        seccompProfile: {type: RuntimeDefault}
+      initContainers:
+        {{- include "iris-platform.database-guard" (dict "root" $ "secret" $.Values.database.runtimeSecret) | nindent 8 }}
       containers:
-        - name: app
-          {{- include "iris-platform.container" (dict "root" $root "name" $key "c" $c) | nindent 10 }}
-          {{- with $c.command }}
-          command:
-            {{- toYaml . | nindent 12 }}
-          {{- end }}
-          {{- with $c.port }}
+        - name: {{ $component }}
+          image: {{ include "iris-platform.image" $ | quote }}
+          imagePullPolicy: IfNotPresent
+          {{- if eq $component "api" }}
+          command: [uvicorn, app.main:app, --host, 0.0.0.0, --port, "8000"]
           ports:
-            - {name: http, containerPort: {{ . }}}
-          readinessProbe:
+            - {name: http, containerPort: 8000}
+          startupProbe:
             httpGet: {path: /healthz, port: http}
-            periodSeconds: 10
+            periodSeconds: 5
+            failureThreshold: 60
           livenessProbe:
             httpGet: {path: /healthz, port: http}
-            periodSeconds: 20
+            periodSeconds: 10
+          readinessProbe:
+            httpGet: {path: /readyz, port: http}
+            periodSeconds: 5
+          {{- else if eq $component "build-worker" }}
+          command: [python, -m, app.workers.build_worker]
+          {{- else }}
+          command: [python, -m, app.workers.deploy_worker]
           {{- end }}
+          envFrom:
+            - configMapRef:
+                name: {{ $.Release.Name }}-{{ $component }}
+          env:
+            {{- include "iris-platform.database-env" (dict "root" $ "secret" $.Values.database.runtimeSecret) | nindent 12 }}
+            {{- if eq $component "build-worker" }}
+            {{- range $key := list "GITHUB_APP_ID" "GITHUB_APP_PRIVATE_KEY" "GITHUB_PUBLIC_INSTALLATION_ID" }}
+            - name: {{ $key }}
+              valueFrom:
+                secretKeyRef: {name: {{ $.Values.buildWorker.githubSecret | quote }}, key: {{ $key }}}
+            {{- end }}
+            {{- else if eq $component "deploy-worker" }}
+            {{- range $key := list "GITOPS_APP_ID" "GITOPS_APP_PRIVATE_KEY" "GITOPS_INSTALLATION_ID" }}
+            - name: {{ $key }}
+              valueFrom:
+                secretKeyRef: {name: {{ $.Values.deployWorker.githubSecret | quote }}, key: {{ $key }}}
+            {{- end }}
+            - name: ARGOCD_TOKEN
+              valueFrom:
+                secretKeyRef: {name: {{ $.Values.deployWorker.argocdSecret | quote }}, key: ARGOCD_TOKEN}
+            {{- end }}
+          volumeMounts:
+            {{- include "iris-platform.database-mount" $ | nindent 12 }}
+            {{- if eq $component "deploy-worker" }}
+            - {name: argocd-ca, mountPath: /etc/iris-argocd, readOnly: true}
+            {{- end }}
+          securityContext:
+            {{- include "iris-platform.security" $ | nindent 12 }}
+          resources:
+            {{- toYaml $settings.resources | nindent 12 }}
       volumes:
-        - name: tmp
-          emptyDir: {}
----
-{{- if $c.port }}
-apiVersion: v1
-kind: Service
-metadata:
-  name: {{ $name }}
-  labels:
-    {{- include "iris-platform.labels" $root | nindent 4 }}
-spec:
-  selector:
-    app.kubernetes.io/name: {{ $name }}
-  ports:
-    - {name: http, port: 80, targetPort: http}
----
-{{- end }}
-{{- with $c.ingress }}
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: {{ $name }}
-  labels:
-    {{- include "iris-platform.labels" $root | nindent 4 }}
-  annotations:
-    # Listener, certificate and TLS policy come from the baseline anchor Ingress of this group.
-    alb.ingress.kubernetes.io/group.name: {{ .groupName | quote }}
-    alb.ingress.kubernetes.io/target-type: ip
-    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
-    alb.ingress.kubernetes.io/ssl-redirect: "443"
-    alb.ingress.kubernetes.io/healthcheck-path: /healthz
-    alb.ingress.kubernetes.io/success-codes: "200-299"
-spec:
-  ingressClassName: alb
-  rules:
-    - host: {{ .host | quote }}
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: {{ $name }}
-                port:
-                  name: http
----
-{{- end }}
-{{- with $c.allowedCidrs }}
-# The baseline application-boundary policy admits only in-cluster sources; open the port to the ALB subnets.
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: {{ $name }}-from-alb
-  labels:
-    {{- include "iris-platform.labels" $root | nindent 4 }}
-spec:
-  podSelector:
-    matchLabels:
-      app.kubernetes.io/name: {{ $name }}
-  policyTypes: [Ingress]
-  ingress:
-    - from:
-        {{- range . }}
-        - ipBlock: {cidr: {{ . | quote }}}
+        {{- include "iris-platform.database-volume" $ | nindent 8 }}
+        {{- if eq $component "deploy-worker" }}
+        - name: argocd-ca
+          configMap:
+            name: {{ $.Values.deployWorker.caConfigMap | quote }}
+            items:
+              - {key: {{ $.Values.deployWorker.caKey | quote }}, path: ca-bundle.pem}
         {{- end }}
-      ports:
-        - {protocol: TCP, port: {{ $c.port }}}
----
-{{- end }}
-{{- if $c.argocdEgress }}
-# Reads Application status from argocd-server (container port, after Service DNAT).
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: {{ $name }}-to-argocd
-  labels:
-    {{- include "iris-platform.labels" $root | nindent 4 }}
-spec:
-  podSelector:
-    matchLabels:
-      app.kubernetes.io/name: {{ $name }}
-  policyTypes: [Egress]
-  egress:
-    - to:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: {{ $root.Values.argocd.namespace }}
-          podSelector:
-            matchLabels:
-              app.kubernetes.io/name: argocd-server
-      ports:
-        - {protocol: TCP, port: {{ $root.Values.argocd.port }}}
----
-{{- end }}
-{{- with $c.migration }}
-# PreSync: runs once per sync before any component rolls out (no migration at app start).
-apiVersion: batch/v1
-kind: Job
-metadata:
-  name: {{ $name }}-migration
-  labels:
-    {{- include "iris-platform.labels" $root | nindent 4 }}
-  annotations:
-    argocd.argoproj.io/hook: PreSync
-    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
-spec:
-  backoffLimit: 3
-  activeDeadlineSeconds: 600
-  template:
-    metadata:
-      labels:
-        app.kubernetes.io/name: {{ $name }}-migration
-        app.kubernetes.io/part-of: iris-platform
-    spec:
-      restartPolicy: Never
-      serviceAccountName: {{ $sa }}
-      securityContext:
-        {{- include "iris-platform.podSecurityContext" $root | nindent 8 }}
-      containers:
-        - name: migrate
-          {{- include "iris-platform.container" (dict "root" $root "name" $key "c" $c) | nindent 10 }}
-          command:
-            {{- toYaml . | nindent 12 }}
-      volumes:
-        - name: tmp
-          emptyDir: {}
----
-{{- end }}
-{{- end }}
-{{- end }}
-{{- with .Values.database.egressCidrs }}
-# All platform pods reach the RDS subnets on the DB port.
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: iris-platform-to-database
-  labels:
-    {{- include "iris-platform.labels" $root | nindent 4 }}
-spec:
-  podSelector:
-    matchLabels:
-      app.kubernetes.io/part-of: iris-platform
-  policyTypes: [Egress]
-  egress:
-    - to:
-        {{- range . }}
-        - ipBlock: {cidr: {{ . | quote }}}
-        {{- end }}
-      ports:
-        - {protocol: TCP, port: {{ $root.Values.database.port }}}
 {{- end }}

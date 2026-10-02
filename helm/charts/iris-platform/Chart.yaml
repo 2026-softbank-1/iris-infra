@@ -1,6 +1,6 @@
 apiVersion: v2
 name: iris-platform
-description: "Iris control plane: Control API, Build Worker, Deploy Worker, DB migration (platform DB is RDS)"
+description: Iris API, Build/Deploy Workers and optional Error Check Agent with external RDS
 type: application
 version: 0.2.0
 kubeVersion: ">=1.35.0-0 <1.36.0-0"

@@ -93,7 +93,7 @@ def matrix(c):
     add("EKS Pod Identity", "eks", "DescribePodIdentityAssociation UpdatePodIdentityAssociation DeletePodIdentityAssociation TagResource UntagResource", pods)
     add("EKS discovery", "eks", "ListClusters DescribeAddonVersions DescribeAddonConfiguration DescribeClusterVersions", "*")
     roles = [iam + f"role/{n}-{s}" for n in c.clusters for s in ("cluster", "node", "cni", "ebs", "lbc")]
-    roles += [iam + f"role/{c.stem}-{s}" for s in ("ssm-bridge", "argocd-management", "argocd-management-deploy", "argocd-workload-deploy")]
+    roles += [iam + f"role/{c.stem}-{s}" for s in ("ssm-bridge", "argocd-management", "argocd-management-deploy", "argocd-workload-deploy", "deploy-worker")]
     add("Runtime roles", "iam", "CreateRole GetRole UpdateAssumeRolePolicy UpdateRole UpdateRoleDescription DeleteRole ListRolePolicies ListAttachedRolePolicies ListInstanceProfilesForRole PutRolePolicy GetRolePolicy DeleteRolePolicy TagRole UntagRole ListRoleTags", roles)
     for service, suffixes in (("eks.amazonaws.com", ("cluster", "node", "cni", "ebs")),
                               ("pods.eks.amazonaws.com", ("ebs", "lbc")),
@@ -102,6 +102,8 @@ def matrix(c):
     add("Pass Argo role", "iam", "PassRole", iam + f"role/{c.stem}-argocd-management", {"iam:PassedToService": "pods.eks.amazonaws.com"})
     worker = iam + f"role/{c.stem}-build-worker"
     add("Pass Build Worker", "iam", "PassRole", worker, {"iam:PassedToService": "pods.eks.amazonaws.com"})
+    deploy_worker = iam + f"role/{c.stem}-deploy-worker"
+    add("Pass Deploy Worker", "iam", "PassRole", deploy_worker, {"iam:PassedToService": "pods.eks.amazonaws.com"})
     bridge = iam + f"role/{c.stem}-ssm-bridge"
     add("Pass bridge", "iam", "PassRole", bridge, {"iam:PassedToService": "ec2.amazonaws.com"})
     for policy, suffix in (("AmazonEKSClusterPolicy", "cluster"), ("AmazonEKSWorkerNodePolicy", "node"),
@@ -145,6 +147,9 @@ def matrix(c):
     add("Reject other addon association", "eks", "CreateAddon", eks + f"podidentityassociation/{other}/a-test", allow=False)
     add("Reject other child update", "eks", "DescribeUpdate", eks + f"nodegroup/{other}/test/id", allow=False)
     add("Reject other passed service", "iam", "PassRole", worker, {"iam:PassedToService": "ec2.amazonaws.com"}, False)
+    for service in ("ec2.amazonaws.com", "eks.amazonaws.com"):
+        add("Reject Deploy Worker passed service", "iam", "PassRole", deploy_worker, {"iam:PassedToService": service}, False)
+    add("Reject unrelated role administration", "iam", "CreateRole PutRolePolicy", iam + "role/iris-permission-audit-unrelated", allow=False)
     add("Reject other role", "iam", "PassRole", iam + "role/iris-permission-audit-unrelated", {"iam:PassedToService": "pods.eks.amazonaws.com"}, False)
     add("Reject public endpoint", "eks", "CreateCluster", "*", {**create, "eks:endpointPublicAccess": "true"}, False)
     add("Reject other project", "eks", "CreateCluster", "*", {**create, "aws:RequestTag/Project": c.project + "-other"}, False)

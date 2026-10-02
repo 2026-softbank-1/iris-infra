@@ -165,3 +165,17 @@ run "eks_provider_permission_paths" {
     error_message = "Management may pass the existing Build Worker to EKS Pod Identity only; its runtime IAM administration inventory must not expand."
   }
 }
+
+run "deploy_worker_ci_boundary" {
+  command = plan
+  assert {
+    condition = contains(local.runtime_role_arns, "arn:aws:iam::${var.aws_account_id}:role/${var.project}-${var.environment}-deploy-worker") && length([
+      for s in jsondecode(aws_iam_policy.runtime_iam.policy).Statement : s if s.Sid == "PassDeployWorkerRole" && s.Action == ["iam:PassRole"] && s.Resource == "arn:aws:iam::${var.aws_account_id}:role/${var.project}-${var.environment}-deploy-worker" && jsonencode(s.Condition) == jsonencode({ StringEquals = { "iam:PassedToService" = "pods.eks.amazonaws.com" } })
+    ]) == 1
+    error_message = "CI must administer the named Deploy Worker role and pass it only to EKS Pod Identity."
+  }
+  assert {
+    condition     = alltrue([for s in jsondecode(aws_iam_policy.runtime_iam.policy).Statement : !contains(s.Resource, "arn:aws:iam::${var.aws_account_id}:role/${var.project}-${var.environment}-deploy-worker") if s.Sid == "PassEksRoles"]) && length(aws_iam_policy.runtime_iam.policy) <= 6144
+    error_message = "Deploy Worker must be excluded from broad EKS/EC2 PassRole; policy must fit 6144 characters."
+  }
+}

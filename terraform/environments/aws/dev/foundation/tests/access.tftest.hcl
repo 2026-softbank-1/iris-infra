@@ -31,3 +31,24 @@ run "private_bridge_and_argocd" {
     error_message = "Bridge gets no Kubernetes admin role; GitOps roles only assume named cluster identities."
   }
 }
+
+run "deploy_worker_boundary" {
+  command = apply
+  assert {
+    condition = aws_iam_role.deploy_worker.name == "${var.project}-${var.environment}-deploy-worker" && jsonencode(jsondecode(aws_iam_role.deploy_worker.assume_role_policy).Statement) == jsonencode([{
+      Effect = "Allow", Action = ["sts:AssumeRole", "sts:TagSession"], Principal = { Service = "pods.eks.amazonaws.com" },
+      Condition = { StringEquals = {
+        "aws:RequestTag/eks-cluster-name"           = var.management_cluster_name,
+        "aws:RequestTag/kubernetes-namespace"       = "iris-platform",
+        "aws:RequestTag/kubernetes-service-account" = "deploy-worker"
+      } }
+    }])
+    error_message = "Only management iris-platform/deploy-worker may assume the Deploy Worker role."
+  }
+  assert {
+    condition = jsonencode(jsondecode(aws_iam_role_policy.deploy_worker.policy).Statement) == jsonencode([{
+      Effect = "Allow", Action = ["ecr:BatchGetImage", "ecr:PutImage"], Resource = "arn:aws:ecr:${var.aws_region}:${var.aws_account_id}:repository/${var.project}/services/*"
+    }]) && output.deploy_worker_role_arn == aws_iam_role.deploy_worker.arn
+    error_message = "Deploy Worker may only read manifests and tag images in user service repositories, without Kubernetes/CodeBuild/layer push access."
+  }
+}

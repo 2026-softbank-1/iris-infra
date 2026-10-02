@@ -72,6 +72,63 @@ class Operations(unittest.TestCase):
             return ''
         with patch.dict(os.environ,{'GITOPS_REVISION':sha,'ARGOCD_GIT_TOKEN_FILE':str(token)}),patch.object(ops,'require'),patch.object(ops,'run',side_effect=run),patch.object(ops,'load_target',return_value=self.t),patch.object(ops,'ready',side_effect=[self.t,ValueError('second target unsafe')]),patch.object(ops,'apply') as apply,patch.object(ops,'kubectl') as kubectl,self.assertRaises(ValueError):ops.bootstrap()
         apply.assert_not_called();kubectl.assert_not_called()
+    def bootstrap_fixture(self, flag=None, root_health='Healthy', addon_health='Healthy', platform_exists=True, fail_validation=False):
+        (self.root/'helm/versions.json').write_text((ROOT/'helm/versions.json').read_text())
+        token=self.root/'token';token.write_text('fixture-not-a-real-credential')
+        sha='a'*40; events=[]; applied=[]
+        env={'GITOPS_REVISION':sha,'ARGOCD_GIT_TOKEN_FILE':str(token)}
+        if flag is not None:env['GITOPS_PLATFORM_ENABLED']=flag
+        def run(args,**kwargs):
+            events.append(('run',args))
+            if 'rev-parse' in args:return sha
+            if 'version' in args:return 'v3.19.1+fixture'
+            if fail_validation and args[:2]==['helm','lint']:raise RuntimeError('invalid platform inputs')
+            return ''
+        def kubectl(t,*args,**kwargs):
+            events.append(('kubectl',args))
+            if args[:2]==('get','applications'):
+                names=['iris-addons']+[f'iris-{purpose}-{addon}' for purpose in ('management','workload') for addon in ('baseline','aws-load-balancer-controller','metrics-server','kube-prometheus-stack')]
+                apps=[{'metadata':{'name':name},'status':{'sync':{'status':'Synced'},'health':{'status':root_health if name=='iris-addons' else addon_health}}} for name in names]
+                if platform_exists:apps.append({'metadata':{'name':'iris-platform'},'status':{}})
+                return json.dumps({'items':apps})
+            return ''
+        def apply(t,objects):events.append(('apply',None));applied.extend(objects)
+        def wait(check,*args):
+            if not check():raise RuntimeError('wait condition not met')
+        with patch.dict(os.environ,env),patch.object(ops,'require'),patch.object(ops,'run',side_effect=run),patch.object(ops,'load_target',return_value=self.t),patch.object(ops,'ready',return_value=self.t),patch.object(ops,'apply',side_effect=apply),patch.object(ops,'kubectl',side_effect=kubectl),patch.object(ops,'wait_for',side_effect=wait),patch('builtins.print'):
+            try:ops.bootstrap()
+            except (RuntimeError,ValueError) as exc:return events,applied,exc
+        return events,applied,None
+    def test_bootstrap_default_platform_disabled(self):
+        events,applied,error=self.bootstrap_fixture()
+        self.assertIsNone(error)
+        app=next(d for d in applied if d['kind']=='Application')
+        self.assertEqual(app['spec']['source']['helm']['valuesObject']['platform'],{'enabled':False})
+        self.assertFalse(any(e[0]=='run' and e[1][:2]==['helm','lint'] for e in events))
+    def test_bootstrap_invalid_flag_stops_before_any_write(self):
+        for flag in ('true','yes','2',''):
+            events,applied,error=self.bootstrap_fixture(flag)
+            self.assertIsInstance(error,ValueError);self.assertEqual(events,[]);self.assertEqual(applied,[])
+    def test_bootstrap_enabled_validates_before_first_write(self):
+        events,applied,error=self.bootstrap_fixture('1',root_health='Progressing')
+        self.assertIsNone(error)
+        lint=next(i for i,e in enumerate(events) if e[0]=='run' and e[1][:2]==['helm','lint'])
+        render=next(i for i,e in enumerate(events) if e[0]=='run' and e[1][:2]==['helm','template'])
+        write=next(i for i,e in enumerate(events) if e[0]=='apply')
+        self.assertLess(lint,render);self.assertLess(render,write)
+        self.assertEqual(events[lint][1][-4:],['--kube-version','1.35.0','--namespace','iris-platform'])
+        self.assertEqual(events[render][1][-4:],['--kube-version','1.35.0','--namespace','iris-platform'])
+        app=next(d for d in applied if d['kind']=='Application')
+        self.assertEqual(app['spec']['source']['helm']['valuesObject']['platform'],{'enabled':True})
+    def test_bootstrap_failed_platform_validation_stops_before_writes(self):
+        events,applied,error=self.bootstrap_fixture('1',fail_validation=True)
+        self.assertIsInstance(error,RuntimeError);self.assertEqual(applied,[])
+        self.assertFalse(any(e[0]=='kubectl' for e in events))
+    def test_bootstrap_wait_distinguishes_root_from_addons_and_platform(self):
+        self.assertIsNotNone(self.bootstrap_fixture(root_health='Progressing')[2])
+        self.assertIsNotNone(self.bootstrap_fixture('1',addon_health='Progressing')[2])
+        self.assertIsNotNone(self.bootstrap_fixture('1',platform_exists=False)[2])
+
     def test_ssm_offline_old_agent_or_inbound_stop(self):
         cluster={'status':'ACTIVE','version':'1.35','arn':self.t['arn'],'endpoint':self.t['endpoint'],'certificateAuthority':{'data':self.t['ca_data']},'resourcesVpcConfig':{'vpcId':self.t['vpc_id'],'endpointPrivateAccess':True,'endpointPublicAccess':False,'subnetIds':list(self.t['subnet_ids_by_az'].values()),'securityGroupIds':[self.t['api_security_group_id'],self.t['workload_api_target_security_group_id']]}}
         groups=[{'GroupId':self.t['api_security_group_id'],'IpPermissions':[{'IpProtocol':'tcp','FromPort':443,'ToPort':443,'UserIdGroupPairs':[{'GroupId':self.t['ssm_bridge_security_group_id']}]}]},{'GroupId':self.t['ssm_bridge_security_group_id'],'IpPermissions':[]},{'GroupId':self.t['workload_api_target_security_group_id'],'IpPermissions':[{'IpProtocol':'tcp','FromPort':443,'ToPort':443,'UserIdGroupPairs':[{'GroupId':self.t['management_api_source_security_group_id']}]}]}]

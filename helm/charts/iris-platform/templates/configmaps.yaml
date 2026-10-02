@@ -1,0 +1,17 @@
+{{- $configs := dict "api" (dict "LOG_LEVEL" .Values.was.logLevel) "build-worker" (dict "LOG_LEVEL" .Values.was.logLevel "AWS_REGION" .Values.awsRegion "CODEBUILD_PROJECT" .Values.buildWorker.codebuildProject "ARTIFACT_BUCKET" .Values.buildWorker.artifactBucket) "deploy-worker" (dict "LOG_LEVEL" .Values.was.logLevel "AWS_REGION" .Values.awsRegion "BASE_DOMAIN" .Values.deployWorker.baseDomain "GITOPS_REPOSITORY" .Values.deployWorker.gitopsRepository "ARGOCD_SERVER_URL" .Values.deployWorker.argocdUrl "SSL_CERT_FILE" "/etc/iris-argocd/ca-bundle.pem") }}
+{{- if .Values.errorAgent.enabled }}{{- $_ := set $configs "error-agent" (dict "LLM_MODEL" .Values.errorAgent.model) }}{{- end }}
+{{- range $component, $data := $configs }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $.Release.Name }}-{{ $component }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+  labels:
+    {{- include "iris-platform.labels" $ | nindent 4 }}
+data:
+  {{- range $key, $value := $data }}
+  {{ $key }}: {{ $value | quote }}
+  {{- end }}
+{{- end }}

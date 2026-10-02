@@ -1,33 +1,106 @@
-# Control plane 컴포넌트 목록. 키가 컴포넌트 이름이고 리소스 이름은 iris-{키}입니다.
-# - 실행 방식(repository·command·port·ingress·SA·Secret)은 iris-infra target values 가 정합니다.
-# - 버전(digest)은 각 서비스 레포의 수동 배포 workflow 가 iris-gitops-environments
-#   platform/aws-dev-management/{repo}.yaml 에 `components.<키>.digest` 로 씁니다.
-# - digest 가 비어 있는 컴포넌트는 배포하지 않습니다(ServiceAccount 만 만듭니다).
-# 비밀값은 여기 두지 않고 secretName 의 Secret(운영자가 생성)을 envFrom 으로 읽습니다.
-components: {}
-# components.<키> 에 쓸 수 있는 필드(기본값은 templates/_helpers.tpl):
-#   repository: ECR URI (필수)          digest: sha256:... (workflow)
-#   command: [..]                       port: 8000 (있으면 Service·probe)
-#   ingress: {host, groupName}          allowedCidrs: [ALB 서브넷]
-#   migration: [alembic, upgrade, head] (PreSync Job, 같은 이미지)
-#   serviceAccountName: iris-{키}       automountServiceAccountToken: true
-#   secretName: iris-{키}-env           argocdEgress: false
-#   env: {}  replicas: 1  resources: {...}
-
-# 모든 컴포넌트에 넣는 비밀이 아닌 공통 환경변수
-env: {}
-
-resources:
-  requests: {cpu: 100m, memory: 256Mi}
-  limits: {cpu: 500m, memory: 512Mi}
-
-# Platform RDS(foundation database.tf). DATABASE_URL 은 각 컴포넌트 Secret 에 있습니다.
-# 비어 있으면 DB egress 를 열지 않습니다(baseline 정책은 443·DNS 만 허용).
-database:
-  egressCidrs: []
-  port: 5432
-
-# Deploy Worker 처럼 argocdEgress 인 컴포넌트가 Argo CD API 로 나가는 대상
-argocd:
-  namespace: argocd
-  port: 8080
+{
+  "was": {
+    "image": {
+      "repository": "",
+      "digest": ""
+    },
+    "logLevel": "INFO"
+  },
+  "database": {
+    "runtimeSecret": "",
+    "migrationSecret": "",
+    "urlKey": "DATABASE_URL",
+    "caConfigMap": "",
+    "caKey": "ca-bundle.pem"
+  },
+  "api": {
+    "replicas": 1,
+    "host": "",
+    "resources": {
+      "requests": {
+        "cpu": "100m",
+        "memory": "256Mi"
+      },
+      "limits": {
+        "cpu": "500m",
+        "memory": "512Mi"
+      }
+    }
+  },
+  "buildWorker": {
+    "replicas": 1,
+    "codebuildProject": "",
+    "artifactBucket": "",
+    "githubSecret": "",
+    "resources": {
+      "requests": {
+        "cpu": "100m",
+        "memory": "256Mi"
+      },
+      "limits": {
+        "cpu": "500m",
+        "memory": "512Mi"
+      }
+    },
+    "terminationGracePeriodSeconds": 120
+  },
+  "deployWorker": {
+    "replicas": 1,
+    "baseDomain": "",
+    "gitopsRepository": "2026-softbank-1/iris-gitops-environments",
+    "githubSecret": "",
+    "argocdUrl": "",
+    "argocdSecret": "",
+    "caConfigMap": "",
+    "caKey": "ca-bundle.pem",
+    "resources": {
+      "requests": {
+        "cpu": "100m",
+        "memory": "256Mi"
+      },
+      "limits": {
+        "cpu": "500m",
+        "memory": "512Mi"
+      }
+    },
+    "terminationGracePeriodSeconds": 60
+  },
+  "errorAgent": {
+    "enabled": false,
+    "image": {
+      "repository": "",
+      "digest": ""
+    },
+    "secret": "",
+    "model": "",
+    "resources": {
+      "requests": {
+        "cpu": "100m",
+        "memory": "256Mi"
+      },
+      "limits": {
+        "cpu": "500m",
+        "memory": "512Mi"
+      }
+    }
+  },
+  "migration": {
+    "resources": {
+      "requests": {
+        "cpu": "100m",
+        "memory": "256Mi"
+      },
+      "limits": {
+        "cpu": "500m",
+        "memory": "512Mi"
+      }
+    },
+    "activeDeadlineSeconds": 600,
+    "backoffLimit": 1
+  },
+  "network": {
+    "albSubnetCidrs": [],
+    "rdsSubnetCidrs": []
+  },
+  "awsRegion": "ap-northeast-2"
+}

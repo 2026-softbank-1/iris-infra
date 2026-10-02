@@ -1,22 +1,65 @@
 # iris-platform
 
-management EKS의 `iris-platform` namespace에 Iris control plane을 배포합니다. Argo CD Application `iris-platform`(AppProject `iris-platform-project`)이 동기화합니다.
+Management EKS의 `iris-platform` namespace에 Iris 플랫폼을 배포하는 Chart입니다. Namespace·Quota·기본 NetworkPolicy·ALB 앵커는 `cluster-baseline`이 소유합니다. DB는 외부 RDS PostgreSQL이며 이 Chart는 DB·PVC·Secret을 생성하지 않습니다.
 
-`components.<키>`마다 리소스 `iris-<키>`를 만듭니다. 실행 방식과 버전을 다른 곳에서 정합니다.
-
-| 무엇 | 어디 | 누가 |
+| 구성 요소 | 이미지 / 실행 | 네트워크·자격증명 |
 | --- | --- | --- |
-| 실행 방식: repository·command·port·ingress·SA·Secret·migration | `clusters/aws-dev-management/values/platform.yaml` (infra SHA 고정) | iris-infra PR |
-| 버전: `components.<키>.digest` | `iris-gitops-environments/platform/aws-dev-management/<repo>.yaml` (main) | 각 서비스 레포의 수동 배포 workflow |
+| API | WAS digest, `uvicorn app.main:app --host 0.0.0.0 --port 8000` | ALB → ClusterIP 8000, runtime DB Secret |
+| Build Worker | 같은 WAS digest, `python -m app.workers.build_worker` | `build-worker` Pod Identity, runtime DB·Build GitHub App |
+| Deploy Worker | 같은 WAS digest, `python -m app.workers.deploy_worker` | `deploy-worker` Pod Identity, runtime DB·별도 GitOps App·Argo reader token |
+| Migration | 같은 WAS digest, `alembic upgrade head` | 별도 DDL DB Secret, Worker AWS 권한 없음 |
+| Error Check Agent | 선택 image digest, `python -m ai_error_check_agent.api --host 0.0.0.0 --port 8001` | 내부 ClusterIP 8001, LLM·Agent API key |
 
-- digest가 없거나 iris-infra에 정의되지 않은 컴포넌트는 배포하지 않습니다(ServiceAccount만 만듭니다).
-- `port`가 있으면 Service·`/healthz` probe, `ingress`면 baseline 앵커의 ALB group에 host 규칙, `allowedCidrs`면 ALB → 포트 NetworkPolicy, `migration`이면 같은 이미지의 PreSync Job, `argocdEgress`면 `argocd-server:8080` egress를 만듭니다. 모든 Pod는 RDS 서브넷 5432로 나갈 수 있습니다.
-- 비밀값은 chart에 없고 Secret `iris-<키>-env`(또는 `secretName`)를 envFrom으로 읽습니다([deploy-platform runbook](../../../docs/runbooks/deploy-platform.md)).
+API와 Worker는 최초 replica 1입니다. Worker에는 존재하지 않는 HTTP health probe를 넣지 않습니다. Build Worker 종료 유예는 최소 120초입니다. Error Agent는 기본 비활성화입니다. Code Analyzer는 운영 서버·이미지 준비 후 별도로 설계합니다.
 
-현재 컴포넌트(iris-was, `was.yaml`):
+## values
 
-| 키 | 리소스 | command | ServiceAccount | Secret |
-| --- | --- | --- | --- | --- |
-| `api` | Deployment·Service·Ingress `iris-api` + PreSync `iris-api-migration` | 이미지 CMD(:8000) / `alembic upgrade head` | `iris-api` | `iris-api-env` |
-| `build-worker` | Deployment `iris-build-worker` | `python -m app.workers.build_worker` | `build-worker`(Pod Identity) | `iris-build-worker-env` |
-| `deploy-worker` | Deployment `iris-deploy-worker` | `python -m app.workers.deploy_worker` | `deploy-worker` | `iris-deploy-worker-env` |
+`values.yaml`의 빈 값은 배포 전 채워야 하는 입력입니다. `values.schema.json`은 알 수 없는 필드, tag 대신 digest 누락, 빈 hostname·Secret 참조·CIDR, 잘못된 ECR 경로 등을 거절합니다. 실제 Secret 값은 values에 넣지 않습니다. 실행 가능한 **가짜 검증 데이터**는 `ci/was-values.yaml`, `ci/error-agent-values.yaml`에 있습니다. 운영에는 `clusters/aws-dev-management/values/platform.yaml`을 채웁니다.
+
+| 설정 | 필요한 값 |
+| --- | --- |
+| `was.image` | `…amazonaws.com/iris/was` repository, 실제 `sha256:<64 hex>` digest |
+| `api.host` | 운영자가 선택한 API FQDN; management 앵커 인증서 SAN과 일치 |
+| `database.runtimeSecret`, `migrationSecret` | 서로 다른 기존 Secret 이름, 공통 `urlKey`(기본 `DATABASE_URL`) |
+| `database.caConfigMap`, `caKey` | RDS CA bundle을 보관한 기존 ConfigMap과 데이터 키 |
+| `buildWorker.codebuildProject`, `artifactBucket` | foundation의 `build_codebuild_project_name`, `build_artifact_bucket_name` 출력 |
+| `buildWorker.githubSecret` | 아래 Build GitHub App 키를 가진 기존 Secret |
+| `deployWorker.baseDomain` | 사용자 서비스 도메인; `api.host`와 별도 설정 |
+| `deployWorker.gitopsRepository` | `2026-softbank-1/iris-gitops-environments` (`owner/repo` 형식) |
+| `deployWorker.githubSecret` | Build App과 다른 GitOps App Secret |
+| `deployWorker.argocdUrl`, `argocdSecret` | HTTPS Argo CD URL, 읽기 전용 project token Secret |
+| `deployWorker.caConfigMap`, `caKey` | Argo 내부 CA와 GitHub 등 공개 HTTPS CA를 포함한 완전한 bundle |
+| `network.albSubnetCidrs` | management ALB가 위치한 public subnet CIDR 목록 |
+| `network.rdsSubnetCidrs` | RDS subnet CIDR 목록; failover 가능한 모든 subnet 포함 |
+| `errorAgent.enabled`, `image`, `secret`, `model` | Agent 활성화 때 실제 image digest·아래 두 Secret 키·LLM 모델 |
+
+모든 Secret·CA ConfigMap은 `iris-platform`에 별도 준비합니다.
+
+| 기존 Secret | 필수 데이터 키 | 소비자 |
+| --- | --- | --- |
+| runtime DB | `DATABASE_URL` (또는 `database.urlKey`) | API·두 Worker |
+| migration DB | 같은 URL 키 | migration Job만 |
+| Build GitHub App | `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_PUBLIC_INSTALLATION_ID` | Build Worker만 |
+| Deploy GitHub App | `GITOPS_APP_ID`, `GITOPS_APP_PRIVATE_KEY`, `GITOPS_INSTALLATION_ID` | Deploy Worker만 |
+| Argo reader | `ARGOCD_TOKEN` | Deploy Worker만 |
+| Error Agent | `LLM_API_KEY`, `AGENT_API_KEY` | Error Agent만 |
+
+GitHub App private key는 PEM 원문이며 ID 값은 정수 문자열입니다. Agent API key는 공백 없는 ASCII 32자 이상이어야 합니다. Secret 전체 `envFrom` 대신 필요한 키만 주입합니다. API·migration·Agent SA에는 Worker Pod Identity 역할을 연결하지 않습니다. WAS는 UID/GID 1001, Agent 이미지는 숫자 non-root USER로 빌드해야 합니다.
+
+## RDS TLS와 migration
+
+DB URL은 `postgresql+asyncpg://<user>:<encoded-password>@<rds-endpoint>:5432/<database>` 형식입니다. 비밀번호 특수문자는 URL 인코딩하고 `ssl`, `sslmode`, `sslrootcert`, `sslcert`, `sslkey`, `sslcrl`, `sslpassword` query parameter를 넣지 않습니다. SQLAlchemy의 asyncpg 경로는 query를 연결 인자로 전달하므로 URL TLS 옵션과 환경변수를 섞지 않습니다.
+
+API·Worker·Job은 `PGSSLMODE=verify-full`, `PGSSLROOTCERT=/etc/iris-rds/ca-bundle.pem`을 사용합니다. 동일 WAS digest의 initContainer가 URL 형식·TLS query 충돌·CA 파싱을 검사하고, 오류에는 URL·비밀번호를 출력하지 않습니다. 이 검사는 실제 DB 연결이나 사용자 권한을 검증하지 않습니다. RDS endpoint hostname을 사용하고 runtime role에는 필요한 테이블 DML 권한만, migration role에는 Alembic DDL과 테이블 소유권을 준비합니다. 새 테이블에 runtime role 권한이 부여되도록 default privileges도 관리합니다.
+
+Argo의 **전체 sync**는 준비 리소스(wave -2) → migration `Sync` hook(wave -1) → Deployment(wave 0) 순서입니다. Job은 timeout/backoff가 있고 성공하면 삭제하며 실패하면 남깁니다. 재시도 시 이전 Job을 교체합니다. 선택적 resource sync는 hook을 건너뛰므로 release에 사용하지 않습니다. Helm 단독 install에는 Argo wave/hook 순서가 적용되지 않으므로 운영 배포 경로는 Argo 전체 sync입니다.
+
+## Ingress·CA·회전
+
+API Ingress는 기존 `iris-platform-external` group에 host 규칙을 추가합니다. ALB 이름·scheme·listener·certificate·redirect는 baseline 앵커가 소유합니다. target type은 IP, Service/Pod는 8000, ALB health는 `/readyz`의 **204**입니다. Kubernetes startup/liveness는 `/healthz`, readiness는 `/readyz`입니다.
+
+Chart의 NetworkPolicy는 baseline에 ALB→API 8000, DB client→RDS 5432, Deploy Worker→argocd-server Pod 8080 허용을 더합니다. 정책은 합산되며 기본 namespace 내부·DNS·외부 HTTPS 허용을 더 제한하지 않습니다. RDS SG, 라우팅과 실제 subnet CIDR도 별도로 맞춰야 합니다.
+
+Deploy Worker는 `SSL_CERT_FILE=/etc/iris-argocd/ca-bundle.pem`으로 내부 Argo 인증서를 검증합니다. Argo URL hostname이 서버 인증서 SAN에 있어야 합니다. 공개 root CA를 빼면 같은 HTTP client의 GitHub 통신도 실패합니다. TLS 검증을 끄지 않습니다. Secret 변경은 checksum으로 감지하지 않으므로 회전 후 관련 Deployment를 재시작합니다. CA volume은 갱신되지만 기존 client/DB 연결은 CA를 다시 읽지 않을 수 있어 CA 회전 후에도 재시작합니다. 실패한 migration Job은 원인 해결 후 전체 sync로 재실행합니다.
+
+배포·검증·복구 절차는 [platform runbook](../../../docs/runbooks/deploy-platform.md)을 참고합니다.

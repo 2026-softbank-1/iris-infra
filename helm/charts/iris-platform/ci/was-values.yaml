@@ -1,21 +1,21 @@
 {
   "was": {
     "image": {
-      "repository": "",
-      "digest": ""
+      "repository": "123456789012.dkr.ecr.ap-northeast-2.amazonaws.com/iris/was",
+      "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     },
     "logLevel": "INFO"
   },
   "database": {
-    "runtimeSecret": "",
-    "migrationSecret": "",
+    "runtimeSecret": "iris-db-runtime",
+    "migrationSecret": "iris-db-migration",
     "urlKey": "DATABASE_URL",
-    "caConfigMap": "",
+    "caConfigMap": "iris-rds-ca",
     "caKey": "ca-bundle.pem"
   },
   "api": {
     "replicas": 1,
-    "host": "",
+    "host": "api.example.com",
     "resources": {
       "requests": {
         "cpu": "100m",
@@ -29,9 +29,9 @@
   },
   "buildWorker": {
     "replicas": 1,
-    "codebuildProject": "",
-    "artifactBucket": "",
-    "githubSecret": "",
+    "codebuildProject": "iris-dev-build",
+    "artifactBucket": "iris-dev-build-artifacts-123456789012-ap-northeast-2",
+    "githubSecret": "iris-build-github",
     "resources": {
       "requests": {
         "cpu": "100m",
@@ -46,12 +46,12 @@
   },
   "deployWorker": {
     "replicas": 1,
-    "baseDomain": "",
+    "baseDomain": "example.com",
     "gitopsRepository": "2026-softbank-1/iris-gitops-environments",
-    "githubSecret": "",
-    "argocdUrl": "",
-    "argocdSecret": "",
-    "caConfigMap": "",
+    "githubSecret": "iris-deploy-github",
+    "argocdUrl": "https://argocd-server.argocd.svc.cluster.local",
+    "argocdSecret": "iris-deploy-argocd",
+    "caConfigMap": "iris-deploy-ca",
     "caKey": "ca-bundle.pem",
     "resources": {
       "requests": {
@@ -99,8 +99,14 @@
     "backoffLimit": 1
   },
   "network": {
-    "albSubnetCidrs": [],
-    "rdsSubnetCidrs": []
+    "albSubnetCidrs": [
+      "10.0.0.0/24",
+      "10.0.1.0/24"
+    ],
+    "rdsSubnetCidrs": [
+      "10.0.16.0/24",
+      "10.0.17.0/24"
+    ]
   },
   "awsRegion": "ap-northeast-2"
 }
