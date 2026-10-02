@@ -118,6 +118,7 @@ run "restrict_github_deployment" {
         contains([
           "arn:aws:s3:::iris-dev-build-artifacts-123456789012-ap-northeast-2",
           "arn:aws:s3:::iris-dev-build-artifacts-123456789012-ap-northeast-2/*",
+          "arn:aws:s3:::iris-dev-loki-123456789012-ap-northeast-2",
         ], resource)
       ]) if anytrue([for action in statement.Action : startswith(action, "s3:")])
     ])

@@ -1,4 +1,4 @@
-# Match the build resources currently implemented in foundation/build.tf.
+# Match the build resources in foundation/build.tf and the Loki bucket in foundation/observability.tf.
 # Future VPC/EKS resources require their own deployment permissions.
 locals {
   build_name           = "${var.project}-${var.environment}-build"
@@ -7,6 +7,8 @@ locals {
   build_log_group_arn  = "arn:aws:logs:${var.aws_region}:${var.aws_account_id}:log-group:/aws/codebuild/${local.build_name}"
   build_codebuild_role = "arn:aws:iam::${var.aws_account_id}:role/${local.build_name}-codebuild"
   build_worker_role    = "arn:aws:iam::${var.aws_account_id}:role/${local.build_name}-worker"
+  # Loki role is a Pod Identity runtime role; ci-eks.tf administers it like deploy-worker.
+  loki_bucket_arn = "arn:aws:s3:::${var.project}-${var.environment}-loki-${var.aws_account_id}-${var.aws_region}"
 }
 
 resource "aws_iam_role_policy" "foundation" {
@@ -30,7 +32,7 @@ resource "aws_iam_role_policy" "foundation" {
           "s3:GetReplicationConfiguration",
           "s3:ListTagsForResource",
         ]
-        Resource = local.build_bucket_arn
+        Resource = [local.build_bucket_arn, local.loki_bucket_arn]
       },
       {
         Sid    = "ManageBuildBucket"
@@ -47,7 +49,7 @@ resource "aws_iam_role_policy" "foundation" {
           "s3:PutBucketPolicy",
           "s3:DeleteBucketPolicy",
         ]
-        Resource = local.build_bucket_arn
+        Resource = [local.build_bucket_arn, local.loki_bucket_arn]
       },
       {
         Sid    = "EmptyBuildBucketOnReplacement"
