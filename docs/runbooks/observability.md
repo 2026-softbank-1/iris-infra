@@ -72,6 +72,8 @@ curl -sG localhost:19090/api/v1/query \
 - 샘플 Pod(`svc-test`, 라벨 `iris/release-id: "1"`): 위 라벨·메트릭 모두 확인, 로그 본문은 CRI prefix가 제거된 원문.
 - `restrict-egress`: gateway NLB·다른 노드·VPC resolver·IMDS 차단, 외부 443·클러스터 DNS 허용.
 - **한계**: Pod가 **자기 노드 IP**에는 닿습니다(VPC CNI NetworkPolicy가 Pod→자기 노드 트래픽을 막지 않음). kubelet 10250은 인증이 필요해 401이고, agent는 hostPort를 열지 않습니다. hostNetwork/hostPort 서비스를 노드에 추가할 때 이 점을 고려합니다.
+  - 2026-10-02 `restrict-egress` 적용 Pod에서 자기 노드 스캔: 열림 22(sshd, 등록 키 없음), 9100(node-exporter 메트릭), 8162·61678(aws-node 메트릭), 10249·10256(kube-proxy 메트릭·healthz), 10250(kubelet, 401). 닫힘 80·2703(Pod Identity Agent는 link-local 주소에서만 수신), 61679·61680.
+  - 열린 포트는 인증정보 없이 노드·CNI 메트릭만 노출합니다. dev에서는 허용하고, 막아야 하면 노드 호스트 방화벽(Pod CIDR → 노드 포트 차단)이나 사용자 전용 노드그룹을 검토합니다.
 - Loki S3 쓰기는 Pod Identity 자격증명으로 동작합니다(IRSA 불필요).
 
 ## 비밀번호 교체
