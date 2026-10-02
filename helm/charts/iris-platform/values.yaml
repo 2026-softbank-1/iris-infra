@@ -6,8 +6,7 @@
     "logLevel": "INFO"
   },
   "database": {
-    "runtimeSecret": "",
-    "migrationSecret": "",
+    "secret": "",
     "urlKey": "DATABASE_URL",
     "caConfigMap": "",
     "caKey": "ca-bundle.pem"

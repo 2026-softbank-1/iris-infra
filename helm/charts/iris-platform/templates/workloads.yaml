@@ -41,7 +41,7 @@ spec:
         runAsGroup: 1001
         seccompProfile: {type: RuntimeDefault}
       initContainers:
-        {{- include "iris-platform.database-guard" (dict "root" $ "digest" $settings.digest "secret" $.Values.database.runtimeSecret) | nindent 8 }}
+        {{- include "iris-platform.database-guard" (dict "root" $ "digest" $settings.digest "secret" $.Values.database.secret) | nindent 8 }}
       containers:
         - name: {{ $component }}
           image: {{ include "iris-platform.image" (dict "root" $ "digest" $settings.digest) | quote }}
@@ -69,7 +69,7 @@ spec:
             - configMapRef:
                 name: {{ $.Release.Name }}-{{ $component }}
           env:
-            {{- include "iris-platform.database-env" (dict "root" $ "secret" $.Values.database.runtimeSecret) | nindent 12 }}
+            {{- include "iris-platform.database-env" (dict "root" $ "secret" $.Values.database.secret) | nindent 12 }}
             {{- if eq $component "build-worker" }}
             {{- range $key := list "GITHUB_APP_ID" "GITHUB_APP_PRIVATE_KEY" "GITHUB_PUBLIC_INSTALLATION_ID" }}
             - name: {{ $key }}
