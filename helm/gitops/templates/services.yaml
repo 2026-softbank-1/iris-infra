@@ -1,0 +1,75 @@
+{{- /* User services (ADR 0002): one Application per services/{id}/prod directory in the GitOps repo. */}}
+{{- $workload := .Values.targets.workload }}
+{{- $chartRepo := .Values.repoURL }}
+{{- $s := .Values.services }}
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: iris-services
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  sourceRepos:
+    - {{ $chartRepo | quote }}
+    - {{ $s.repoURL | quote }}
+  destinations:
+    - server: {{ $workload.endpoint | quote }}
+      namespace: svc-*
+  # CreateNamespace needs Namespace; everything else is what the iris-service chart renders.
+  clusterResourceWhitelist:
+    - {group: "", kind: Namespace}
+  namespaceResourceWhitelist:
+    - {group: apps, kind: Deployment}
+    - {group: "", kind: Service}
+    - {group: networking.k8s.io, kind: Ingress}
+    - {group: networking.k8s.io, kind: NetworkPolicy}
+  roles:
+    # Deploy Worker reads Application status with this role's token.
+    - name: deploy-reader
+      policies:
+        - p, proj:iris-services:deploy-reader, applications, get, iris-services/*, allow
+---
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: iris-services
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - git:
+        repoURL: {{ $s.repoURL | quote }}
+        revision: {{ $s.revision | quote }}
+        directories:
+          - path: services/*/prod
+  syncPolicy:
+    # A removed directory must not delete a running service; deletion is a separate decision.
+    applicationsSync: create-update
+  template:
+    metadata:
+      name: 'svc-{{ "{{" }} index .path.segments 1 {{ "}}" }}'
+    spec:
+      project: iris-services
+      sources:
+        - repoURL: {{ $chartRepo | quote }}
+          path: helm/charts/iris-service
+          targetRevision: {{ $s.chartRevision | quote }}
+          helm:
+            valueFiles:
+              - '$values/{{ "{{" }} .path.path {{ "}}" }}/values.yaml'
+        - repoURL: {{ $s.repoURL | quote }}
+          targetRevision: {{ $s.revision | quote }}
+          ref: values
+      destination:
+        server: {{ $workload.endpoint | quote }}
+        namespace: 'svc-{{ "{{" }} index .path.segments 1 {{ "}}" }}'
+      syncPolicy:
+        automated: {prune: true, selfHeal: true}
+        syncOptions: [CreateNamespace=true, PruneLast=true]
+        managedNamespaceMetadata:
+          labels:
+            pod-security.kubernetes.io/enforce: baseline
+            # Rollouts wait for ALB target health.
+            elbv2.k8s.aws/pod-readiness-gate-inject: enabled

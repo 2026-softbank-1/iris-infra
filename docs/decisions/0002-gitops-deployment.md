@@ -9,7 +9,7 @@ Worker 가 앱 EKS 에 Helm 을 직접 호출하면 Worker 에 클러스터 쓰�
 
 ## 결정
 
-- **배포**: Deploy Worker 는 `gitops-environments` 의 `services/{service_id}/prod/values.yaml` 하나만 커밋합니다(`main` fast-forward, force push 금지).
+- **배포**: Deploy Worker 는 `iris-gitops-environments` 의 `services/{service_id}/prod/values.yaml` 하나만 커밋합니다(`main` fast-forward, force push 금지).
   Argo CD ApplicationSet 이 `services/*/prod` 디렉터리마다 Application 을 만들고, `iris-service` chart 와 그 values 로 앱 EKS 에 동기화합니다.
 - **chart 전달**: Argo CD 가 이 저장소의 `helm/charts/iris-service` 를 **Git tag `iris-service-<version>`** 로 직접 읽습니다(multi-source: chart + `$values`).
   OCI 패키징·ECR helm 저장소·Argo CD 의 ECR 토큰 갱신은 두지 않습니다. 로컬 CLI 가 같은 chart 를 OCI 로 받아야 할 때 추가합니다.

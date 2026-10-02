@@ -7,7 +7,7 @@
 
 ## 배포별 values (Deploy Worker 가 씀)
 
-위치: `gitops-environments/services/{service_id}/prod/values.yaml`. Deploy Worker 가 배포마다 파일 전체를 다시 씁니다.
+위치: `iris-gitops-environments/services/{service_id}/prod/values.yaml`. Deploy Worker 가 배포마다 파일 전체를 다시 씁니다.
 내용은 JSON(YAML 의 부분집합)입니다.
 
 | 필드 | 필수 | 의미 |

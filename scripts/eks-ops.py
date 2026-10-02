@@ -22,6 +22,9 @@ ROOT = Path(__file__).resolve().parents[1]
 TARGETS = ('aws-dev-management', 'aws-dev-workload')
 REPO = 'https://github.com/2026-softbank-1/iris-infra.git'
 SSH_REPO = 'git@github.com:2026-softbank-1/iris-infra.git'
+# User-service values (ADR 0002); Argo reads it with the same read-only credential.
+GITOPS_REPO = 'https://github.com/2026-softbank-1/iris-gitops-environments.git'
+GITOPS_SSH_REPO = 'git@github.com:2026-softbank-1/iris-gitops-environments.git'
 
 
 def need(condition, message):
@@ -256,16 +259,19 @@ def bootstrap():
     run(['helm','dependency','build',str(ROOT/'helm/bootstrap')],timeout=300)
     run(['helm','upgrade','--install','argocd',str(ROOT/'helm/bootstrap'),'--namespace','argocd','--kubeconfig',str(kubeconfig(management)),'--kube-context',management['kube_context'],'--wait','--timeout','15m'],timeout=960)
     repo_url=SSH_REPO if key_path else REPO
-    data={'type':'git','url':repo_url}
-    if key_path:data['sshPrivateKey']=credential
-    else:data.update(username='x-access-token',password=credential)
-    objects=[{'apiVersion':'v1','kind':'Secret','metadata':{'name':'iris-infra-repository','namespace':'argocd','labels':{'argocd.argoproj.io/secret-type':'repository'}},'type':'Opaque','stringData':data}]
+    gitops_url=GITOPS_SSH_REPO if key_path else GITOPS_REPO
+    objects=[]
+    for name,url in (('iris-infra-repository',repo_url),('iris-gitops-environments-repository',gitops_url)):
+        data={'type':'git','url':url}
+        if key_path:data['sshPrivateKey']=credential
+        else:data.update(username='x-access-token',password=credential)
+        objects.append({'apiVersion':'v1','kind':'Secret','metadata':{'name':name,'namespace':'argocd','labels':{'argocd.argoproj.io/secret-type':'repository'}},'type':'Opaque','stringData':data})
     for purpose,target in targets.items():
         auth={'awsAuthConfig':{'clusterName':target['name'],'roleARN':target['argocd_role_arn']},'tlsClientConfig':{'insecure':False,'caData':target['ca_data']}}
         objects.append({'apiVersion':'v1','kind':'Secret','metadata':{'name':f'iris-{purpose}-cluster','namespace':'argocd','labels':{'argocd.argoproj.io/secret-type':'cluster'}},'type':'Opaque','stringData':{'name':target['name'],'server':target['endpoint'],'config':json.dumps(auth)}})
-    values={'repoURL':repo_url,'revision':sha,'targets':{p:{k:t[k] for k in ('endpoint','name','region','vpc_id')} for p,t in targets.items()}}
+    values={'repoURL':repo_url,'revision':sha,'services':{'repoURL':gitops_url},'targets':{p:{k:t[k] for k in ('endpoint','name','region','vpc_id')} for p,t in targets.items()}}
     objects += [
-        {'apiVersion':'argoproj.io/v1alpha1','kind':'AppProject','metadata':{'name':'iris-root','namespace':'argocd'},'spec':{'sourceRepos':[repo_url],'destinations':[{'server':management['endpoint'],'namespace':'argocd'}],'clusterResourceWhitelist':[],'namespaceResourceWhitelist':[{'group':'argoproj.io','kind':'Application'},{'group':'argoproj.io','kind':'AppProject'}]}},
+        {'apiVersion':'argoproj.io/v1alpha1','kind':'AppProject','metadata':{'name':'iris-root','namespace':'argocd'},'spec':{'sourceRepos':[repo_url],'destinations':[{'server':management['endpoint'],'namespace':'argocd'}],'clusterResourceWhitelist':[],'namespaceResourceWhitelist':[{'group':'argoproj.io','kind':'Application'},{'group':'argoproj.io','kind':'AppProject'},{'group':'argoproj.io','kind':'ApplicationSet'}]}},
         {'apiVersion':'argoproj.io/v1alpha1','kind':'Application','metadata':{'name':'iris-addons','namespace':'argocd'},'spec':{'project':'iris-root','source':{'repoURL':repo_url,'targetRevision':sha,'path':'helm/gitops','helm':{'valuesObject':values}},'destination':{'server':management['endpoint'],'namespace':'argocd'},'syncPolicy':{'automated':{'prune':False,'selfHeal':True},'syncOptions':['ServerSideApply=true']}}}]
     apply(management,objects)
     names=['iris-addons']+[f'iris-{p}-{a}' for p in targets for a in ('baseline','aws-load-balancer-controller','metrics-server','kube-prometheus-stack')]
