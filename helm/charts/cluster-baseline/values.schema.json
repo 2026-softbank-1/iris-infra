@@ -78,7 +78,7 @@
           "enum": [
             "",
             "iris-platform-external",
-            "iris-svc-external"
+            "iris-service-external"
           ]
         },
         "certificateArn": {

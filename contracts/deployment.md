@@ -24,7 +24,7 @@
 
 ## chart 기본값 (배포별 values 에 넣지 않음)
 
-`replicas`, `resources`, `service.port`, `route.className`(`alb`)·`route.groupName`(`iris-svc-external`), `networkPolicy.allowedCidrs`.
+`replicas`, `resources`, `service.port`, `route.className`(`alb`)·`route.groupName`(`iris-service-external`), `networkPolicy.allowedCidrs`.
 타겟마다 다르면 ApplicationSet 의 Helm 값으로 덮어씁니다.
 
 ## 규칙
