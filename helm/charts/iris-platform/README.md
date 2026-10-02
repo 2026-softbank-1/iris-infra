@@ -60,7 +60,7 @@ GitOps digest 커밋이 들어오면 Argo가 **자동 sync**합니다: 준비 �
 
 API Ingress는 기존 `iris-platform-external` group에 host 규칙을 추가합니다. ALB 이름·scheme·certificate·redirect는 baseline 앵커가 소유합니다. `listen-ports`는 LBC에서 Ingress마다 적용되므로 API Ingress도 앵커와 같은 HTTP 80·HTTPS 443을 선언합니다(없으면 HTTPS 규칙이 생기지 않습니다). target type은 IP, Service/Pod는 8000, ALB health는 `/readyz`의 **204**입니다. Kubernetes startup/liveness는 `/healthz`, readiness는 `/readyz`입니다.
 
-Chart의 NetworkPolicy는 baseline에 ALB→API 8000, DB client→RDS 5432, Deploy Worker→argocd-server Pod 8080 허용을 더합니다. 정책은 합산되며 기본 namespace 내부·DNS·외부 HTTPS 허용을 더 제한하지 않습니다. RDS SG, 라우팅과 실제 subnet CIDR도 별도로 맞춰야 합니다.
+Chart의 NetworkPolicy는 baseline에 ALB→API 8000, DB client→RDS 5432, Deploy Worker→argocd-server Pod 8080, API→observability Loki 3100·Prometheus 9090(로그·메트릭 조회) 허용을 더합니다. 정책은 합산되며 기본 namespace 내부·DNS·외부 HTTPS 허용을 더 제한하지 않습니다. RDS SG, 라우팅과 실제 subnet CIDR도 별도로 맞춰야 합니다.
 
 Deploy Worker는 `SSL_CERT_FILE=/etc/iris-argocd/ca-bundle.pem`으로 내부 Argo 인증서를 검증합니다. Argo URL hostname이 서버 인증서 SAN에 있어야 합니다. 공개 root CA를 빼면 같은 HTTP client의 GitHub 통신도 실패합니다. TLS 검증을 끄지 않습니다. Secret 변경은 checksum으로 감지하지 않으므로 회전 후 관련 Deployment를 재시작합니다. CA volume은 갱신되지만 기존 client/DB 연결은 CA를 다시 읽지 않을 수 있어 CA 회전 후에도 재시작합니다. 실패한 migration Job은 원인 해결 후 전체 sync로 재실행합니다.
 

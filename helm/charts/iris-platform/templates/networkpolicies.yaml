@@ -66,3 +66,39 @@ spec:
               app.kubernetes.io/name: argocd-server
       ports:
         - {protocol: TCP, port: 8080}
+---
+# The API reads user service logs (Loki) and metrics (Prometheus) in observability.
+# Baseline application-boundary only allows 443/DNS egress.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-api-observability
+  labels:
+    {{- include "iris-platform.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name | quote }}
+      app.kubernetes.io/component: api
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: observability
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: loki
+      ports:
+        - {protocol: TCP, port: 3100}
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: observability
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+      ports:
+        - {protocol: TCP, port: 9090}
