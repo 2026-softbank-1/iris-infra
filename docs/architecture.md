@@ -16,14 +16,14 @@ flowchart TD
   G -->|baseline / LBC / metrics / monitoring| M
   G -->|baseline / LBC / metrics / monitoring| W
   P[후속 API / Worker / Agent / DB] -.-> M
-  P -.->|Deploy Worker의 values commit| V[gitops-environments]
+  P -.->|Deploy Worker의 values commit| V[iris-gitops-environments]
   C[iris-service chart의 고정 Git tag] -.-> G
   V -.->|후속 사용자 앱 ApplicationSet| G
 ```
 
 두 EKS stack은 **foundation만 참조**합니다. 상대 EKS state를 읽는 순환 의존은 없습니다. foundation의 Argo management role을 관리 EKS의 3개 SA가 Pod Identity로 사용하고, management/workload deploy role을 assume합니다. 두 deploy role과 명시한 운영자 principal은 cluster-admin Access Entry를 사용합니다. AppProject의 제한은 Argo 동기화 경계이며 IAM/RBAC의 cluster-admin 권한을 줄이지 않습니다.
 
-Terraform은 VPC·SG·IAM·EKS·노드·CNI/CoreDNS/kube-proxy/Pod Identity/EBS CSI를 소유합니다. Helm bootstrap은 Argo 자체·Git credential·cluster Secret·root AppProject/Application을 소유합니다. 이번 bootstrap은 baseline/LBC/metrics-server/kube-prometheus-stack Applications를 생성합니다. 사용자 앱은 [ADR 0002](decisions/0002-gitops-deployment.md)에 따라 Deploy Worker가 `gitops-environments/services/{service_id}/prod/values.yaml`을 커밋하고 Argo ApplicationSet이 `iris-service`의 고정 Git tag와 values로 배포합니다. Deploy Worker는 앱 EKS API에 접근하지 않습니다. 사용자 앱 ApplicationSet·별도 GitOps 저장소 자격 증명 연결은 후속 범위이며 addon AppProject와 구분합니다. ALB가 필요하면 LBC/Ingress가 만들며 Terraform이 ALB를 중복 선언하지 않습니다.
+Terraform은 VPC·SG·IAM·EKS·노드·CNI/CoreDNS/kube-proxy/Pod Identity/EBS CSI를 소유합니다. Helm bootstrap은 Argo 자체·Git credential·cluster Secret·root AppProject/Application을 소유합니다. 이번 bootstrap은 baseline/LBC/metrics-server/kube-prometheus-stack Applications를 생성합니다. 사용자 앱은 [ADR 0002](decisions/0002-gitops-deployment.md)에 따라 Deploy Worker가 `iris-gitops-environments/services/{service_id}/prod/values.yaml`을 커밋하고 Argo ApplicationSet이 `iris-service`의 고정 Git tag와 values로 배포합니다. Deploy Worker는 앱 EKS API에 접근하지 않습니다. 사용자 앱은 ApplicationSet `iris-services`가 `services/*/prod`마다 `svc-{id}` Application을 만들며 AppProject `iris-services`(workload `svc-*`, chart kind만 허용)로 addon과 구분합니다. 디렉터리가 사라져도 Application·리소스를 지우지 않습니다(`create-update`). ALB가 필요하면 LBC/Ingress가 만들며 Terraform이 ALB를 중복 선언하지 않습니다.
 
 네트워크는 공유 VPC `10.40.0.0/16`, AZ `ap-northeast-2a/c`, public 2개, management/workload private 각 2개입니다. public은 IGW, private은 기본적으로 같은 AZ의 NAT로 나갑니다. 기존 슬롯 0 NAT/EIP를 유지하고 슬롯 1을 추가합니다. `single`을 선택하면 AZ 간 비용과 한 NAT AZ 장애의 영향을 받아 노드 2대만으로 외부 통신 HA를 보장하지 않습니다. 노드와 bridge는 공인 IP 없이 실행합니다.
 
@@ -35,6 +35,6 @@ Terraform은 VPC·SG·IAM·EKS·노드·CNI/CoreDNS/kube-proxy/Pod Identity/EBS 
 
 foundation의 기존 Build Worker/CodeBuild/ECR 경계를 유지합니다. management에는 기존 Build Worker SA의 Pod Identity만 연결하며 실제 Worker·GitOps 저장소 연동과 사용자 앱 ApplicationSet은 후속 플랫폼 구현입니다. Build/Deploy Worker에 앱 EKS Access Entry를 주지 않습니다. 플랫폼 ECR 3개는 서비스 저장소의 main publisher가 게시하고 사용자 앱 `iris/services/*`는 기존 Build Worker가 만듭니다. ECR 이미지가 없어도 addon 설치는 가능하며 pull은 존재하는 digest로 별도 검사합니다.
 
-소스 SHA·배포 이력은 플랫폼 DB, 사용자 앱의 desired state는 `gitops-environments`, 이미지는 ECR, Terraform state는 S3에 저장합니다. 사용자 배포마다 이 저장소에 프로젝트 디렉토리나 commit을 만들지 않습니다. 로컬 CLI는 같은 `iris-service` chart 버전으로 k3d에 배포하며 `iris-web` 정적 사이트 배포는 후속 범위입니다.
+소스 SHA·배포 이력은 플랫폼 DB, 사용자 앱의 desired state는 `iris-gitops-environments`, 이미지는 ECR, Terraform state는 S3에 저장합니다. 사용자 배포마다 이 저장소에 프로젝트 디렉토리나 commit을 만들지 않습니다. 로컬 CLI는 같은 `iris-service` chart 버전으로 k3d에 배포하며 `iris-web` 정적 사이트 배포는 후속 범위입니다.
 
 비밀값과 전체 state는 Git/GitOps values에 넣지 않습니다. 검토한 immutable SHA가 addon values를 고정합니다. [운영 경로](runbooks/eks-access.md), [결정](decisions/0003-private-eks-and-gitops.md), [target 계약](../contracts/target.md)을 참고합니다.

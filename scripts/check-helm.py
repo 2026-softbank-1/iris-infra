@@ -72,11 +72,24 @@ def main():
         values.write_text(json.dumps({'revision':'a'*40,'targets':targets}))
         gitops = render(ROOT/'helm/gitops', values, namespace='argocd')
         assert sum(d['kind']=='Application' for d in gitops)==8
-        assert sum(d['kind']=='AppProject' for d in gitops)==2
+        assert sum(d['kind']=='AppProject' for d in gitops)==3
+        appset = next(d for d in gitops if d['kind']=='ApplicationSet')['spec']
+        chart_source, values_source = appset['template']['spec']['sources']
+        assert appset['syncPolicy']['applicationsSync']=='create-update', 'Removed service directories must not delete running services.'
+        assert chart_source['targetRevision']==json.loads((ROOT/'helm/gitops/values.yaml').read_text())['services']['chartRevision']=='iris-service-'+yaml.safe_load((ROOT/'helm/charts/iris-service/Chart.yaml').read_text())['version'], 'ApplicationSet must pin the current iris-service chart tag.'
+        assert values_source['ref']=='values' and chart_source['helm']['valueFiles']==['$values/{{ .path.path }}/values.yaml']
+        assert appset['template']['metadata']['name']=='svc-{{ index .path.segments 1 }}' and appset['template']['spec']['destination']=={'server':targets['workload']['endpoint'],'namespace':'svc-{{ index .path.segments 1 }}'}
+        services = next(d for d in gitops if d['kind']=='AppProject' and d['metadata']['name']=='iris-services')['spec']
+        assert services['destinations']==[{'server':targets['workload']['endpoint'],'namespace':'svc-*'}] and services['clusterResourceWhitelist']==[{'group':'','kind':'Namespace'}]
+        rendered_kinds = {(d['apiVersion'].rpartition('/')[0], d['kind']) for d in render(ROOT/'helm/charts/iris-service', ROOT/'helm/charts/iris-service/ci/aws-values.yaml', namespace='svc-12')}
+        assert rendered_kinds <= {(w['group'],w['kind']) for w in services['namespaceResourceWhitelist']}, f'iris-services project must allow chart kinds: {rendered_kinds}'
         allowed = {p['metadata']['name'].removeprefix('iris-addons-'): {(w['group'],w['kind']) for w in p['spec']['clusterResourceWhitelist']} for p in gitops if p['kind']=='AppProject'}
         bad = directory/'bad.json'; bad.write_text(json.dumps({'revision':'main','targets':targets}))
         failed = subprocess.run([HELM,'template','check',str(ROOT/'helm/gitops'),'-f',str(bad)],capture_output=True)
         assert failed.returncode, 'Mutable Git revision must fail schema validation.'
+        bad.write_text(json.dumps({'revision':'a'*40,'targets':targets,'services':{'repoURL':'https://github.com/other/repo.git'}}))
+        failed = subprocess.run([HELM,'template','check',str(ROOT/'helm/gitops'),'-f',str(bad)],capture_output=True)
+        assert failed.returncode, 'Only the reviewed GitOps repository may feed user services.'
         charts = {}
         for name, pin in VERSIONS['charts'].items():
             if name=='argo-cd': continue

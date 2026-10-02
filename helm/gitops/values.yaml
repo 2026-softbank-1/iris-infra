@@ -1,5 +1,10 @@
 {
   "repoURL": "https://github.com/2026-softbank-1/iris-infra.git",
   "revision": "",
-  "targets": {}
+  "targets": {},
+  "services": {
+    "repoURL": "https://github.com/2026-softbank-1/iris-gitops-environments.git",
+    "revision": "main",
+    "chartRevision": "iris-service-0.2.0"
+  }
 }

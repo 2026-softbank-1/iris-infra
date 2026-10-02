@@ -7,7 +7,7 @@
 - 카드 없는 Free 계정에서 **EKS 생성과 서비스 quota가 허용되는지** 확인합니다. EC2의 Free eligible 표시는 EKS 사용 허용이나 무료 운영을 뜻하지 않습니다. 제한되면 배포를 멈추며 Paid 전환을 자동으로 하지 않습니다. 크레딧 잔액·만료와 4개 m7i-flex.large의 On-Demand vCPU quota·두 AZ 용량도 확인합니다.
 - 운영자 **IAM role/user ARN**을 확정하여 로컬 `operator_principal_arn`과 GitHub 변수 `EKS_OPERATOR_PRINCIPAL_ARN`에 같은 값을 넣습니다. 운영자가 더 있으면 `additional_operator_principal_arns`와 GitHub 변수 `EKS_ADDITIONAL_OPERATOR_PRINCIPAL_ARNS`(JSON 배열)에 넣습니다. STS 세션 ARN과 root ARN은 사용하지 않습니다. 이 principal에는 두 EKS의 cluster-admin Access Entry가 생깁니다.
 - 계정·리전·state 버킷·기존 foundation state 위치를 확인합니다. account의 runtime IAM/compute/bridge/EKS 정책과 CI 역할 `max_session_duration=7200`을 **관리자가 main merge 전에** 적용합니다. CI는 account를 적용하지 않습니다.
-- private 저장소에는 이 저장소만 읽을 수 있는 GitHub token 또는 read-only SSH deploy key가 필요합니다. 파일로 로컬에 준비하며 Git·환경 값·명령 인수·Terraform state에 키 본문을 넣지 않습니다.1 SSH 방식은 chart의 known_hosts에 GitHub 공식 호스트 키가 있는지 확인하고 불일치하면 중단합니다.
+- private 저장소에는 이 저장소와 `iris-gitops-environments`만 읽을 수 있는 GitHub token(fine-grained, Contents read-only)이 필요합니다. 조직 설정상 deploy key는 쓸 수 없습니다. 파일로 로컬에 준비하며 Git·환경 값·명령 인수·Terraform state에 키 본문을 넣지 않습니다.1 SSH 방식은 chart의 known_hosts에 GitHub 공식 호스트 키가 있는지 확인하고 불일치하면 중단합니다.
 - merge된 검토 완료 commit SHA와 일요일의 실제 철거 시각을 확정합니다. 자동 만료·철거 예약은 없습니다. main merge는 Terraform 인프라 배포의 시작입니다.
 
 Free 플랜은 허용 서비스가 제한되고 크레딧/플랜 만료로 계정 접근이 중단될 수 있습니다. [AWS Free Tier 플랜](https://docs.aws.amazon.com/awsaccountbilling/latest/aboutv2/free-tier-plans.html)을 확인합니다. 구현/정적 테스트로 이 계정의 EKS 생성 가능 여부를 보장할 수 없습니다.

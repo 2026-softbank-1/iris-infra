@@ -5,11 +5,15 @@
   "required": [
     "repoURL",
     "revision",
-    "targets"
+    "targets",
+    "services"
   ],
   "properties": {
     "repoURL": {
-      "enum": ["https://github.com/2026-softbank-1/iris-infra.git", "git@github.com:2026-softbank-1/iris-infra.git"]
+      "enum": [
+        "https://github.com/2026-softbank-1/iris-infra.git",
+        "git@github.com:2026-softbank-1/iris-infra.git"
+      ]
     },
     "revision": {
       "type": "string",
@@ -72,6 +76,30 @@
               "pattern": "^vpc-[0-9a-f]+$"
             }
           }
+        }
+      }
+    },
+    "services": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repoURL",
+        "revision",
+        "chartRevision"
+      ],
+      "properties": {
+        "repoURL": {
+          "enum": [
+            "https://github.com/2026-softbank-1/iris-gitops-environments.git",
+            "git@github.com:2026-softbank-1/iris-gitops-environments.git"
+          ]
+        },
+        "revision": {
+          "const": "main"
+        },
+        "chartRevision": {
+          "type": "string",
+          "pattern": "^iris-service-[0-9]+\\.[0-9]+\\.[0-9]+$"
         }
       }
     }
