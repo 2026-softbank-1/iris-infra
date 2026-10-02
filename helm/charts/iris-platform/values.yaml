@@ -3,7 +3,8 @@
     "image": {
       "repository": ""
     },
-    "logLevel": "INFO"
+    "logLevel": "INFO",
+    "envSecret": ""
   },
   "database": {
     "secret": "",

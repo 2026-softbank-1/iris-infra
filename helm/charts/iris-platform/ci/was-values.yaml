@@ -3,10 +3,11 @@
     "image": {
       "repository": "123456789012.dkr.ecr.ap-northeast-2.amazonaws.com/iris/was"
     },
-    "logLevel": "INFO"
+    "logLevel": "INFO",
+    "envSecret": "iris-was-env"
   },
   "database": {
-    "secret": "iris-db",
+    "secret": "iris-was-env",
     "urlKey": "DATABASE_URL",
     "caConfigMap": "iris-rds-ca",
     "caKey": "ca-bundle.pem"

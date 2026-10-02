@@ -35,6 +35,11 @@ spec:
           image: {{ include "iris-platform.image" (dict "root" . "digest" .Values.api.digest) | quote }}
           imagePullPolicy: IfNotPresent
           command: [alembic, upgrade, head]
+          {{- with .Values.was.envSecret }}
+          envFrom:
+            - secretRef:
+                name: {{ . | quote }}
+          {{- end }}
           env:
             {{- include "iris-platform.database-env" (dict "root" . "secret" .Values.database.secret) | nindent 12 }}
           volumeMounts:

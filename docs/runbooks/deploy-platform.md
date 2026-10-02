@@ -8,7 +8,13 @@
 
 1. [EKS 운영 경로](eks-access.md)로 management/workload, baseline, LBC, metrics, 관측 스택과 Argo를 먼저 준비합니다. `iris-platform` Namespace·Quota·기본 NetworkPolicy와 management ALB 앵커가 있어야 합니다.
 2. 이미지는 각 서비스 레포의 수동 배포 workflow가 ECR에 게시하고 digest를 GitOps 파일에 커밋합니다(iris-was: API·Build Worker·Deploy Worker를 골라서, migration은 API digest). WAS 이미지의 실행 UID는 1001입니다. Error Agent 소스에는 아직 루트 Dockerfile이 없으므로 별도 저장소에서 dependencies·모듈·numeric non-root USER를 포함한 이미지를 준비한 뒤 활성화합니다. Code Analyzer는 후속 작업입니다.
-3. RDS(foundation `database.tf`)의 master 계정으로 만든 `DATABASE_URL`을 Secret `database.secret`(`iris-platform-db`) 하나에 넣습니다. API·Worker·migration이 함께 씁니다.
+3. WAS `.env` 파일 전체를 Secret `iris-platform-was-env` 하나로 만듭니다(`was.envSecret`, `database.secret` 공용). `DATABASE_URL`은 RDS master 계정 URL이며 TLS query 없이 넣습니다. 값을 바꾸면 Secret을 다시 만들고 Deployment를 재시작합니다.
+
+   ```bash
+   kubectl -n iris-platform create secret generic iris-platform-was-env --from-env-file=.env \
+     --dry-run=client -o yaml | kubectl apply -f -
+   kubectl -n iris-platform rollout restart deploy -l app.kubernetes.io/instance=iris-platform
+   ```
 4. API hostname을 선택하고 management ALB로 DNS를 연결합니다. `api.host`는 기존 baseline 앵커 ACM 인증서의 SAN과 맞아야 합니다. 새 도메인·새 인증서가 필요하면 DNS/ACM 작업을 따로 계획합니다. `deployWorker.baseDomain`은 사용자 서비스 wildcard 도메인입니다.
 5. Build GitHub App과 **별도 Deploy GitHub App**의 ID·PEM·installation을 준비합니다. Deploy App은 `iris-gitops-environments`에 Contents read/write 권한이 있어야 합니다. 해당 저장소 main 보호는 force push·삭제를 금지하고 직접 커밋을 허용해야 합니다. PR 필수가 켜졌다면 승인된 GitHub App bypass 설정을 확인합니다.
 6. Argo 저장소 읽기 자격증명은 비공개 `iris-infra`와 `iris-gitops-environments` 모두를 읽을 수 있어야 합니다. 현재 bootstrap은 제공한 같은 읽기 자격증명을 두 repository Secret에 등록합니다. Deploy Worker 쓰기 App과 Argo 읽기 credential을 분리합니다. repo 하나만 허용하는 SSH deploy key로 두 저장소를 읽을 수 없습니다.
