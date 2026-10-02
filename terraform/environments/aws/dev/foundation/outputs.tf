@@ -60,3 +60,13 @@ output "deploy_worker_role_arn" {
   description = "Deploy Worker management Pod Identity role"
   value       = aws_iam_role.deploy_worker.arn
 }
+
+output "loki_bucket_name" {
+  description = "Loki values loki.storage.bucketNames 값"
+  value       = aws_s3_bucket.loki.bucket
+}
+
+output "loki_role_arn" {
+  description = "Loki Pod Identity 연결에 쓸 역할"
+  value       = aws_iam_role.loki.arn
+}

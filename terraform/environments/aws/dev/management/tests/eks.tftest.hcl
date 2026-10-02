@@ -26,6 +26,7 @@ override_data {
     argocd_management_role_arn              = "arn:aws:iam::123456789012:role/argocd"
     argocd_deploy_role_arns                 = { management = "arn:aws:iam::123456789012:role/argocd-management-deploy", workload = "arn:aws:iam::123456789012:role/argocd-workload-deploy" }
     deploy_worker_role_arn                  = "arn:aws:iam::123456789012:role/deploy-worker"
+    loki_role_arn                           = "arn:aws:iam::123456789012:role/loki"
     build_worker_role_arn                   = "arn:aws:iam::123456789012:role/build-worker"
   } }
 }
@@ -47,5 +48,9 @@ run "platform_pod_identity" {
   assert {
     condition     = aws_eks_pod_identity_association.deploy_worker.namespace == "iris-platform" && aws_eks_pod_identity_association.deploy_worker.service_account == "deploy-worker" && aws_eks_pod_identity_association.deploy_worker.role_arn == data.terraform_remote_state.foundation.outputs.deploy_worker_role_arn && aws_eks_pod_identity_association.build_worker.service_account == "build-worker"
     error_message = "Management must bind separate Build/Deploy service accounts to their own foundation roles."
+  }
+  assert {
+    condition     = aws_eks_pod_identity_association.loki.namespace == "observability" && aws_eks_pod_identity_association.loki.service_account == "loki" && aws_eks_pod_identity_association.loki.role_arn == data.terraform_remote_state.foundation.outputs.loki_role_arn
+    error_message = "Loki must use the foundation Loki role through observability/loki only."
   }
 }
