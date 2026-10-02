@@ -5,7 +5,7 @@ Iris control plane(Control API·Build Worker·Deploy Worker)을 management EKS�
 ```mermaid
 flowchart LR
   W[iris-was workflow_dispatch<br/>api·build·deploy 선택] -->|build·push| ECR[(ECR iris/was)]
-  W -->|digest 커밋| G[(iris-gitops-environments<br/>platform/aws-dev-management/values.yaml)]
+  W -->|digest 커밋| G[(iris-gitops-environments<br/>platform/aws-dev-management/was.yaml)]
   G --> A[Argo CD iris-platform]
   I[(iris-infra @ bootstrap SHA<br/>chart + platform.yaml)] --> A
   A --> P[management iris-platform ns]
@@ -47,6 +47,17 @@ unset DATABASE_URL
 3. Argo CD가 migration Job(api 배포 시)을 먼저 실행하고 Deployment를 갱신합니다.
 
 DB 스키마 변경은 api 이미지의 migration으로만 적용됩니다. 스키마를 바꾼 커밋을 Worker만 배포하면 안 됩니다.
+
+## 다른 레포의 서비스 추가
+
+레포마다 자기 digest 파일만 씁니다(`platform/aws-dev-management/<repo>.yaml`, `{"components": {"<키>": {"digest": "sha256:..."}}}`).
+
+1. iris-infra PR: `terraform/config/platform-ecr-repositories.json`에 레포가 있는지 확인(ECR·Argo valueFiles 목록의 원본), `clusters/aws-dev-management/values/platform.yaml`에 `components.<키>`(repository·command·port 등) 추가 → merge 후 bootstrap.
+2. account: `github_ecr_publishers.<repo>`에 그 레포 OIDC subject로 publisher 역할 추가(관리자 apply).
+3. 그 레포에 iris-was의 `deploy-platform.yml`·`scripts/build-push-ecr.sh`를 복사해 `ECR_REPOSITORY`·`VALUES_FILE`·역할 이름·컴포넌트 선택만 바꾸고 secret `GITOPS_APP_PRIVATE_KEY`를 넣습니다.
+4. `iris-<키>-env` Secret을 만듭니다.
+
+infra에 정의하지 않은 키의 digest는 무시되므로, 1보다 먼저 배포해도 platform 전체가 깨지지 않습니다.
 
 ## 3. 확인과 rollback
 

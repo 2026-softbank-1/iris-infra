@@ -1,46 +1,91 @@
 {{- $root := . }}
-{{- range $name, $c := dict "iris-api" .Values.api "iris-build-worker" .Values.buildWorker "iris-deploy-worker" .Values.deployWorker }}
+{{- range $key, $c := .Values.components }}
+{{- $name := printf "iris-%s" $key }}
+{{- $sa := $c.serviceAccountName | default $name }}
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: {{ $c.serviceAccountName }}
+  name: {{ $sa }}
   labels:
     {{- include "iris-platform.labels" $root | nindent 4 }}
-{{- if eq $name "iris-api" }}
-# The API calls no AWS or Kubernetes API.
+{{- if eq $c.automountServiceAccountToken false }}
 automountServiceAccountToken: false
 {{- end }}
 ---
-{{- if $c.digest }}
-{{ include "iris-platform.deployment" (dict "root" $root "name" $name "component" $c) }}
+{{- /* A digest for a component infra has not defined (no repository) is ignored, not fatal. */}}
+{{- if and $c.digest $c.repository }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "iris-platform.labels" $root | nindent 4 }}
+    app.kubernetes.io/name: {{ $name }}
+spec:
+  replicas: {{ $c.replicas | default 1 }}
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ $name }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: {maxSurge: 1, maxUnavailable: 0}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ $name }}
+        app.kubernetes.io/part-of: iris-platform
+    spec:
+      serviceAccountName: {{ $sa }}
+      securityContext:
+        {{- include "iris-platform.podSecurityContext" $root | nindent 8 }}
+      # Workers stop gracefully on SIGTERM after finishing the current job.
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: app
+          {{- include "iris-platform.container" (dict "root" $root "name" $key "c" $c) | nindent 10 }}
+          {{- with $c.command }}
+          command:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with $c.port }}
+          ports:
+            - {name: http, containerPort: {{ . }}}
+          readinessProbe:
+            httpGet: {path: /healthz, port: http}
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: /healthz, port: http}
+            periodSeconds: 20
+          {{- end }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
 ---
-{{- end }}
-{{- end }}
-{{- with .Values.api }}{{ if .digest }}
+{{- if $c.port }}
 apiVersion: v1
 kind: Service
 metadata:
-  name: iris-api
+  name: {{ $name }}
   labels:
     {{- include "iris-platform.labels" $root | nindent 4 }}
 spec:
   selector:
-    app.kubernetes.io/name: iris-api
+    app.kubernetes.io/name: {{ $name }}
   ports:
-    - name: http
-      port: 80
-      targetPort: http
-{{- if .ingress.host }}
+    - {name: http, port: 80, targetPort: http}
 ---
+{{- end }}
+{{- with $c.ingress }}
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: iris-api
+  name: {{ $name }}
   labels:
     {{- include "iris-platform.labels" $root | nindent 4 }}
   annotations:
-    # Group-wide listener, certificate and TLS policy come from the baseline anchor Ingress.
-    alb.ingress.kubernetes.io/group.name: {{ .ingress.groupName | quote }}
+    # Listener, certificate and TLS policy come from the baseline anchor Ingress of this group.
+    alb.ingress.kubernetes.io/group.name: {{ .groupName | quote }}
     alb.ingress.kubernetes.io/target-type: ip
     alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
     alb.ingress.kubernetes.io/ssl-redirect: "443"
@@ -49,30 +94,30 @@ metadata:
 spec:
   ingressClassName: alb
   rules:
-    - host: {{ .ingress.host | quote }}
+    - host: {{ .host | quote }}
       http:
         paths:
           - path: /
             pathType: Prefix
             backend:
               service:
-                name: iris-api
+                name: {{ $name }}
                 port:
                   name: http
-{{- end }}
-{{- with .allowedCidrs }}
 ---
-# The baseline application-boundary policy admits only in-cluster sources; open the API port to the ALB subnets.
+{{- end }}
+{{- with $c.allowedCidrs }}
+# The baseline application-boundary policy admits only in-cluster sources; open the port to the ALB subnets.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: iris-api-from-alb
+  name: {{ $name }}-from-alb
   labels:
     {{- include "iris-platform.labels" $root | nindent 4 }}
 spec:
   podSelector:
     matchLabels:
-      app.kubernetes.io/name: iris-api
+      app.kubernetes.io/name: {{ $name }}
   policyTypes: [Ingress]
   ingress:
     - from:
@@ -80,37 +125,72 @@ spec:
         - ipBlock: {cidr: {{ . | quote }}}
         {{- end }}
       ports:
-        - {protocol: TCP, port: {{ $root.Values.api.port }}}
-{{- end }}
+        - {protocol: TCP, port: {{ $c.port }}}
 ---
-{{- end }}{{ end }}
-{{- with .Values.deployWorker }}{{ if .digest }}
-# The Deploy Worker reads Application status from argocd-server (container port, after Service DNAT).
+{{- end }}
+{{- if $c.argocdEgress }}
+# Reads Application status from argocd-server (container port, after Service DNAT).
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: iris-deploy-worker-to-argocd
+  name: {{ $name }}-to-argocd
   labels:
     {{- include "iris-platform.labels" $root | nindent 4 }}
 spec:
   podSelector:
     matchLabels:
-      app.kubernetes.io/name: iris-deploy-worker
+      app.kubernetes.io/name: {{ $name }}
   policyTypes: [Egress]
   egress:
     - to:
         - namespaceSelector:
             matchLabels:
-              kubernetes.io/metadata.name: {{ .argocd.namespace }}
+              kubernetes.io/metadata.name: {{ $root.Values.argocd.namespace }}
           podSelector:
             matchLabels:
               app.kubernetes.io/name: argocd-server
       ports:
-        - {protocol: TCP, port: {{ .argocd.port }}}
-{{- end }}{{ end }}
-{{- with .Values.database.egressCidrs }}
+        - {protocol: TCP, port: {{ $root.Values.argocd.port }}}
 ---
-# All platform pods (API, workers, migration) reach the RDS subnets on the DB port.
+{{- end }}
+{{- with $c.migration }}
+# PreSync: runs once per sync before any component rolls out (no migration at app start).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ $name }}-migration
+  labels:
+    {{- include "iris-platform.labels" $root | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/hook: PreSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: 3
+  activeDeadlineSeconds: 600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ $name }}-migration
+        app.kubernetes.io/part-of: iris-platform
+    spec:
+      restartPolicy: Never
+      serviceAccountName: {{ $sa }}
+      securityContext:
+        {{- include "iris-platform.podSecurityContext" $root | nindent 8 }}
+      containers:
+        - name: migrate
+          {{- include "iris-platform.container" (dict "root" $root "name" $key "c" $c) | nindent 10 }}
+          command:
+            {{- toYaml . | nindent 12 }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+{{- end }}
+{{- end }}
+{{- end }}
+{{- with .Values.database.egressCidrs }}
+# All platform pods reach the RDS subnets on the DB port.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:

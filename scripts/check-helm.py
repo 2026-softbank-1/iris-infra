@@ -75,23 +75,26 @@ def main():
         assert sum(d['kind']=='AppProject' for d in gitops)==4
         platform_app = next(d for d in gitops if d['kind']=='Application' and d['metadata']['name']=='iris-platform')['spec']
         assert platform_app['destination']=={'server':targets['management']['endpoint'],'namespace':'iris-platform'} and platform_app['sources'][0]['helm']['ignoreMissingValueFiles']
-        assert platform_app['sources'][0]['helm']['valueFiles'][-1]=='$gitops/platform/aws-dev-management/values.yaml' and platform_app['sources'][1]['ref']=='gitops'
+        repos = json.loads((ROOT/'terraform/config/platform-ecr-repositories.json').read_text())
+        assert platform_app['sources'][0]['helm']['valueFiles'][1:]==[f'$gitops/platform/aws-dev-management/{r}.yaml' for r in repos] and platform_app['sources'][1]['ref']=='gitops'
         platform_project = next(d for d in gitops if d['kind']=='AppProject' and d['metadata']['name']=='iris-platform-project')['spec']
         digest = 'sha256:'+'a'*64
-        digests = directory/'platform-digests.json'
-        digests.write_text(json.dumps({c:{'digest':digest} for c in ('api','buildWorker','deployWorker')}))
-        platform_values = ROOT/'clusters/aws-dev-management/values/platform.yaml'
-        empty = [x for x in yaml.safe_load_all(command('template','p',ROOT/'helm/charts/iris-platform','-f',platform_values,'--kube-version',VERSIONS['kubernetes']+'.0')) if x]
-        assert not any(d['kind'] in ('Deployment','Job','Ingress') for d in empty), 'Without digests no component may be deployed.'
-        command('lint','--strict',ROOT/'helm/charts/iris-platform','-f',platform_values,'-f',digests,'--kube-version',VERSIONS['kubernetes']+'.0')
-        platform = [x for x in yaml.safe_load_all(command('template','p',ROOT/'helm/charts/iris-platform','-f',platform_values,'-f',digests,'--namespace','iris-platform','--kube-version',VERSIONS['kubernetes']+'.0')) if x]
+        render_platform = lambda *files: [x for x in yaml.safe_load_all(command('template','p',ROOT/'helm/charts/iris-platform','-f',ROOT/'clusters/aws-dev-management/values/platform.yaml',*[a for f in files for a in ('-f',f)],'--namespace','iris-platform','--kube-version',VERSIONS['kubernetes']+'.0')) if x]
+        assert not any(d['kind'] in ('Deployment','Job','Ingress') for d in render_platform()), 'Without digests no component may be deployed.'
+        was = directory/'was.yaml'
+        was.write_text(json.dumps({'components':{k:{'digest':digest} for k in ('api','build-worker','deploy-worker')}}))
+        stray = directory/'stray.yaml'
+        stray.write_text(json.dumps({'components':{'undefined-agent':{'digest':digest}}}))
+        command('lint','--strict',ROOT/'helm/charts/iris-platform','-f',ROOT/'clusters/aws-dev-management/values/platform.yaml','-f',was,'--kube-version',VERSIONS['kubernetes']+'.0')
+        platform = render_platform(was, stray)
         deployments = {d['metadata']['name']:d['spec']['template']['spec'] for d in platform if d['kind']=='Deployment'}
-        assert set(deployments)=={'iris-api','iris-build-worker','iris-deploy-worker'} and deployments['iris-build-worker']['serviceAccountName']=='build-worker'
+        assert set(deployments)=={'iris-api','iris-build-worker','iris-deploy-worker'}, 'A digest for an undefined component must be ignored.'
+        assert deployments['iris-build-worker']['serviceAccountName']=='build-worker' and deployments['iris-deploy-worker']['serviceAccountName']=='deploy-worker'
         assert all(p['containers'][0]['image'].endswith('/iris/was@'+digest) and p['securityContext']['runAsNonRoot'] for p in deployments.values())
         api_ingress = next(d for d in platform if d['kind']=='Ingress')
         assert api_ingress['spec']['rules'][0]['host']=='api.likelion.uk' and api_ingress['metadata']['annotations']['alb.ingress.kubernetes.io/group.name']=='iris-platform-external'
-        migration = next(d for d in platform if d['kind']=='Job')['metadata']['annotations']
-        assert migration['argocd.argoproj.io/hook']=='PreSync'
+        migration = next(d for d in platform if d['kind']=='Job')
+        assert migration['metadata']['name']=='iris-api-migration' and migration['metadata']['annotations']['argocd.argoproj.io/hook']=='PreSync'
         policies = {d['metadata']['name'] for d in platform if d['kind']=='NetworkPolicy'}
         assert policies=={'iris-api-from-alb','iris-deploy-worker-to-argocd','iris-platform-to-database'}
         platform_kinds = {(d['apiVersion'].rpartition('/')[0], d['kind']) for d in platform}

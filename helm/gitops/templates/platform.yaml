@@ -1,5 +1,5 @@
 {{- /* Control plane on management. Chart and target values follow the reviewed infra revision;
-     image digests follow iris-gitops-environments main, written by iris-was's manual deploy workflow. */}}
+     image digests follow iris-gitops-environments main, one file per service repo. */}}
 {{- $management := .Values.targets.management }}
 apiVersion: argoproj.io/v1alpha1
 kind: AppProject
@@ -43,8 +43,11 @@ spec:
       helm:
         valueFiles:
           - ../../../clusters/aws-dev-management/values/platform.yaml
-          - $gitops/platform/aws-dev-management/values.yaml
-        # Before the first deploy the digest file does not exist; no component is rendered.
+          # One digest file per service repo, written only by that repo's deploy workflow.
+          {{- range .Values.platform.repos }}
+          - $gitops/platform/aws-dev-management/{{ . }}.yaml
+          {{- end }}
+        # A repo that has not deployed yet has no file; its components are not rendered.
         ignoreMissingValueFiles: true
     - repoURL: {{ .Values.services.repoURL | quote }}
       targetRevision: {{ .Values.services.revision | quote }}
