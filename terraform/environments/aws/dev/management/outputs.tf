@@ -4,6 +4,7 @@ output "target" {
     id                                      = "aws-dev-management"
     kube_context                            = "iris-dev-management"
     operator_principal_arn                  = var.operator_principal_arn
+    additional_operator_principal_arns      = var.additional_operator_principal_arns
     load_balancer_controller_role_arn       = module.eks.load_balancer_controller_role_arn
     management_api_source_security_group_id = data.terraform_remote_state.foundation.outputs.management_api_source_security_group_id
     workload_api_target_security_group_id   = data.terraform_remote_state.foundation.outputs.workload_api_target_security_group_id

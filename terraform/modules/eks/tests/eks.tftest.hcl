@@ -54,6 +54,19 @@ run "private_multi_az" {
     error_message = "Explicit, separate operator and GitOps identities are required."
   }
 }
+run "additional_operators" {
+  command = plan
+  variables { additional_operator_principal_arns = ["arn:aws:iam::123456789012:user/second-operator"] }
+  assert {
+    condition     = aws_eks_access_entry.additional_operator["arn:aws:iam::123456789012:user/second-operator"].type == "STANDARD" && aws_eks_access_policy_association.additional_operator["arn:aws:iam::123456789012:user/second-operator"].policy_arn == aws_eks_access_policy_association.operator.policy_arn && aws_eks_access_entry.operator.principal_arn == var.operator_principal_arn
+    error_message = "Additional operators get the same cluster-admin entry without replacing the primary operator."
+  }
+}
+run "reject_additional_session_or_duplicate" {
+  command = plan
+  variables { additional_operator_principal_arns = ["arn:aws:sts::123456789012:assumed-role/operator/session", "arn:aws:iam::123456789012:role/operator"] }
+  expect_failures = [var.additional_operator_principal_arns]
+}
 run "reject_session_arn" {
   command = plan
   variables { operator_principal_arn = "arn:aws:sts::123456789012:assumed-role/operator/session" }

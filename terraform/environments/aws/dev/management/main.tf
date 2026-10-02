@@ -21,6 +21,7 @@ module "eks" {
   subnet_ids_by_az                   = data.terraform_remote_state.foundation.outputs.management_subnet_ids_by_az
   service_cidr                       = "172.20.0.0/16"
   operator_principal_arn             = var.operator_principal_arn
+  additional_operator_principal_arns = var.additional_operator_principal_arns
   argocd_deploy_role_arn             = data.terraform_remote_state.foundation.outputs.argocd_deploy_role_arns["management"]
   bridge_security_group_id           = data.terraform_remote_state.foundation.outputs.ssm_bridge_security_group_id
   additional_node_security_group_ids = [data.terraform_remote_state.foundation.outputs.management_api_source_security_group_id]

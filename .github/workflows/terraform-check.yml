@@ -110,6 +110,7 @@ jobs:
       TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
       AWS_ROLE_ARN: ${{ vars.TERRAFORM_APPLY_ROLE_ARN }}
       TF_VAR_operator_principal_arn: ${{ vars.EKS_OPERATOR_PRINCIPAL_ARN }}
+      TF_VAR_additional_operator_principal_arns: ${{ vars.EKS_ADDITIONAL_OPERATOR_PRINCIPAL_ARNS || '[]' }}
     steps:
       - uses: actions/checkout@v4
         with:

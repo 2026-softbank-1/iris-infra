@@ -274,6 +274,20 @@ resource "aws_eks_access_policy_association" "operator" {
   policy_arn    = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
   access_scope { type = "cluster" }
 }
+resource "aws_eks_access_entry" "additional_operator" {
+  for_each      = toset(var.additional_operator_principal_arns)
+  cluster_name  = aws_eks_cluster.this.name
+  principal_arn = each.value
+  type          = "STANDARD"
+  tags          = local.tags
+}
+resource "aws_eks_access_policy_association" "additional_operator" {
+  for_each      = aws_eks_access_entry.additional_operator
+  cluster_name  = aws_eks_cluster.this.name
+  principal_arn = each.value.principal_arn
+  policy_arn    = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
+  access_scope { type = "cluster" }
+}
 resource "aws_eks_access_entry" "argocd" {
   cluster_name  = aws_eks_cluster.this.name
   principal_arn = var.argocd_deploy_role_arn
