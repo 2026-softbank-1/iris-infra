@@ -5,7 +5,7 @@
 apiVersion: argoproj.io/v1alpha1
 kind: AppProject
 metadata:
-  name: iris-services
+  name: iris-svc-project
   namespace: argocd
   annotations:
     argocd.argoproj.io/sync-wave: "-1"
@@ -26,14 +26,14 @@ spec:
     - {group: networking.k8s.io, kind: NetworkPolicy}
   roles:
     # Deploy Worker reads Application status with this role's token.
-    - name: deploy-reader
+    - name: iris-deploy-reader
       policies:
-        - p, proj:iris-services:deploy-reader, applications, get, iris-services/*, allow
+        - p, proj:iris-svc-project:iris-deploy-reader, applications, get, iris-svc-project/*, allow
 ---
 apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet
 metadata:
-  name: iris-services
+  name: iris-svc-appset
   namespace: argocd
 spec:
   goTemplate: true
@@ -51,7 +51,7 @@ spec:
     metadata:
       name: 'svc-{{ "{{" }} index .path.segments 1 {{ "}}" }}'
     spec:
-      project: iris-services
+      project: iris-svc-project
       sources:
         - repoURL: {{ $chartRepo | quote }}
           path: helm/charts/iris-service

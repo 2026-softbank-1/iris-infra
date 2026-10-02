@@ -79,10 +79,15 @@ def main():
         assert chart_source['targetRevision']==json.loads((ROOT/'helm/gitops/values.yaml').read_text())['services']['chartRevision']=='iris-service-'+yaml.safe_load((ROOT/'helm/charts/iris-service/Chart.yaml').read_text())['version'], 'ApplicationSet must pin the current iris-service chart tag.'
         assert values_source['ref']=='values' and chart_source['helm']['valueFiles']==['$values/{{ .path.path }}/values.yaml']
         assert appset['template']['metadata']['name']=='svc-{{ index .path.segments 1 }}' and appset['template']['spec']['destination']=={'server':targets['workload']['endpoint'],'namespace':'svc-{{ index .path.segments 1 }}'}
-        services = next(d for d in gitops if d['kind']=='AppProject' and d['metadata']['name']=='iris-services')['spec']
+        services = next(d for d in gitops if d['kind']=='AppProject' and d['metadata']['name']=='iris-svc-project')['spec']
         assert services['destinations']==[{'server':targets['workload']['endpoint'],'namespace':'svc-*'}] and services['clusterResourceWhitelist']==[{'group':'','kind':'Namespace'}]
-        rendered_kinds = {(d['apiVersion'].rpartition('/')[0], d['kind']) for d in render(ROOT/'helm/charts/iris-service', ROOT/'helm/charts/iris-service/ci/aws-values.yaml', namespace='svc-12')}
-        assert rendered_kinds <= {(w['group'],w['kind']) for w in services['namespaceResourceWhitelist']}, f'iris-services project must allow chart kinds: {rendered_kinds}'
+        assert next(d for d in gitops if d['kind']=='ApplicationSet')['metadata']['name']=='iris-svc-appset' and appset['template']['spec']['project']=='iris-svc-project'
+        assert [r['name'] for r in services['roles']]==['iris-deploy-reader']
+        service_docs = render(ROOT/'helm/charts/iris-service', ROOT/'helm/charts/iris-service/ci/aws-values.yaml', namespace='svc-12')
+        ingress = next(d for d in service_docs if d['kind']=='Ingress')
+        assert ingress['metadata']['annotations']['alb.ingress.kubernetes.io/group.name']=='iris-svc-public', 'All services share the public ALB group.'
+        rendered_kinds = {(d['apiVersion'].rpartition('/')[0], d['kind']) for d in service_docs}
+        assert rendered_kinds <= {(w['group'],w['kind']) for w in services['namespaceResourceWhitelist']}, f'iris-svc-project must allow chart kinds: {rendered_kinds}'
         allowed = {p['metadata']['name'].removeprefix('iris-addons-'): {(w['group'],w['kind']) for w in p['spec']['clusterResourceWhitelist']} for p in gitops if p['kind']=='AppProject'}
         bad = directory/'bad.json'; bad.write_text(json.dumps({'revision':'main','targets':targets}))
         failed = subprocess.run([HELM,'template','check',str(ROOT/'helm/gitops'),'-f',str(bad)],capture_output=True)

@@ -17,7 +17,7 @@ Iris의 AWS 인프라, Kubernetes 공통 설정, Helm/GitOps와 운영 절차를
 | `helm/charts`, `clusters` | baseline·iris-service chart 및 target별 values |
 | `scripts`, `contracts`, `docs/runbooks` | 검증·API 접근·연동 계약·운영 |
 
-사용자 앱은 Deploy Worker가 `iris-gitops-environments`에 values를 커밋하고 Argo ApplicationSet이 `iris-service`의 고정 Git tag를 사용해 배포합니다([ADR 0002](docs/decisions/0002-gitops-deployment.md)). bootstrap은 공통 addon과 사용자 앱 ApplicationSet `iris-services`(AppProject `iris-services`, workload `svc-*` namespace)를 설치합니다. Argo CD는 같은 읽기 전용 자격 증명으로 두 저장소를 읽습니다.
+사용자 앱은 Deploy Worker가 `iris-gitops-environments`에 values를 커밋하고 Argo ApplicationSet이 `iris-service`의 고정 Git tag를 사용해 배포합니다([ADR 0002](docs/decisions/0002-gitops-deployment.md)). bootstrap은 공통 addon과 사용자 앱 ApplicationSet `iris-svc-appset`(AppProject `iris-svc-project`, workload `svc-*` namespace)를 설치합니다. Argo CD는 같은 읽기 전용 자격 증명으로 두 저장소를 읽습니다.
 
 각 클러스터는 서울 2a/2c에 m7i-flex.large On-Demand 노드 1대씩 두며 전체 4대입니다. NAT 기본값은 `per_az`입니다. API public endpoint와 기본 외부 ALB/Ingress는 만들지 않습니다. Argo/Grafana는 SSM 터널을 거쳐 로컬에서 접근합니다.
 
