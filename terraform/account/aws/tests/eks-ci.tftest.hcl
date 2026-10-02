@@ -23,4 +23,19 @@ run "runtime_boundaries_and_session" {
     condition     = alltrue([for statement in jsondecode(aws_iam_policy.runtime_compute.policy).Statement : statement.Condition.StringEquals["aws:RequestedRegion"] == "ap-northeast-2"])
     error_message = "Compute authorization must remain regional."
   }
+  assert {
+    condition = length([for statement in jsondecode(aws_iam_policy.bridge_launch.policy).Statement : statement if statement.Sid == "RunTaggedBridgeVolume"]) == 1 && alltrue([
+      for statement in jsondecode(aws_iam_policy.bridge_launch.policy).Statement :
+      statement.Effect == "Allow" && statement.Action == ["ec2:RunInstances"] && statement.Resource == "arn:aws:ec2:${var.aws_region}:${var.aws_account_id}:volume/*" && jsonencode(statement.Condition) == jsonencode({
+        StringEquals = {
+          "aws:RequestedRegion"        = var.aws_region
+          "aws:RequestTag/Project"     = var.project
+          "aws:RequestTag/Environment" = var.environment
+          "aws:RequestTag/ManagedBy"   = "Terraform"
+          "aws:RequestTag/Component"   = ["eks", "access"]
+        }
+      }) if statement.Sid == "RunTaggedBridgeVolume"
+    ])
+    error_message = "Bridge volume RunInstances authorization must retain the exact account/region ARN and all four owner request tags; do not relax IAM to allow untagged volumes."
+  }
 }

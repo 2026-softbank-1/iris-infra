@@ -22,3 +22,9 @@ TODO: 실제 Namespace·Job·release 이름과 로그 위치를 구현 후 추�
 - PVC Pending: EBS CSI Pod Identity·gp3 encrypted/WFFC·consumer scheduling/AZ·EBS quota를 확인합니다. singleton EBS 서비스는 다른 AZ로 즉시 failover하지 않습니다.
 - exercise 실패: 출력된 임시 namespace/Pod만 삭제하고 지정 drain node를 uncordon합니다. 보호 build/ECR/state는 정리 대상이 아닙니다.
 - CI IAM 또는 STS 실패: account 권한과 maxsession7200을 main merge 전에 적용했는지 확인합니다. 실패한 후행 stack은 앞선 성공 stack을 되돌리지 않습니다.
+
+### SSM bridge 생성의 volume RunInstances 거부
+
+`aws_instance.ssm_bridge` 생성 시 `ec2:RunInstances`가 `volume/*`에서 거부되면 CI 역할의 `bridge-launch` 정책 연결과 생성 요청의 소유 태그를 확인합니다. 정책은 리전과 `Project`, `Environment`, `ManagedBy`, `Component` 태그를 제한합니다. AWS provider 6.67.0에서 `root_block_device.tags`는 생성 후에 적용하므로 생성 시 IAM 조건을 충족하지 못합니다. `volume_tags = local.access_tags`로 생성 요청에 `Component=access`까지 전달해야 하며 두 태그 설정은 함께 사용하지 않습니다.
+
+현재 정책이 연결돼 있다면 이 수정에 account 재apply는 필요 없습니다. 부분 적용된 foundation state와 기존 빌드/ECR 자원을 유지하고, 수정 코드가 반영된 main workflow에서 새 plan을 검토하여 삭제·교체 없이 재시도합니다. 수정 전 SHA의 실패한 workflow를 재실행하면 같은 오류가 납니다. foundation 전체 destroy나 IAM 태그 조건 완화로 복구하지 않습니다. IAM simulation과 mock 검사는 실제 EC2 생성 성공을 보장하지 않으며 수정 후 배포 결과에서 별도로 확인합니다.
