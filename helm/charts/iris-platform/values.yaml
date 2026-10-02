@@ -1,8 +1,7 @@
 {
   "was": {
     "image": {
-      "repository": "",
-      "digest": ""
+      "repository": ""
     },
     "logLevel": "INFO"
   },
@@ -14,6 +13,7 @@
     "caKey": "ca-bundle.pem"
   },
   "api": {
+    "digest": "",
     "replicas": 1,
     "host": "",
     "resources": {
@@ -28,6 +28,7 @@
     }
   },
   "buildWorker": {
+    "digest": "",
     "replicas": 1,
     "codebuildProject": "",
     "artifactBucket": "",
@@ -45,6 +46,7 @@
     "terminationGracePeriodSeconds": 120
   },
   "deployWorker": {
+    "digest": "",
     "replicas": 1,
     "baseDomain": "",
     "gitopsRepository": "2026-softbank-1/iris-gitops-environments",

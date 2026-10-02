@@ -1,8 +1,7 @@
 {
   "was": {
     "image": {
-      "repository": "123456789012.dkr.ecr.ap-northeast-2.amazonaws.com/iris/was",
-      "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      "repository": "123456789012.dkr.ecr.ap-northeast-2.amazonaws.com/iris/was"
     },
     "logLevel": "INFO"
   },
@@ -14,6 +13,7 @@
     "caKey": "ca-bundle.pem"
   },
   "api": {
+    "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     "replicas": 1,
     "host": "api.example.com",
     "resources": {
@@ -28,6 +28,7 @@
     }
   },
   "buildWorker": {
+    "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     "replicas": 1,
     "codebuildProject": "iris-dev-build",
     "artifactBucket": "iris-dev-build-artifacts-123456789012-ap-northeast-2",
@@ -45,6 +46,7 @@
     "terminationGracePeriodSeconds": 120
   },
   "deployWorker": {
+    "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     "replicas": 1,
     "baseDomain": "example.com",
     "gitopsRepository": "2026-softbank-1/iris-gitops-environments",

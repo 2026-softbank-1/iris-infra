@@ -25,19 +25,13 @@
           "type": "object",
           "additionalProperties": false,
           "required": [
-            "repository",
-            "digest"
+            "repository"
           ],
           "properties": {
             "repository": {
               "type": "string",
               "minLength": 1,
               "pattern": "^[0-9]{12}\\.dkr\\.ecr\\.ap-northeast-2\\.amazonaws\\.com/iris/was$"
-            },
-            "digest": {
-              "type": "string",
-              "minLength": 1,
-              "pattern": "^sha256:[a-f0-9]{64}$"
             }
           }
         },
@@ -153,6 +147,10 @@
               }
             }
           }
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^(sha256:[a-f0-9]{64})?$"
         }
       }
     },
@@ -236,6 +234,10 @@
           "type": "integer",
           "minimum": 120,
           "maximum": 3600
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^(sha256:[a-f0-9]{64})?$"
         }
       }
     },
@@ -343,6 +345,10 @@
           "type": "integer",
           "minimum": 30,
           "maximum": 3600
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^(sha256:[a-f0-9]{64})?$"
         }
       }
     },
@@ -444,8 +450,7 @@
                 "type": "object",
                 "additionalProperties": false,
                 "required": [
-                  "repository",
-                  "digest"
+                  "repository"
                 ],
                 "properties": {
                   "repository": {
@@ -455,8 +460,7 @@
                   },
                   "digest": {
                     "type": "string",
-                    "minLength": 1,
-                    "pattern": "^sha256:[a-f0-9]{64}$"
+                    "pattern": "^(sha256:[a-f0-9]{64})?$"
                   }
                 }
               },

@@ -1,4 +1,4 @@
-{{- if .Values.errorAgent.enabled }}
+{{- if and .Values.errorAgent.enabled .Values.errorAgent.image.digest }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:

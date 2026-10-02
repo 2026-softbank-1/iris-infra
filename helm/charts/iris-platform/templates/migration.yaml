@@ -1,3 +1,4 @@
+{{- if .Values.api.digest }}
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -28,10 +29,10 @@ spec:
         runAsGroup: 1001
         seccompProfile: {type: RuntimeDefault}
       initContainers:
-        {{- include "iris-platform.database-guard" (dict "root" . "secret" .Values.database.migrationSecret) | nindent 8 }}
+        {{- include "iris-platform.database-guard" (dict "root" . "digest" .Values.api.digest "secret" .Values.database.migrationSecret) | nindent 8 }}
       containers:
         - name: migration
-          image: {{ include "iris-platform.image" . | quote }}
+          image: {{ include "iris-platform.image" (dict "root" . "digest" .Values.api.digest) | quote }}
           imagePullPolicy: IfNotPresent
           command: [alembic, upgrade, head]
           env:
@@ -44,3 +45,4 @@ spec:
             {{- toYaml .Values.migration.resources | nindent 12 }}
       volumes:
         {{- include "iris-platform.database-volume" . | nindent 8 }}
+{{- end }}

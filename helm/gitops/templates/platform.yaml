@@ -1,18 +1,22 @@
+{{- /* Control plane on management. How components run follows the reviewed infra revision;
+     which image each runs (digest) follows iris-gitops-environments main, one file per service repo. */}}
 {{- if .Values.platform.enabled }}
 apiVersion: argoproj.io/v1alpha1
 kind: AppProject
 metadata:
-  name: iris-platform
+  name: iris-platform-project
   namespace: argocd
   annotations:
     argocd.argoproj.io/sync-wave: "-1"
 spec:
   sourceRepos:
     - {{ .Values.repoURL | quote }}
+    - {{ .Values.services.repoURL | quote }}
   destinations:
     - server: {{ .Values.targets.management.endpoint | quote }}
       namespace: iris-platform
   clusterResourceWhitelist: []
+  # Secrets and CA ConfigMaps are created by operators and only referenced by name.
   namespaceResourceWhitelist:
     - {group: apps, kind: Deployment}
     - {group: "", kind: Service}
@@ -27,20 +31,32 @@ kind: Application
 metadata:
   name: iris-platform
   namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
 spec:
-  project: iris-platform
-  source:
-    repoURL: {{ .Values.repoURL | quote }}
-    targetRevision: {{ .Values.revision | quote }}
-    path: helm/charts/iris-platform
-    helm:
-      releaseName: iris-platform
-      valueFiles:
-        - ../../../clusters/aws-dev-management/values/platform.yaml
+  project: iris-platform-project
+  sources:
+    - repoURL: {{ .Values.repoURL | quote }}
+      targetRevision: {{ .Values.revision | quote }}
+      path: helm/charts/iris-platform
+      helm:
+        releaseName: iris-platform
+        valueFiles:
+          - ../../../clusters/aws-dev-management/values/platform.yaml
+          # One digest file per service repo, written only by that repo's manual deploy workflow.
+          {{- range .Values.platform.repos }}
+          - $gitops/platform/aws-dev-management/{{ . }}.yaml
+          {{- end }}
+        # A repo that has not deployed yet has no file; its components are not rendered.
+        ignoreMissingValueFiles: true
+    - repoURL: {{ .Values.services.repoURL | quote }}
+      targetRevision: {{ .Values.services.revision | quote }}
+      ref: gitops
   destination:
     server: {{ .Values.targets.management.endpoint | quote }}
     namespace: iris-platform
-  # Initial synchronization and subsequent releases are explicit operations.
+  # A digest commit is the release: wave -2 config, migration hook (wave -1), then Deployments.
   syncPolicy:
+    automated: {prune: true, selfHeal: true}
     syncOptions: [PruneLast=true]
 {{- end }}

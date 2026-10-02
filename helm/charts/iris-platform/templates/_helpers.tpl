@@ -3,8 +3,9 @@
 app.kubernetes.io/name: iris-platform
 app.kubernetes.io/instance: {{ .Release.Name | quote }}
 {{- end -}}
+{{- /* WAS image for one component; args: root, digest (each component is deployed separately). */ -}}
 {{- define "iris-platform.image" -}}
-{{ .Values.was.image.repository }}@{{ .Values.was.image.digest }}
+{{ .root.Values.was.image.repository }}@{{ .digest }}
 {{- end -}}
 {{- define "iris-platform.database-env" -}}
 - name: DATABASE_URL
@@ -37,7 +38,7 @@ capabilities:
 {{- end -}}
 {{- define "iris-platform.database-guard" -}}
 - name: validate-database-tls
-  image: {{ include "iris-platform.image" .root | quote }}
+  image: {{ include "iris-platform.image" (dict "root" .root "digest" .digest) | quote }}
   imagePullPolicy: IfNotPresent
   command: [python, -c]
   args:

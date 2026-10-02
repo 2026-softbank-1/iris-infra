@@ -1,5 +1,7 @@
 {{- $components := dict "api" .Values.api "build-worker" .Values.buildWorker "deploy-worker" .Values.deployWorker }}
 {{- range $component, $settings := $components }}
+{{- /* Digests come from iris-gitops-environments; a component without one is not deployed yet. */}}
+{{- if $settings.digest }}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -39,10 +41,10 @@ spec:
         runAsGroup: 1001
         seccompProfile: {type: RuntimeDefault}
       initContainers:
-        {{- include "iris-platform.database-guard" (dict "root" $ "secret" $.Values.database.runtimeSecret) | nindent 8 }}
+        {{- include "iris-platform.database-guard" (dict "root" $ "digest" $settings.digest "secret" $.Values.database.runtimeSecret) | nindent 8 }}
       containers:
         - name: {{ $component }}
-          image: {{ include "iris-platform.image" $ | quote }}
+          image: {{ include "iris-platform.image" (dict "root" $ "digest" $settings.digest) | quote }}
           imagePullPolicy: IfNotPresent
           {{- if eq $component "api" }}
           command: [uvicorn, app.main:app, --host, 0.0.0.0, --port, "8000"]
@@ -102,4 +104,5 @@ spec:
             items:
               - {key: {{ $.Values.deployWorker.caKey | quote }}, path: ca-bundle.pem}
         {{- end }}
+{{- end }}
 {{- end }}

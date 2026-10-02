@@ -108,11 +108,21 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "enabled"
+        "enabled",
+        "repos"
       ],
       "properties": {
         "enabled": {
           "type": "boolean"
+        },
+        "repos": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]*$"
+          }
         }
       }
     }

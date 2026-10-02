@@ -70,7 +70,9 @@ def check_platform(directory, targets, bootstrap):
         assert notes['argocd.argoproj.io/hook-delete-policy']=='BeforeHookCreation,HookSucceeded'
         assert job['spec']['activeDeadlineSeconds']==600 and job['spec']['backoffLimit']==1
         assert not job['spec'].get('ttlSecondsAfterFinished'), 'Failed migration must remain inspectable.'
-        was=values['was']['image']['repository']+'@'+values['was']['image']['digest']
+        # Each WAS component is deployed separately with its own digest; migration follows the API.
+        image_of={c:values['was']['image']['repository']+'@'+values[k]['digest'] for c,k in (('api','api'),('build-worker','buildWorker'),('deploy-worker','deployWorker'))}
+        image_of['migration']=image_of['api']
         for component, doc in {**deployments,'migration':job}.items():
             pod=doc['spec']['template']['spec']; container=pod['containers'][0]
             assert pod['automountServiceAccountToken'] is False and pod['securityContext']['runAsNonRoot'] is True
@@ -80,6 +82,7 @@ def check_platform(directory, targets, bootstrap):
                 assert container['command']==['python','-m','ai_error_check_agent.api','--host','0.0.0.0','--port','8001']
                 assert set(env)=={'LLM_API_KEY','AGENT_API_KEY'} and not pod.get('initContainers')
                 continue
+            was=image_of[component]
             assert container['image']==was and pod['securityContext']['runAsUser']==1001
             assert env['PGSSLMODE']['value']=='verify-full' and env['PGSSLROOTCERT']['value']=='/etc/iris-rds/ca-bundle.pem'
             expected_secret=values['database']['migrationSecret' if component=='migration' else 'runtimeSecret']
@@ -130,31 +133,35 @@ def check_platform(directory, targets, bootstrap):
         assert total_cpu<4000, 'Initial platform limits must leave quota headroom for migration/rollout.'
     import copy
     good=json.loads((chart/'ci/was-values.yaml').read_text())
-    mutations=[lambda v:v.update(unknown=True),lambda v:v['was']['image'].update(digest='latest'),lambda v:v['api'].update(host=''),lambda v:v['database'].update(runtimeSecret=''),lambda v:v['database'].update(migrationSecret=v['database']['runtimeSecret']),lambda v:v['buildWorker'].update(githubSecret=v['deployWorker']['githubSecret']),lambda v:v['network'].update(rdsSubnetCidrs=[]),lambda v:v['network'].update(albSubnetCidrs=['0.0.0.0/0']),lambda v:v['network'].update(rdsSubnetCidrs=['999.0.0.0/24']),lambda v:v['errorAgent'].update(enabled=True)]
+    mutations=[lambda v:v.update(unknown=True),lambda v:v['api'].update(digest='latest'),lambda v:v['api'].update(host=''),lambda v:v['database'].update(runtimeSecret=''),lambda v:v['database'].update(migrationSecret=v['database']['runtimeSecret']),lambda v:v['buildWorker'].update(githubSecret=v['deployWorker']['githubSecret']),lambda v:v['network'].update(rdsSubnetCidrs=[]),lambda v:v['network'].update(albSubnetCidrs=['0.0.0.0/0']),lambda v:v['network'].update(rdsSubnetCidrs=['999.0.0.0/24']),lambda v:v['errorAgent'].update(enabled=True)]
     bad=directory/'bad-platform.json'
     for change in mutations:
         values=copy.deepcopy(good);change(values);bad.write_text(json.dumps(values))
         result=subprocess.run([HELM,'template','iris-platform',str(chart),'-f',str(bad),'--kube-version',VERSIONS['kubernetes']+'.0','--namespace','iris-platform'],capture_output=True)
         assert result.returncode, 'Invalid platform inputs must fail before deployment.'
-    result=subprocess.run([HELM,'template','iris-platform',str(chart),'-f',str(ROOT/'clusters/aws-dev-management/values/platform.yaml'),'--kube-version',VERSIONS['kubernetes']+'.0','--namespace','iris-platform'],capture_output=True)
-    cluster_values=json.loads((ROOT/'clusters/aws-dev-management/values/platform.yaml').read_text())
-    if not cluster_values['was']['image']['digest']:
-        assert result.returncode, 'Incomplete cluster values must not accidentally enable platform deployment.'
-    else:
-        assert not result.returncode, 'Configured cluster values must render successfully.'
+    cluster=ROOT/'clusters/aws-dev-management/values/platform.yaml'
+    assert not any(d['kind'] in {'Deployment','Job','Ingress'} for d in render(chart, cluster, release='iris-platform', namespace='iris-platform')), 'Without GitOps digests no component may be deployed.'
+    digest='sha256:'+'a'*64
+    only_api=directory/'was.yaml'; only_api.write_text(json.dumps({'api':{'digest':digest}}))
+    agent=directory/'error-check-agent.yaml'; agent.write_text(json.dumps({'errorAgent':{'image':{'digest':digest}}}))
+    command('lint','--strict',chart,'-f',cluster,'-f',only_api,'--kube-version',VERSIONS['kubernetes']+'.0','--namespace','iris-platform')
+    docs=[x for x in yaml.safe_load_all(command('template','iris-platform',chart,'-f',cluster,'-f',only_api,'-f',agent,'--kube-version',VERSIONS['kubernetes']+'.0','--namespace','iris-platform')) if x]
+    assert {d['metadata']['name'] for d in docs if d['kind'] in {'Deployment','Job','Ingress'}}=={'iris-platform-api','iris-platform-migration'}, 'Only components with a digest deploy; the agent also needs enabled.'
     enabled=directory/'gitops-platform.json';enabled.write_text(json.dumps({'revision':'a'*40,'targets':targets,'platform':{'enabled':True}}))
     docs=render(ROOT/'helm/gitops', enabled, namespace='argocd')
     assert sum(d['kind']=='Application' for d in docs)==9 and sum(d['kind']=='AppProject' for d in docs)==4
     app=next(d for d in docs if d['kind']=='Application' and d['metadata']['name']=='iris-platform')
-    assert not app['metadata'].get('finalizers') and 'automated' not in app['spec']['syncPolicy']
+    assert app['metadata']['finalizers']==['resources-finalizer.argocd.argoproj.io'] and app['spec']['syncPolicy']['automated']=={'prune':True,'selfHeal':True}
     assert app['spec']['destination']=={'server':targets['management']['endpoint'],'namespace':'iris-platform'}
-    assert app['spec']['source']['targetRevision']=='a'*40 and app['spec']['source']['path']=='helm/charts/iris-platform'
-    assert app['spec']['source']['helm']=={'releaseName':'iris-platform','valueFiles':['../../../clusters/aws-dev-management/values/platform.yaml']}
-    project=next(d for d in docs if d['kind']=='AppProject' and d['metadata']['name']=='iris-platform')['spec']
-    assert project['clusterResourceWhitelist']==[] and project['destinations']==[app['spec']['destination']]
+    chart_source, gitops_source = app['spec']['sources']
+    assert chart_source['targetRevision']=='a'*40 and chart_source['path']=='helm/charts/iris-platform' and chart_source['helm']['ignoreMissingValueFiles']
+    repos=json.loads((ROOT/'terraform/config/platform-ecr-repositories.json').read_text())
+    assert chart_source['helm']['valueFiles']==['../../../clusters/aws-dev-management/values/platform.yaml',*[f'$gitops/platform/aws-dev-management/{r}.yaml' for r in repos]]
+    assert gitops_source=={'repoURL':'https://github.com/2026-softbank-1/iris-gitops-environments.git','targetRevision':'main','ref':'gitops'}
+    project=next(d for d in docs if d['kind']=='AppProject' and d['metadata']['name']=='iris-platform-project')['spec']
+    assert project['clusterResourceWhitelist']==[] and project['destinations']==[app['spec']['destination']] and gitops_source['repoURL'] in project['sourceRepos']
     allowed={(p['group'],p['kind']) for p in project['namespaceResourceWhitelist']}
     assert allowed=={('apps','Deployment'),('','Service'),('','ConfigMap'),('','ServiceAccount'),('batch','Job'),('networking.k8s.io','NetworkPolicy'),('networking.k8s.io','Ingress')}
-
 
 def main():
     assert command('version', '--short').startswith('v'+VERSIONS['helm']+'+'), 'Use pinned Helm version.'
@@ -171,34 +178,9 @@ def main():
         values = directory/'gitops.json'
         values.write_text(json.dumps({'revision':'a'*40,'targets':targets}))
         gitops = render(ROOT/'helm/gitops', values, namespace='argocd')
-        assert sum(d['kind']=='Application' for d in gitops)==9
-        assert sum(d['kind']=='AppProject' for d in gitops)==4
-        platform_app = next(d for d in gitops if d['kind']=='Application' and d['metadata']['name']=='iris-platform')['spec']
-        assert platform_app['destination']=={'server':targets['management']['endpoint'],'namespace':'iris-platform'} and platform_app['sources'][0]['helm']['ignoreMissingValueFiles']
-        repos = json.loads((ROOT/'terraform/config/platform-ecr-repositories.json').read_text())
-        assert platform_app['sources'][0]['helm']['valueFiles'][1:]==[f'$gitops/platform/aws-dev-management/{r}.yaml' for r in repos] and platform_app['sources'][1]['ref']=='gitops'
-        platform_project = next(d for d in gitops if d['kind']=='AppProject' and d['metadata']['name']=='iris-platform-project')['spec']
-        digest = 'sha256:'+'a'*64
-        render_platform = lambda *files: [x for x in yaml.safe_load_all(command('template','p',ROOT/'helm/charts/iris-platform','-f',ROOT/'clusters/aws-dev-management/values/platform.yaml',*[a for f in files for a in ('-f',f)],'--namespace','iris-platform','--kube-version',VERSIONS['kubernetes']+'.0')) if x]
-        assert not any(d['kind'] in ('Deployment','Job','Ingress') for d in render_platform()), 'Without digests no component may be deployed.'
-        was = directory/'was.yaml'
-        was.write_text(json.dumps({'components':{k:{'digest':digest} for k in ('api','build-worker','deploy-worker')}}))
-        stray = directory/'stray.yaml'
-        stray.write_text(json.dumps({'components':{'undefined-agent':{'digest':digest}}}))
-        command('lint','--strict',ROOT/'helm/charts/iris-platform','-f',ROOT/'clusters/aws-dev-management/values/platform.yaml','-f',was,'--kube-version',VERSIONS['kubernetes']+'.0')
-        platform = render_platform(was, stray)
-        deployments = {d['metadata']['name']:d['spec']['template']['spec'] for d in platform if d['kind']=='Deployment'}
-        assert set(deployments)=={'iris-api','iris-build-worker','iris-deploy-worker'}, 'A digest for an undefined component must be ignored.'
-        assert deployments['iris-build-worker']['serviceAccountName']=='build-worker' and deployments['iris-deploy-worker']['serviceAccountName']=='deploy-worker'
-        assert all(p['containers'][0]['image'].endswith('/iris/was@'+digest) and p['securityContext']['runAsNonRoot'] for p in deployments.values())
-        api_ingress = next(d for d in platform if d['kind']=='Ingress')
-        assert api_ingress['spec']['rules'][0]['host']=='api.likelion.uk' and api_ingress['metadata']['annotations']['alb.ingress.kubernetes.io/group.name']=='iris-platform-external'
-        migration = next(d for d in platform if d['kind']=='Job')
-        assert migration['metadata']['name']=='iris-api-migration' and migration['metadata']['annotations']['argocd.argoproj.io/hook']=='PreSync'
-        policies = {d['metadata']['name'] for d in platform if d['kind']=='NetworkPolicy'}
-        assert policies=={'iris-api-from-alb','iris-deploy-worker-to-argocd','iris-platform-to-database'}
-        platform_kinds = {(d['apiVersion'].rpartition('/')[0], d['kind']) for d in platform}
-        assert platform_kinds <= {(w['group'],w['kind']) for w in platform_project['namespaceResourceWhitelist']}, f'iris-platform-project must allow chart kinds: {platform_kinds}'
+        # Platform is opt-in at bootstrap (GITOPS_PLATFORM_ENABLED); check_platform covers it.
+        assert sum(d['kind']=='Application' for d in gitops)==8
+        assert sum(d['kind']=='AppProject' for d in gitops)==3
         appset = next(d for d in gitops if d['kind']=='ApplicationSet')['spec']
         chart_source, values_source = appset['template']['spec']['sources']
         assert appset['syncPolicy']['applicationsSync']=='create-update', 'Removed service directories must not delete running services.'
