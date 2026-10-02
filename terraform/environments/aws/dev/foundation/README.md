@@ -7,6 +7,7 @@
 - 서비스별 ECR 저장소(`iris/services/{service_id}`)는 Build Worker 가 만듭니다.
 - 플랫폼 ECR은 `iris/was`, `iris/code-analyzer-agent`, `iris/error-check-agent`입니다. 정적 사이트인 `iris-web`은 별도 후속 배포입니다.
 - 네트워크: 공유 VPC, public subnet 2개, 관리용·앱용 private subnet 각 2개, IGW, zonal NAT, routing, 관리→앱 API 접근용 추가 SG 2개.
+- DNS: 기존 Route53 zone `likelion.uk`를 import(`prevent_destroy`, plan guard 보호)하고 ALB용 `*.likelion.uk`+apex ACM 인증서와 DNS 검증 레코드를 둡니다. 선언하지 않은 기존 레코드(apex/app/www)는 건드리지 않습니다. 권한 DNS가 Route53이 아니면 `acm_validation_records` 출력을 현재 DNS에 등록해야 발급됩니다.
 - SSM private bridge와 Argo management/deploy IAM을 구현했습니다. EKS root가 source/target SG와 Argo/Worker Pod Identity를 연결하며 실제 Worker·GitOps 연동은 후속 범위입니다. 앱 EKS 접근은 Argo deploy role을 사용하며 Deploy Worker는 앱 EKS 권한이 없습니다([ADR 0002](../../../../../docs/decisions/0002-gitops-deployment.md)).
 
 독립 root module이며 state key는 `aws/dev/foundation/terraform.tfstate`입니다.

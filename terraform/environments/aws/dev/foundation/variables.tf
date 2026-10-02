@@ -92,3 +92,9 @@ variable "workload_cluster_name" {
     error_message = "workload_cluster_name은 유효한 EKS 이름이며 management_cluster_name과 달라야 합니다."
   }
 }
+
+variable "domain_name" {
+  description = "사용자 서비스 도메인. 기존 Route53 hosted zone 이름과 같아야 합니다."
+  type        = string
+  default     = "likelion.uk"
+}
