@@ -57,9 +57,17 @@ spec:
   destination:
     server: {{ $target.endpoint | quote }}
     namespace: {{ $addon.ns }}
+  {{- if eq $name "aws-load-balancer-controller" }}
+  # The chart generates a new webhook certificate on every render. Keep the live one so a
+  # re-sync does not leave running controllers serving a certificate the webhooks reject.
+  ignoreDifferences:
+    - {group: "", kind: Secret, name: aws-load-balancer-tls, namespace: kube-system, jsonPointers: [/data]}
+    - {group: admissionregistration.k8s.io, kind: MutatingWebhookConfiguration, name: aws-load-balancer-webhook, jqPathExpressions: [".webhooks[].clientConfig.caBundle"]}
+    - {group: admissionregistration.k8s.io, kind: ValidatingWebhookConfiguration, name: aws-load-balancer-webhook, jqPathExpressions: [".webhooks[].clientConfig.caBundle"]}
+  {{- end }}
   syncPolicy:
     automated: {prune: false, selfHeal: true}
-    syncOptions: [CreateNamespace=true, ServerSideApply=true]
+    syncOptions: [CreateNamespace=true, ServerSideApply=true{{ if eq $name "aws-load-balancer-controller" }}, RespectIgnoreDifferences=true{{ end }}]
 ---
 {{- end }}
 {{- end }}
