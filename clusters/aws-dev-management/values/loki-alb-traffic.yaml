@@ -1,0 +1,30 @@
+# Applied only with gitops albTraffic.enabled, after the collector ConfigMap exists.
+# Loki image 3.6.12 / chart 7.3.0. Keep existing ingest limits and S3 data storage.
+loki:
+  rulerConfig:
+    enable_api: false
+    evaluation_interval: 1m
+    poll_interval: 1m
+    storage:
+      type: local
+      local: {directory: /etc/loki/alb-rules}
+    rule_path: /var/loki/ruler-work
+    wal: {dir: /var/loki/ruler-wal}
+    remote_write:
+      enabled: true
+      clients:
+        prometheus:
+          url: http://monitoring-prometheus.observability:9090/api/v1/write
+singleBinary:
+  extraVolumes:
+    - name: alb-traffic-rules
+      configMap:
+        name: alb-traffic-rules
+        items: [{key: traffic.yaml, path: fake/traffic.yaml}]
+  extraVolumeMounts:
+    - {name: alb-traffic-rules, mountPath: /etc/loki/alb-rules, readOnly: true}
+monitoring:
+  serviceMonitor:
+    enabled: true
+    labels: {release: monitoring}
+    metricsInstance: {enabled: false}

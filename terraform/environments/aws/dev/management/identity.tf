@@ -29,3 +29,11 @@ resource "aws_eks_pod_identity_association" "loki" {
   role_arn        = data.terraform_remote_state.foundation.outputs.loki_role_arn
   depends_on      = [module.eks]
 }
+
+resource "aws_eks_pod_identity_association" "alb_log_collector" {
+  cluster_name    = module.eks.name
+  namespace       = "observability"
+  service_account = "alb-log-collector"
+  role_arn        = data.terraform_remote_state.foundation.outputs.alb_access_logs.collector_role_arn
+  depends_on      = [module.eks]
+}

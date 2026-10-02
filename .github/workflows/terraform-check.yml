@@ -41,6 +41,8 @@ jobs:
         run: make scaffold-check
       - name: Test Terraform CI stack orchestration
         run: python3 scripts/tests/test-tf-ci.py
+      - name: Test ALB collector outbox and parsing
+        run: python3 -m unittest discover -s collectors/alb-access-logs -p test_collector.py
       - name: Install verified linters in runner temp
         shell: bash
         run: |
@@ -75,6 +77,31 @@ jobs:
         env:
           IRIS_ECR_DOCKER_TEST: '1'
         run: python3 scripts/tests/test-build-push-ecr.py BuildPushTest.test_real_docker_fixture_build
+      - name: Build locked collector image locally without publication
+        run: docker build --tag iris-alb-log-collector:ci collectors/alb-access-logs
+      - name: Verify actual Loki ruler and Prometheus traffic results
+        shell: bash
+        run: |
+          tool_dir="$RUNNER_TEMP/alb-traffic-tools"
+          mkdir -p "$tool_dir"
+          curl --fail --location --retry 3 \
+            https://github.com/grafana/loki/releases/download/v3.6.12/loki-linux-amd64.zip \
+            --output "$tool_dir/loki.zip"
+          printf '%s  %s\n' \
+            301a56770f8bee5a1634dd40b83b6a8975f8b45706d6b18888d7cc0999e79d86 \
+            "$tool_dir/loki.zip" | sha256sum --check
+          unzip -q "$tool_dir/loki.zip" -d "$tool_dir"
+          curl --fail --location --retry 3 \
+            https://github.com/prometheus/prometheus/releases/download/v3.15.0/prometheus-3.15.0.linux-amd64.tar.gz \
+            --output "$tool_dir/prometheus.tar.gz"
+          printf '%s  %s\n' \
+            2a542df32eac02ee17b9d844fb2aa1de00dafa5476579ba8a3ba862e9d572ea0 \
+            "$tool_dir/prometheus.tar.gz" | sha256sum --check
+          tar --extract --gzip --file "$tool_dir/prometheus.tar.gz" --directory "$tool_dir"
+          chmod +x "$tool_dir/loki-linux-amd64"
+          python3 collectors/alb-access-logs/integration.py \
+            --loki-binary "$tool_dir/loki-linux-amd64" \
+            --prometheus-binary "$tool_dir/prometheus-3.15.0.linux-amd64/prometheus"
       - name: Format, init without backend, and validate
         run: make tf-check
       - name: Test all implemented Terraform stacks with isolated mock providers
@@ -88,6 +115,10 @@ jobs:
         run: python3 -m pip install PyYAML==6.0.3
       - name: Lint and render pinned Kubernetes stack
         run: make helm-check
+      - name: Render staged and fixture-enabled ALB traffic charts
+        run: python3 scripts/check-alb-traffic.py --loki-binary "$RUNNER_TEMP/alb-traffic-tools/loki-linux-amd64"
+      - name: Test empty and pinned collector digest gates in isolated fixtures
+        run: python3 scripts/tests/test-alb-traffic.py
 
   deploy:
     name: Apply implemented stacks on main

@@ -26,6 +26,7 @@ override_data {
     argocd_management_role_arn              = "arn:aws:iam::123456789012:role/argocd"
     argocd_deploy_role_arns                 = { management = "arn:aws:iam::123456789012:role/argocd-management-deploy", workload = "arn:aws:iam::123456789012:role/argocd-workload-deploy" }
     deploy_worker_role_arn                  = "arn:aws:iam::123456789012:role/deploy-worker"
+    alb_access_logs                         = { collector_role_arn = "arn:aws:iam::123456789012:role/alb-log-collector" }
     loki_role_arn                           = "arn:aws:iam::123456789012:role/loki"
     build_worker_role_arn                   = "arn:aws:iam::123456789012:role/build-worker"
   } }
@@ -52,5 +53,13 @@ run "platform_pod_identity" {
   assert {
     condition     = aws_eks_pod_identity_association.loki.namespace == "observability" && aws_eks_pod_identity_association.loki.service_account == "loki" && aws_eks_pod_identity_association.loki.role_arn == data.terraform_remote_state.foundation.outputs.loki_role_arn
     error_message = "Loki must use the foundation Loki role through observability/loki only."
+  }
+}
+
+run "alb_collector_identity" {
+  command = plan
+  assert {
+    condition     = aws_eks_pod_identity_association.alb_log_collector.namespace == "observability" && aws_eks_pod_identity_association.alb_log_collector.service_account == "alb-log-collector" && aws_eks_pod_identity_association.alb_log_collector.role_arn == data.terraform_remote_state.foundation.outputs.alb_access_logs.collector_role_arn
+    error_message = "Management collector association must consume only its dedicated foundation role."
   }
 }

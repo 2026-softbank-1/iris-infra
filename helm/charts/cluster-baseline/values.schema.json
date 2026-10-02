@@ -84,6 +84,28 @@
         "certificateArn": {
           "type": "string",
           "pattern": "^(arn:aws:acm:ap-northeast-2:[0-9]{12}:certificate/[0-9a-f-]+)?$"
+        },
+        "accessLogs": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "enabled",
+            "bucket",
+            "prefix"
+          ],
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "bucket": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9.-]+[a-z0-9]$"
+            },
+            "prefix": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9/_-]+$"
+            }
+          }
         }
       },
       "if": {

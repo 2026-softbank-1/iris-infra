@@ -15,7 +15,7 @@ SPEC.loader.exec_module(CHECKER)
 class PlatformInventoryTest(unittest.TestCase):
     def test_current_inventory_matches_service_repositories(self):
         names = CHECKER.validate_inventory(json.loads(CHECKER.INVENTORY.read_text()))
-        self.assertEqual(set(names), {"was", "code-analyzer-agent", "error-check-agent"})
+        self.assertEqual(set(names), {"was", "code-analyzer-agent", "error-check-agent", "alb-log-collector"})
 
     def test_reject_invalid_inventory(self):
         invalid = (None, {}, "was", [], ["was", "was"], [1], [True],

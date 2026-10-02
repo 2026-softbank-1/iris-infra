@@ -162,7 +162,7 @@ def check_platform(directory, targets, bootstrap):
     assert app['spec']['destination']=={'server':targets['management']['endpoint'],'namespace':'iris-platform'}
     chart_source, gitops_source = app['spec']['sources']
     assert chart_source['targetRevision']=='a'*40 and chart_source['path']=='helm/charts/iris-platform' and chart_source['helm']['ignoreMissingValueFiles']
-    repos=json.loads((ROOT/'terraform/config/platform-ecr-repositories.json').read_text())
+    repos=[r for r in json.loads((ROOT/'terraform/config/platform-ecr-repositories.json').read_text()) if r != 'alb-log-collector']
     assert chart_source['helm']['valueFiles']==['../../../clusters/aws-dev-management/values/platform.yaml',*[f'$gitops/platform/aws-dev-management/{r}.yaml' for r in repos]]
     assert gitops_source=={'repoURL':'https://github.com/2026-softbank-1/iris-gitops-environments.git','targetRevision':'main','ref':'gitops'}
     project=next(d for d in docs if d['kind']=='AppProject' and d['metadata']['name']=='iris-platform-project')['spec']

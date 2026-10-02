@@ -103,6 +103,9 @@ metadata:
     alb.ingress.kubernetes.io/ssl-redirect: "443"
     alb.ingress.kubernetes.io/certificate-arn: {{ .certificateArn | quote }}
     alb.ingress.kubernetes.io/ssl-policy: ELBSecurityPolicy-TLS13-1-2-2021-06
+    {{- with .accessLogs }}
+    alb.ingress.kubernetes.io/load-balancer-attributes: {{ if .enabled }}{{ printf "access_logs.s3.enabled=true,access_logs.s3.bucket=%s,access_logs.s3.prefix=%s" .bucket .prefix | quote }}{{ else }}"access_logs.s3.enabled=false"{{ end }}
+    {{- end }}
     alb.ingress.kubernetes.io/actions.not-found: >-
       {"type":"fixed-response","fixedResponseConfig":{"contentType":"text/plain","statusCode":"404","messageBody":"not found"}}
 spec:

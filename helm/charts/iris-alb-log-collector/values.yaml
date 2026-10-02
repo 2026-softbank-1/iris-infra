@@ -1,0 +1,22 @@
+enabled: false
+image:
+  repository: ""
+  digest: ""
+aws:
+  accountId: ""
+  region: ap-northeast-2
+source:
+  bucket: ""
+  prefix: ""
+  queueUrl: ""
+  deadLetterQueueUrl: ""
+  cluster: iris-dev-workload
+  group: iris-service-external
+lokiPushUrl: http://loki.observability:3100/loki/api/v1/push
+resources:
+  requests: {cpu: 100m, memory: 128Mi}
+  limits: {memory: 512Mi}
+persistence:
+  size: 1Gi
+rules:
+  enabled: true

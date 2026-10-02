@@ -104,6 +104,19 @@ def matrix(c):
     add("Pass Build Worker", "iam", "PassRole", worker, {"iam:PassedToService": "pods.eks.amazonaws.com"})
     deploy_worker = iam + f"role/{c.stem}-deploy-worker"
     add("Pass Deploy Worker", "iam", "PassRole", deploy_worker, {"iam:PassedToService": "pods.eks.amazonaws.com"})
+    alb_collector = iam + f"role/{c.stem}-alb-log-collector"
+    add("ALB collector role", "iam", "CreateRole GetRole UpdateAssumeRolePolicy UpdateRole UpdateRoleDescription DeleteRole ListRolePolicies ListAttachedRolePolicies ListInstanceProfilesForRole PutRolePolicy GetRolePolicy DeleteRolePolicy TagRole UntagRole ListRoleTags", alb_collector)
+    add("Pass ALB collector", "iam", "PassRole", alb_collector, {"iam:PassedToService": "pods.eks.amazonaws.com"})
+    for service in ("ec2.amazonaws.com", "eks.amazonaws.com"):
+        add("Reject ALB collector passed service", "iam", "PassRole", alb_collector, {"iam:PassedToService": service}, False)
+    alb_bucket = f"arn:aws:s3:::{c.stem}-alb-access-logs-{c.account}-{c.region}"
+    add("ALB bucket configuration", "s3", "ListBucket ListBucketVersions GetBucketLocation GetBucketPolicy GetBucketTagging GetBucketPublicAccessBlock GetBucketNotification GetBucketVersioning GetBucketLogging GetAccelerateConfiguration GetEncryptionConfiguration GetLifecycleConfiguration GetReplicationConfiguration GetBucketObjectLockConfiguration", alb_bucket)
+    add("ALB bucket lifecycle", "s3", "CreateBucket DeleteBucket PutBucketTagging PutEncryptionConfiguration PutBucketPublicAccessBlock PutLifecycleConfiguration PutBucketPolicy DeleteBucketPolicy PutBucketNotification", alb_bucket)
+    alb_queues = [f"arn:aws:sqs:{c.region}:{c.account}:{c.stem}-alb-access-logs"+suffix for suffix in ("", "-dlq")]
+    add("ALB queues", "sqs", "CreateQueue DeleteQueue GetQueueUrl GetQueueAttributes SetQueueAttributes TagQueue UntagQueue ListQueueTags", alb_queues)
+    add("Reject unrelated queue", "sqs", "CreateQueue SetQueueAttributes", f"arn:aws:sqs:{c.region}:{c.account}:iris-permission-audit-unrelated", allow=False)
+    add("Reject queue consumption by CI", "sqs", "ReceiveMessage SendMessage DeleteMessage", alb_queues, allow=False)
+    add("Reject raw log access by CI", "s3", "GetObject PutObject DeleteObject", alb_bucket+"/alb/workload/test.log.gz", allow=False)
     bridge = iam + f"role/{c.stem}-ssm-bridge"
     add("Pass bridge", "iam", "PassRole", bridge, {"iam:PassedToService": "ec2.amazonaws.com"})
     for policy, suffix in (("AmazonEKSClusterPolicy", "cluster"), ("AmazonEKSWorkerNodePolicy", "node"),
@@ -193,7 +206,7 @@ def document(value):
 
 
 def expected_names(c):
-    return ({c.stem + "-" + n for n in ("eks-deployment", "runtime-compute", "runtime-iam", "bridge-launch", "foundation-network")},
+    return ({c.stem + "-" + n for n in ("eks-deployment", "runtime-compute", "runtime-iam", "bridge-launch", "foundation-network", "alb-access-logs-deployment")},
             {"bootstrap-state-bucket", "foundation-build-resources", "platform-ecr-resources"})
 
 

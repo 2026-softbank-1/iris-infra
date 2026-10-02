@@ -1,0 +1,24 @@
+{{- if .Values.albTraffic.enabled }}
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: iris-management-alb-log-collector
+  namespace: argocd
+  annotations: {argocd.argoproj.io/sync-wave: "0"}
+spec:
+  project: iris-addons-management
+  source:
+    repoURL: {{ .Values.repoURL | quote }}
+    targetRevision: {{ .Values.revision | quote }}
+    path: helm/charts/iris-alb-log-collector
+    helm:
+      releaseName: alb-log-collector
+      valueFiles: [../../../clusters/aws-dev-management/values/alb-log-collector.yaml]
+      parameters: [{name: enabled, value: "true"}]
+  destination:
+    server: {{ .Values.targets.management.endpoint | quote }}
+    namespace: observability
+  syncPolicy:
+    automated: {prune: false, selfHeal: true}
+    syncOptions: [CreateNamespace=true, ServerSideApply=true]
+{{- end }}

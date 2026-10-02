@@ -1,0 +1,162 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "enabled",
+    "image",
+    "aws",
+    "source",
+    "lokiPushUrl",
+    "resources",
+    "persistence",
+    "rules"
+  ],
+  "properties": {
+    "enabled": {
+      "type": "boolean"
+    },
+    "image": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repository",
+        "digest"
+      ],
+      "properties": {
+        "repository": {
+          "type": "string"
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^(sha256:[0-9a-f]{64})?$"
+        }
+      }
+    },
+    "aws": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "accountId",
+        "region"
+      ],
+      "properties": {
+        "accountId": {
+          "type": "string",
+          "pattern": "^([0-9]{12})?$"
+        },
+        "region": {
+          "const": "ap-northeast-2"
+        }
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "bucket",
+        "prefix",
+        "queueUrl",
+        "deadLetterQueueUrl",
+        "cluster",
+        "group"
+      ],
+      "properties": {
+        "bucket": {
+          "type": "string"
+        },
+        "prefix": {
+          "type": "string"
+        },
+        "queueUrl": {
+          "type": "string"
+        },
+        "deadLetterQueueUrl": {
+          "type": "string"
+        },
+        "cluster": {
+          "type": "string"
+        },
+        "group": {
+          "type": "string"
+        }
+      }
+    },
+    "lokiPushUrl": {
+      "type": "string",
+      "const": "http://loki.observability:3100/loki/api/v1/push"
+    },
+    "resources": {
+      "type": "object"
+    },
+    "persistence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "size"
+      ],
+      "properties": {
+        "size": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]*Gi$"
+        }
+      }
+    },
+    "rules": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "enabled"
+      ],
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        }
+      }
+    }
+  },
+  "if": {
+    "properties": {
+      "enabled": {
+        "const": true
+      }
+    }
+  },
+  "then": {
+    "properties": {
+      "image": {
+        "properties": {
+          "repository": {
+            "pattern": "^[0-9]{12}\\.dkr\\.ecr\\.ap-northeast-2\\.amazonaws\\.com/iris/alb-log-collector$"
+          },
+          "digest": {
+            "minLength": 71
+          }
+        }
+      },
+      "aws": {
+        "properties": {
+          "accountId": {
+            "minLength": 12
+          }
+        }
+      },
+      "source": {
+        "properties": {
+          "bucket": {
+            "minLength": 1
+          },
+          "prefix": {
+            "minLength": 1
+          },
+          "queueUrl": {
+            "minLength": 1
+          },
+          "deadLetterQueueUrl": {
+            "minLength": 1
+          }
+        }
+      }
+    }
+  }
+}

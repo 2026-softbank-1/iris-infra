@@ -45,6 +45,9 @@ spec:
         releaseName: {{ if eq $name "kube-prometheus-stack" }}monitoring{{ else }}{{ $name }}{{ end }}
         valueFiles:
           - $values/clusters/aws-dev-{{ $purpose }}/values/{{ $name }}.yaml
+          {{- if and $.Values.albTraffic.enabled (eq $purpose "management") (eq $name "loki") }}
+          - $values/clusters/aws-dev-management/values/loki-alb-traffic.yaml
+          {{- end }}
         {{- if eq $name "aws-load-balancer-controller" }}
         parameters:
           - {name: clusterName, value: {{ $target.name | quote }}}

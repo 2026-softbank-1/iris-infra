@@ -65,7 +65,7 @@ policy={'Version':'2012-10-17','Statement':[{'Effect':'Allow','Action':'*','Reso
 service,action=args[:2]
 if service=='sts':out={'Account':os.environ.get('FAKE_ACCOUNT','123456789012')}
 elif action=='get-role':out={'Role':{'Arn':'arn:aws:iam::123456789012:role/iris-dev-github-terraform'}}
-elif action=='list-attached-role-policies':out={'AttachedPolicies':[{'PolicyName':'iris-dev-'+n,'PolicyArn':'arn:aws:iam::123456789012:policy/iris-dev-'+n} for n in ['eks-deployment','runtime-compute','runtime-iam','bridge-launch','foundation-network']]}
+elif action=='list-attached-role-policies':out={'AttachedPolicies':[{'PolicyName':'iris-dev-'+n,'PolicyArn':'arn:aws:iam::123456789012:policy/iris-dev-'+n} for n in ['eks-deployment','runtime-compute','runtime-iam','bridge-launch','foundation-network','alb-access-logs-deployment']]}
 elif action=='get-policy':out={'Policy':{'DefaultVersionId':'v1'}}
 elif action=='get-policy-version':out={'PolicyVersion':{'Document':policy}}
 elif action=='list-role-policies':out={'PolicyNames':['bootstrap-state-bucket','foundation-build-resources','platform-ecr-resources']}
@@ -79,7 +79,9 @@ elif action.startswith('simulate-'):
   children=[]
   for r in vals('--resource-arns'):
    denied=(ctx.get('aws:RequestedRegion')=='us-west-2' or 'iris-permission-audit-unrelated' in r or
-    (a=='iam:PassRole' and ((r.endswith('build-worker') and ctx.get('iam:PassedToService')=='ec2.amazonaws.com') or (r.endswith('deploy-worker') and ctx.get('iam:PassedToService')!='pods.eks.amazonaws.com'))) or
+    (a in ('sqs:ReceiveMessage','sqs:SendMessage','sqs:DeleteMessage') and '-alb-access-logs' in r) or
+    (a in ('s3:GetObject','s3:PutObject','s3:DeleteObject') and '-alb-access-logs-' in r) or
+    (a=='iam:PassRole' and ((r.endswith('build-worker') and ctx.get('iam:PassedToService')=='ec2.amazonaws.com') or (r.endswith(('deploy-worker','alb-log-collector')) and ctx.get('iam:PassedToService')!='pods.eks.amazonaws.com'))) or
     (a=='eks:CreateCluster' and (ctx.get('eks:endpointPublicAccess')=='true' or ctx.get('aws:RequestTag/Project','').endswith('-other'))) or
     (a=='ec2:RunInstances' and ((':instance/' in r and ctx.get('ec2:InstanceType')!='t3.micro') or
      (':image/' in r and ctx.get('ec2:Owner')!='amazon') or (':volume/' in r and ctx.get('aws:RequestTag/Project','').endswith('-other')))))
@@ -133,7 +135,7 @@ class PermissionAuditTests(unittest.TestCase):
         calls = self.calls()
         sim = next(c for c in calls if c[1] == "simulate-custom-policy")
         docs = sim[sim.index("--policy-input-list") + 1:sim.index("--action-names")]
-        self.assertEqual(len(docs), 8)
+        self.assertEqual(len(docs), 9)
         self.assertNotIn(SECRET, " ".join(sim))
         self.assertTrue(all(c[0] in ("sts", "iam", "accessanalyzer") for c in calls))
         self.assertFalse(any(c[1].startswith(("create-", "put-", "delete-", "attach-")) for c in calls))
@@ -203,8 +205,8 @@ class PermissionAuditTests(unittest.TestCase):
         module = self.plan["planned_values"]["root_module"]
         module["child_modules"] = [{"resources": [module["resources"].pop(1)]}]
         selected, policies = audit.plan_policies(self.plan, ROLE, C)
-        self.assertEqual(len(selected), 5)
-        self.assertEqual(len(policies), 8)
+        self.assertEqual(len(selected), 6)
+        self.assertEqual(len(policies), 9)
 
     def test_embedded_role_policies_fail(self):
         self.plan["planned_values"]["root_module"]["resources"][0]["values"]["inline_policy"] = [{"policy": SECRET}]
@@ -216,7 +218,7 @@ class PermissionAuditTests(unittest.TestCase):
         role = rows[0]["values"]
         role["managed_policy_arns"] = [r["values"]["policy_arn"] for r in rows if r["type"] == "aws_iam_role_policy_attachment"]
         role["inline_policy"] = [{"name": r["values"]["name"], "policy": r["values"]["policy"]} for r in rows if r["type"] == "aws_iam_role_policy" and r["values"]["role"] == "iris-dev-github-terraform"]
-        self.assertEqual(len(audit.plan_policies(self.plan, ROLE, C)[1]), 8)
+        self.assertEqual(len(audit.plan_policies(self.plan, ROLE, C)[1]), 9)
         role["managed_policy_arns"].append("arn:aws:iam::aws:policy/AdministratorAccess")
         with self.assertRaises(audit.AuditError):
             audit.plan_policies(self.plan, ROLE, C)
