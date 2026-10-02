@@ -85,7 +85,7 @@ def main():
         assert [r['name'] for r in services['roles']]==['iris-deploy-reader']
         service_docs = render(ROOT/'helm/charts/iris-service', ROOT/'helm/charts/iris-service/ci/aws-values.yaml', namespace='svc-12')
         ingress = next(d for d in service_docs if d['kind']=='Ingress')
-        assert ingress['metadata']['annotations']['alb.ingress.kubernetes.io/group.name']=='iris-svc-public', 'All services share the public ALB group.'
+        assert ingress['metadata']['annotations']['alb.ingress.kubernetes.io/group.name']=='iris-service-external', 'All services share the external ALB group.'
         rendered_kinds = {(d['apiVersion'].rpartition('/')[0], d['kind']) for d in service_docs}
         assert rendered_kinds <= {(w['group'],w['kind']) for w in services['namespaceResourceWhitelist']}, f'iris-svc-project must allow chart kinds: {rendered_kinds}'
         allowed = {p['metadata']['name'].removeprefix('iris-addons-'): {(w['group'],w['kind']) for w in p['spec']['clusterResourceWhitelist']} for p in gitops if p['kind']=='AppProject'}
@@ -106,6 +106,13 @@ def main():
             sc = next(d for d in baseline if d['kind']=='StorageClass')
             assert sc['volumeBindingMode']=='WaitForFirstConsumer' and sc['parameters']=={'type':'gp3','encrypted':'true'}
             assert any(d['kind']=='NetworkPolicy' for d in baseline)
+            anchor = next(d for d in baseline if d['kind']=='Ingress')
+            notes = anchor['metadata']['annotations']
+            group = {'management':'iris-platform-external','workload':'iris-service-external'}[purpose]
+            assert notes['alb.ingress.kubernetes.io/group.name']==notes['alb.ingress.kubernetes.io/load-balancer-name']==group and notes['alb.ingress.kubernetes.io/scheme']=='internet-facing'
+            assert notes['alb.ingress.kubernetes.io/certificate-arn'].startswith('arn:aws:acm:ap-northeast-2:') and anchor['spec']['defaultBackend']['service']['port']['name']=='use-annotation'
+            if purpose=='workload':
+                assert yaml.safe_load((ROOT/'helm/charts/iris-service/values.yaml').read_text())['route']['groupName']==group, 'Service Ingresses must join the workload anchor ALB group.'
             rendered = list(baseline)
             for name,chart in charts.items():
                 params = ('--set','clusterName=iris-dev-'+purpose,'--set','region=ap-northeast-2','--set','vpcId=vpc-0123456789abcdef0') if name=='aws-load-balancer-controller' else ()

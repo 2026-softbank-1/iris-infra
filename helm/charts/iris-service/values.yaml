@@ -17,7 +17,7 @@ service:
 route:
   className: alb
   # 같은 group 의 Ingress 는 ALB 하나와 listener 규칙을 공유합니다.
-  groupName: iris-svc-public
+  groupName: iris-service-external
 networkPolicy:
   # ALB(target-type ip)는 Pod IP 로 직접 보냅니다. ALB 서브넷 CIDR 을 넣으면 그 외 ingress 를 막습니다.
   # 비어 있으면 NetworkPolicy 를 만들지 않습니다. VPC 구현 후 타겟 값으로 채웁니다.

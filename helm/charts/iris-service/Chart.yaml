@@ -2,4 +2,4 @@ apiVersion: v2
 name: iris-service
 description: "Iris 사용자 앱 공통 chart: Deployment, Service, ALB Ingress, 선택적인 NetworkPolicy"
 type: application
-version: 0.3.0
+version: 0.4.0
