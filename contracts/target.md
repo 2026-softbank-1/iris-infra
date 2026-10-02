@@ -15,6 +15,7 @@ Terraform `management/workload`의 `target` 출력과 `scripts/export-targets.sh
 | node_group_names_by_az | AZ별 고정1노드 MNG 이름 |
 | ssm_bridge_instance_id / ssm_bridge_security_group_id | private API tunnel 경로 |
 | operator_principal_arn | 실제 caller와 일치할 IAM user/role Access Entry |
+| additional_operator_principal_arns | 같은 cluster-admin Access Entry를 받는 추가 운영자 목록(기본 `[]`) |
 | argocd_role_arn / load_balancer_controller_role_arn | target deploy/LBC identity |
 | argocd_management_role_arn | management에만 포함하는3SA Pod Identity role |
 

@@ -72,7 +72,8 @@ def validate_target(target, target_id, expected):
     need(bool(base64.b64decode(target['ca_data'], validate=True)), 'Missing CA data.')
     need(len(target['subnet_ids_by_az']) == 2, 'Expected two AZ subnets.')
     need(target['api_port'] == (10443 if target_id.endswith('management') else 11443), 'Unexpected tunnel port.')
-    need(re.fullmatch(rf'arn:aws:iam::{expected}:(role|user)/[A-Za-z0-9/_+=,.@-]+', target['operator_principal_arn']), 'Invalid operator principal.')
+    for principal in [target['operator_principal_arn'], *target.get('additional_operator_principal_arns', [])]:
+        need(re.fullmatch(rf'arn:aws:iam::{expected}:(role|user)/[A-Za-z0-9/_+=,.@-]+', principal), 'Invalid operator principal.')
     return target
 
 
@@ -111,12 +112,13 @@ def load_target(target_id):
     payload = json.loads(path.read_text())
     need(payload['schema_version'] == 1, 'Unsupported target schema.')
     target = validate_target(payload['targets'][target_id], target_id, expected)
-    principal = target['operator_principal_arn']
+    principals = [target['operator_principal_arn'], *target.get('additional_operator_principal_arns', [])]
     # STS assumed-role sessions omit an IAM role path, but role names are unique.
-    matches = caller == principal or (
+    matches = any(caller == principal or (
         ':role/' in principal and caller.startswith(
             f'arn:aws:sts::{expected}:assumed-role/{principal.rsplit("/", 1)[-1]}/'))
-    need(matches, 'Current AWS principal does not match the explicit operator Access Entry.')
+        for principal in principals)
+    need(matches, 'Current AWS principal does not match an explicit operator Access Entry.')
     return target
 
 
