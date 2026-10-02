@@ -116,3 +116,13 @@ variable "platform_db_password_version" {
   type        = number
   default     = 1
 }
+
+variable "platform_db_backup_retention_days" {
+  description = "RDS 자동 백업 보존 일수. AWS Free 플랜 계정은 최대 1일이며, 플랜 업그레이드 후 7일 이상으로 올립니다."
+  type        = number
+  default     = 1
+  validation {
+    condition     = var.platform_db_backup_retention_days >= 1 && var.platform_db_backup_retention_days <= 35
+    error_message = "1-35 days; 0 would disable automated backups."
+  }
+}

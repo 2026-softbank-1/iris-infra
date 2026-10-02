@@ -25,8 +25,9 @@ resource "aws_db_parameter_group" "platform" {
   name   = local.db_name
   family = "postgres17"
   parameter {
-    name  = "rds.force_ssl"
-    value = "1"
+    name         = "rds.force_ssl"
+    value        = "1"
+    apply_method = "pending-reboot" # static; set before the instance first boots
   }
 }
 ephemeral "random_password" "platform_db" {
@@ -73,7 +74,7 @@ resource "aws_db_instance" "platform" {
   vpc_security_group_ids = [aws_security_group.platform_db.id]
   parameter_group_name   = aws_db_parameter_group.platform.name
 
-  backup_retention_period    = 7
+  backup_retention_period    = var.platform_db_backup_retention_days
   copy_tags_to_snapshot      = true
   auto_minor_version_upgrade = true
   # Avoid silent paid Extended Support once the major version leaves standard support.
@@ -89,4 +90,20 @@ output "platform_db_name" { value = aws_db_instance.platform.db_name }
 output "platform_db_secret_arn" {
   description = "Secrets Manager secret with the DB credentials; build DATABASE_URL from it."
   value       = aws_secretsmanager_secret.platform_db.arn
+}
+# Operators reach the DB only through the SSM bridge port forward (no inbound on the bridge itself).
+resource "aws_vpc_security_group_ingress_rule" "platform_db_from_bridge" {
+  security_group_id            = aws_security_group.platform_db.id
+  referenced_security_group_id = aws_security_group.ssm_bridge.id
+  ip_protocol                  = "tcp"
+  from_port                    = 5432
+  to_port                      = 5432
+}
+resource "aws_vpc_security_group_egress_rule" "bridge_platform_db" {
+  security_group_id            = aws_security_group.ssm_bridge.id
+  referenced_security_group_id = aws_security_group.platform_db.id
+  ip_protocol                  = "tcp"
+  from_port                    = 5432
+  to_port                      = 5432
+  tags                         = local.access_tags
 }

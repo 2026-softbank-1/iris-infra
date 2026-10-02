@@ -57,6 +57,21 @@ curl -sS -o /dev/null -w '%{http_code}\n' https://api.likelion.uk/healthz   # 20
 
 rollback은 GitOps 파일을 이전 커밋으로 되돌리는 커밋(`git revert`)입니다. migration은 자동으로 되돌리지 않습니다.
 
+## DB 직접 접근 (SSM bridge)
+
+RDS는 management 노드와 SSM bridge에서만 5432로 접근할 수 있습니다. workload(사용자 앱)는 열지 않습니다.
+
+```bash
+F=terraform/environments/aws/dev/foundation
+aws ssm start-session --target "$(terraform -chdir=$F output -raw ssm_bridge_instance_id)" \
+  --document-name AWS-StartPortForwardingSessionToRemoteHost \
+  --parameters "host=$(terraform -chdir=$F output -raw platform_db_endpoint),portNumber=5432,localPortNumber=15432"
+# 다른 터미널. 비밀번호는 Secrets Manager iris-dev-platform-db
+psql "host=127.0.0.1 port=15432 dbname=iris user=iris sslmode=require"
+```
+
+운영자 IAM에는 bridge 인스턴스와 `AWS-StartPortForwardingSessionToRemoteHost`에 대한 `ssm:StartSession`, Secrets Manager 읽기 권한이 필요합니다.
+
 ## 비밀번호 교체
 
 자동 교체는 없습니다. foundation 변수 `platform_db_password_version`을 올려 apply하면 RDS와 Secrets Manager가 함께 바뀝니다. 이후 1-3의 Secret을 다시 만들고 `$K rollout restart deploy`로 반영합니다.
