@@ -4,71 +4,251 @@
   "description": "Deploy Worker 가 쓰는 배포별 값과 chart·타겟 기본값. 모르는 키는 거절합니다.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["image", "release", "containerPort", "health", "route"],
+  "required": [
+    "image",
+    "release",
+    "containerPort",
+    "health",
+    "route"
+  ],
   "properties": {
     "image": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["repository"],
+      "required": [
+        "repository"
+      ],
       "properties": {
-        "repository": { "type": "string", "minLength": 1 },
-        "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
-        "tag": { "type": "string", "minLength": 1 }
+        "repository": {
+          "type": "string",
+          "minLength": 1
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "tag": {
+          "type": "string",
+          "minLength": 1
+        }
       },
-      "oneOf": [{ "required": ["digest"] }, { "required": ["tag"] }]
+      "oneOf": [
+        {
+          "required": [
+            "digest"
+          ]
+        },
+        {
+          "required": [
+            "tag"
+          ]
+        }
+      ]
     },
     "release": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id"],
+      "required": [
+        "id"
+      ],
       "properties": {
-        "id": { "type": "integer", "minimum": 1 },
-        "sourceSha": { "type": "string", "pattern": "^[0-9a-f]{40}$" }
+        "id": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "sourceSha": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        }
       }
     },
-    "replicas": { "type": "integer", "minimum": 0, "maximum": 10 },
-    "containerPort": { "type": "integer", "minimum": 1, "maximum": 65535 },
-    "command": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+    "replicas": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 10
+    },
+    "containerPort": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 65535
+    },
+    "command": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string"
+      }
+    },
     "health": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["timeoutSeconds"],
+      "required": [
+        "timeoutSeconds"
+      ],
       "properties": {
-        "path": { "type": "string", "pattern": "^/\\S*$", "maxLength": 1024 },
-        "timeoutSeconds": { "type": "integer", "minimum": 30, "maximum": 3600 }
+        "path": {
+          "type": "string",
+          "pattern": "^/\\S*$",
+          "maxLength": 1024
+        },
+        "timeoutSeconds": {
+          "type": "integer",
+          "minimum": 30,
+          "maximum": 3600
+        }
       }
     },
     "resources": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "requests": { "$ref": "#/definitions/quantities" },
-        "limits": { "$ref": "#/definitions/quantities" }
+        "requests": {
+          "$ref": "#/definitions/quantities"
+        },
+        "limits": {
+          "$ref": "#/definitions/quantities"
+        }
       }
     },
     "service": {
       "type": "object",
       "additionalProperties": false,
-      "properties": { "port": { "type": "integer", "minimum": 1, "maximum": 65535 } }
+      "properties": {
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        }
+      }
     },
     "route": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["host", "className"],
+      "required": [
+        "host",
+        "className"
+      ],
       "properties": {
         "host": {
           "type": "string",
           "maxLength": 253,
           "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$"
         },
-        "className": { "type": "string", "minLength": 1 },
-        "groupName": { "type": "string" }
+        "className": {
+          "type": "string",
+          "minLength": 1
+        },
+        "groupName": {
+          "type": "string"
+        }
       }
     },
     "networkPolicy": {
       "type": "object",
       "additionalProperties": false,
-      "properties": { "allowedCidrs": { "type": "array", "items": { "type": "string" } } }
+      "properties": {
+        "allowedCidrs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "environment": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,127}$",
+            "not": {
+              "enum": [
+                "PORT",
+                "IRIS_PUBLIC_DOMAIN",
+                "IRIS_GIT_COMMIT_SHA"
+              ]
+            }
+          },
+          "value": {
+            "type": "string",
+            "maxLength": 2048
+          },
+          "valueFrom": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "secretKeyRef"
+            ],
+            "properties": {
+              "secretKeyRef": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "name",
+                  "key"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "maxLength": 253,
+                    "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+                  },
+                  "key": {
+                    "type": "string",
+                    "maxLength": 253,
+                    "pattern": "^[A-Za-z0-9_.-]+$"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "oneOf": [
+          {
+            "required": [
+              "value"
+            ],
+            "not": {
+              "required": [
+                "valueFrom"
+              ]
+            }
+          },
+          {
+            "required": [
+              "valueFrom"
+            ],
+            "not": {
+              "required": [
+                "value"
+              ]
+            }
+          }
+        ],
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "name": {
+                  "pattern": "(?i)(PASSWORD|SECRET|TOKEN|API_KEY|PRIVATE_KEY|DATABASE_URL)"
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "valueFrom"
+              ]
+            }
+          }
+        ]
+      }
     }
   },
   "definitions": {
@@ -76,8 +256,15 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "cpu": { "type": ["string", "number"] },
-        "memory": { "type": "string" }
+        "cpu": {
+          "type": [
+            "string",
+            "number"
+          ]
+        },
+        "memory": {
+          "type": "string"
+        }
       }
     }
   }

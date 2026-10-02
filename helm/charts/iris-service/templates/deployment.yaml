@@ -1,3 +1,10 @@
+{{- $names := dict }}
+{{- range .Values.environment }}
+{{- if hasKey $names .name }}
+{{- fail (printf "duplicate environment variable: %s" .name) }}
+{{- end }}
+{{- $_ := set $names .name true }}
+{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -46,6 +53,9 @@ spec:
             {{- with .Values.release.sourceSha }}
             - name: IRIS_GIT_COMMIT_SHA
               value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.environment }}
+            {{- toYaml . | nindent 12 }}
             {{- end }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}

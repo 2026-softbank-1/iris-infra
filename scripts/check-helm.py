@@ -84,6 +84,26 @@ def main():
         assert next(d for d in gitops if d['kind']=='ApplicationSet')['metadata']['name']=='iris-svc-appset' and appset['template']['spec']['project']=='iris-svc-project'
         assert [r['name'] for r in services['roles']]==['iris-deploy-reader']
         service_docs = render(ROOT/'helm/charts/iris-service', ROOT/'helm/charts/iris-service/ci/aws-values.yaml', namespace='svc-12')
+        env_values = yaml.safe_load((ROOT/'helm/charts/iris-service/ci/aws-values.yaml').read_text())
+        env_values['environment'] = [
+            {'name':'LOG_LEVEL','value':'info'},
+            {'name':'DATABASE_URL','valueFrom':{'secretKeyRef':{'name':'service-db','key':'url'}}},
+        ]
+        env_file = directory/'service-env.json'
+        env_file.write_text(json.dumps(env_values))
+        env_docs = render(ROOT/'helm/charts/iris-service', env_file, namespace='svc-12')
+        container = next(d for d in env_docs if d['kind']=='Deployment')['spec']['template']['spec']['containers'][0]
+        assert container['env'][-2:]==env_values['environment'], 'Confirmed public values and existing Secret references must reach the pod.'
+        for invalid in (
+            [{'name':'PORT','value':'9999'}],
+            [{'name':'DATABASE_URL','value':'secret-literal-must-not-render'}],
+            [{'name':'LOG_LEVEL','value':'info','valueFrom':{'secretKeyRef':{'name':'x','key':'y'}}}],
+            [{'name':'LOG_LEVEL','value':'info'},{'name':'LOG_LEVEL','value':'debug'}],
+        ):
+            env_values['environment']=invalid
+            env_file.write_text(json.dumps(env_values))
+            failed = subprocess.run([HELM,'template','check',str(ROOT/'helm/charts/iris-service'),'-f',str(env_file)], capture_output=True)
+            assert failed.returncode, 'Reserved, sensitive, ambiguous and duplicate environment bindings must fail.'
         ingress = next(d for d in service_docs if d['kind']=='Ingress')
         assert ingress['metadata']['annotations']['alb.ingress.kubernetes.io/group.name']=='iris-service-external', 'All services share the external ALB group.'
         rendered_kinds = {(d['apiVersion'].rpartition('/')[0], d['kind']) for d in service_docs}
