@@ -28,6 +28,8 @@ spec:
     - {group: admissionregistration.k8s.io, kind: ValidatingWebhookConfiguration}
     - {group: apiextensions.k8s.io, kind: CustomResourceDefinition}
     - {group: apiregistration.k8s.io, kind: APIService}
+    - {group: networking.k8s.io, kind: IngressClass}
+    - {group: elbv2.k8s.aws, kind: IngressClassParams}
   namespaceResourceWhitelist:
     - {group: "*", kind: "*"}
 ---
