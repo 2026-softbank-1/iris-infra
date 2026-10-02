@@ -68,6 +68,11 @@ spec:
           envFrom:
             - configMapRef:
                 name: {{ $.Release.Name }}-{{ $component }}
+            {{- with $.Values.was.envSecret }}
+            # Whole WAS .env (operator-created Secret); explicit env below still wins.
+            - secretRef:
+                name: {{ . | quote }}
+            {{- end }}
           env:
             {{- include "iris-platform.database-env" (dict "root" $ "secret" $.Values.database.secret) | nindent 12 }}
             {{- if eq $component "build-worker" }}

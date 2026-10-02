@@ -22,7 +22,8 @@ API와 Worker는 최초 replica 1입니다. Worker에는 존재하지 않는 HTT
 | --- | --- |
 | `was.image.repository` | `…amazonaws.com/iris/was` (digest는 GitOps 파일의 컴포넌트별 `digest`) |
 | `api.host` | 운영자가 선택한 API FQDN; management 앵커 인증서 SAN과 일치 |
-| `database.secret` | API·Worker·migration이 함께 쓰는 기존 DB Secret 이름, `urlKey`(기본 `DATABASE_URL`) |
+| `was.envSecret` | WAS `.env` 전체를 담은 Secret. API·Worker·migration에 `envFrom`으로 모든 키를 주입(명시 `env`가 우선) |
+| `database.secret` | `DATABASE_URL`을 가진 Secret. `.env` Secret과 같은 이름이면 Secret 하나로 운영 |
 | `database.caConfigMap`, `caKey` | RDS CA bundle을 보관한 기존 ConfigMap과 데이터 키 |
 | `buildWorker.codebuildProject`, `artifactBucket` | foundation의 `build_codebuild_project_name`, `build_artifact_bucket_name` 출력 |
 | `buildWorker.githubSecret` | 아래 Build GitHub App 키를 가진 기존 Secret |

@@ -83,6 +83,8 @@ def check_platform(directory, targets, bootstrap):
                 assert set(env)=={'LLM_API_KEY','AGENT_API_KEY'} and not pod.get('initContainers')
                 continue
             was=image_of[component]
+            refs=[e['secretRef']['name'] for e in container.get('envFrom',[]) if 'secretRef' in e]
+            assert refs==([values['was']['envSecret']] if values['was'].get('envSecret') else []), 'WAS containers take the whole .env Secret.'
             assert container['image']==was and pod['securityContext']['runAsUser']==1001
             assert env['PGSSLMODE']['value']=='verify-full' and env['PGSSLROOTCERT']['value']=='/etc/iris-rds/ca-bundle.pem'
             expected_secret=values['database']['secret']
