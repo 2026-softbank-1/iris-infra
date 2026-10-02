@@ -64,6 +64,17 @@ run "bridge_launch_authorization" {
     ])
     error_message = "CI may pass only the named bridge role to EC2 through the bridge authorization."
   }
+  assert {
+    condition = length([for statement in jsondecode(aws_iam_policy.runtime_iam.policy).Statement : statement if statement.Sid == "PassBuildWorkerRole"]) == 1 && alltrue([
+      for statement in jsondecode(aws_iam_policy.runtime_iam.policy).Statement :
+      statement.Effect == "Allow" && statement.Action == ["iam:PassRole"] && statement.Resource == "arn:aws:iam::${var.aws_account_id}:role/${var.project}-${var.environment}-build-worker" && jsonencode(statement.Condition) == jsonencode({ StringEquals = { "iam:PassedToService" = "pods.eks.amazonaws.com" } }) if statement.Sid == "PassBuildWorkerRole"
+    ])
+    error_message = "CI may pass the build worker role only to EKS Pod Identity."
+  }
+  assert {
+    condition     = anytrue([for statement in jsondecode(aws_iam_policy.runtime_compute.policy).Statement : contains(statement.Action, "ec2:DescribeInstanceCreditSpecifications") if statement.Sid == "DiscoverCompute"])
+    error_message = "The AWS provider reads T-family credit specifications after launching the bridge."
+  }
 }
 variables {
   aws_account_id             = "123456789012"
@@ -149,7 +160,7 @@ run "eks_provider_permission_paths" {
   }
   assert {
     condition = !contains(local.runtime_role_arns, "arn:aws:iam::${var.aws_account_id}:role/${var.project}-${var.environment}-build-worker") && length([
-      for s in jsondecode(aws_iam_policy.runtime_iam.policy).Statement : s if s.Sid == "PassBuildWorkerToPods" && s.Action == ["iam:PassRole"] && s.Resource == "arn:aws:iam::${var.aws_account_id}:role/${var.project}-${var.environment}-build-worker" && jsonencode(s.Condition) == jsonencode({ StringEquals = { "iam:PassedToService" = "pods.eks.amazonaws.com" } })
+      for s in jsondecode(aws_iam_policy.runtime_iam.policy).Statement : s if s.Sid == "PassBuildWorkerRole" && s.Action == ["iam:PassRole"] && s.Resource == "arn:aws:iam::${var.aws_account_id}:role/${var.project}-${var.environment}-build-worker" && jsonencode(s.Condition) == jsonencode({ StringEquals = { "iam:PassedToService" = "pods.eks.amazonaws.com" } })
     ]) == 1
     error_message = "Management may pass the existing Build Worker to EKS Pod Identity only; its runtime IAM administration inventory must not expand."
   }

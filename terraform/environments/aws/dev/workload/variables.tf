@@ -31,6 +31,11 @@ variable "operator_principal_arn" {
   description = "Explicit existing operator IAM user/role ARN; no default."
   type        = string
 }
+variable "additional_operator_principal_arns" {
+  description = "Extra operator IAM user/role ARNs with the same cluster-admin access."
+  type        = list(string)
+  default     = []
+}
 variable "state_bucket_name" {
   description = "Empty means the standard bootstrap bucket name."
   type        = string

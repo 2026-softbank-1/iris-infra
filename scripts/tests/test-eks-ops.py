@@ -50,6 +50,12 @@ class Operations(unittest.TestCase):
         self.t['operator_principal_arn']='arn:aws:iam::123456789012:role/team/operator'
         ops.write_private(self.root/'.generated/targets.json',{'schema_version':1,'targets':{self.t['id']:self.t}})
         with patch.object(ops,'require'),patch.object(ops,'account',return_value=('123456789012','arn:aws:sts::123456789012:assumed-role/operator/session')):self.assertEqual(ops.load_target(self.t['id']),self.t)
+    def test_additional_operator_matches(self):
+        self.t['additional_operator_principal_arns']=['arn:aws:iam::123456789012:user/second']
+        ops.write_private(self.root/'.generated/targets.json',{'schema_version':1,'targets':{self.t['id']:self.t}})
+        with patch.object(ops,'require'),patch.object(ops,'account',return_value=('123456789012','arn:aws:iam::123456789012:user/second')):self.assertEqual(ops.load_target(self.t['id']),self.t)
+        self.t['additional_operator_principal_arns']=['arn:aws:sts::123456789012:assumed-role/admin/session']
+        with self.assertRaises(ValueError):ops.validate_target(self.t,self.t['id'],'123456789012')
     def test_public_api_and_changed_ca_stop_before_bridge_lookup(self):
         cluster={'status':'ACTIVE','version':'1.35','arn':self.t['arn'],'endpoint':self.t['endpoint'],'certificateAuthority':{'data':self.t['ca_data']},'resourcesVpcConfig':{'vpcId':self.t['vpc_id'],'endpointPrivateAccess':True,'endpointPublicAccess':True}}
         with patch.object(ops,'aws',return_value={'cluster':cluster}) as aws,self.assertRaises(ValueError):ops.preflight(self.t)

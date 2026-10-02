@@ -26,6 +26,8 @@ def render(chart, values=None, release='check', namespace='kube-system', paramet
     args += list(parameters)
     command('lint', '--strict', chart, *args)
     docs = [x for x in yaml.safe_load_all(command('template', release, chart, '--include-crds', *args)) if x]
+    # Some charts (LBC) wrap resources in a v1 List; Argo applies the items.
+    docs = [item for x in docs for item in (x.get('items') or [] if x['kind']=='List' else [x])]
     assert docs, f'Empty chart: {chart}'
     return docs
 
@@ -46,6 +48,14 @@ def check_images(docs):
         assert LOCK['images'].get(name) == digest, f'Image differs from lock: {name}'
 
 
+# Cluster-scoped kinds Argo must be allowed to create through the addon AppProjects.
+CLUSTER_SCOPED = {'Namespace','StorageClass','ClusterRole','ClusterRoleBinding','MutatingWebhookConfiguration','ValidatingWebhookConfiguration','CustomResourceDefinition','APIService','IngressClass','IngressClassParams','PriorityClass','PersistentVolume','CSIDriver','RuntimeClass'}
+
+
+def group_kind(doc):
+    return (doc['apiVersion'].rpartition('/')[0], doc['kind'])
+
+
 def main():
     assert command('version', '--short').startswith('v'+VERSIONS['helm']+'+'), 'Use pinned Helm version.'
     command('repo', 'add', 'iris-argocd', VERSIONS['charts']['argo-cd']['repo'])
@@ -63,6 +73,7 @@ def main():
         gitops = render(ROOT/'helm/gitops', values, namespace='argocd')
         assert sum(d['kind']=='Application' for d in gitops)==8
         assert sum(d['kind']=='AppProject' for d in gitops)==2
+        allowed = {p['metadata']['name'].removeprefix('iris-addons-'): {(w['group'],w['kind']) for w in p['spec']['clusterResourceWhitelist']} for p in gitops if p['kind']=='AppProject'}
         bad = directory/'bad.json'; bad.write_text(json.dumps({'revision':'main','targets':targets}))
         failed = subprocess.run([HELM,'template','check',str(ROOT/'helm/gitops'),'-f',str(bad)],capture_output=True)
         assert failed.returncode, 'Mutable Git revision must fail schema validation.'
@@ -77,10 +88,12 @@ def main():
             sc = next(d for d in baseline if d['kind']=='StorageClass')
             assert sc['volumeBindingMode']=='WaitForFirstConsumer' and sc['parameters']=={'type':'gp3','encrypted':'true'}
             assert any(d['kind']=='NetworkPolicy' for d in baseline)
+            rendered = list(baseline)
             for name,chart in charts.items():
                 params = ('--set','clusterName=iris-dev-'+purpose,'--set','region=ap-northeast-2','--set','vpcId=vpc-0123456789abcdef0') if name=='aws-load-balancer-controller' else ()
                 docs = render(chart,base/(name+'.yaml'),release='monitoring' if name=='kube-prometheus-stack' else name,namespace='observability' if name=='kube-prometheus-stack' else 'kube-system',parameters=params)
                 check_images(docs)
+                rendered += docs
                 assert not any(d['kind']=='Ingress' or (d['kind']=='Service' and d['spec'].get('type')=='LoadBalancer') for d in docs)
                 if name in ('aws-load-balancer-controller','metrics-server'):
                     deployment = next(d for d in docs if d['kind']=='Deployment')
@@ -95,6 +108,8 @@ def main():
                     assert prom['retention']=='3d' and prom['retentionSize']=='15GB'
                     assert prom['storage']['volumeClaimTemplate']['spec']['resources']['requests']['storage']=='20Gi'
                     assert any(d['kind']=='Service' and d['metadata']['name']=='monitoring-prometheus' for d in docs)
+            missing = {group_kind(d) for d in rendered if d['kind'] in CLUSTER_SCOPED} - allowed[purpose]
+            assert not missing, f'{purpose} AppProject must allow cluster-scoped kinds: {sorted(missing)}'
     # Preserve latest main's Deploy Worker contract fixtures; legacy examples
     # contain removed fields and are intentionally not inputs to iris-service.
     chart=ROOT/'helm/charts/iris-service'

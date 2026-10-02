@@ -29,13 +29,14 @@ override_data {
   } }
 }
 variables {
-  aws_account_id         = "123456789012"
-  operator_principal_arn = "arn:aws:iam::123456789012:role/operator"
+  aws_account_id                     = "123456789012"
+  operator_principal_arn             = "arn:aws:iam::123456789012:role/operator"
+  additional_operator_principal_arns = ["arn:aws:iam::123456789012:user/second-operator"]
 }
 run "foundation_contract" {
   command = apply
   assert {
-    condition     = output.target.id == "aws-dev-management" && output.target.subnet_ids_by_az == data.terraform_remote_state.foundation.outputs.management_subnet_ids_by_az && output.target.argocd_role_arn == data.terraform_remote_state.foundation.outputs.argocd_deploy_role_arns["management"] && output.target.ssm_bridge_instance_id == "i-0123456789abcdef0"
+    condition     = output.target.id == "aws-dev-management" && output.target.subnet_ids_by_az == data.terraform_remote_state.foundation.outputs.management_subnet_ids_by_az && output.target.argocd_role_arn == data.terraform_remote_state.foundation.outputs.argocd_deploy_role_arns["management"] && output.target.ssm_bridge_instance_id == "i-0123456789abcdef0" && output.target.additional_operator_principal_arns == var.additional_operator_principal_arns
     error_message = "Consume only the correct foundation target contract, without cross-root state."
   }
 }

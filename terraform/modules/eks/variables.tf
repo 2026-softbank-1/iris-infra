@@ -45,6 +45,16 @@ variable "operator_principal_arn" {
   }
 }
 
+variable "additional_operator_principal_arns" {
+  description = "Extra operator IAM user/role ARNs that receive the same cluster-admin Access Entry"
+  type        = list(string)
+  default     = []
+  validation {
+    condition     = alltrue([for arn in var.additional_operator_principal_arns : can(regex("^arn:aws:iam::${var.aws_account_id}:(role|user)/.+$", arn))]) && length(distinct(var.additional_operator_principal_arns)) == length(var.additional_operator_principal_arns) && !contains(var.additional_operator_principal_arns, var.operator_principal_arn)
+    error_message = "Provide distinct IAM role/user ARNs in the deployment account, excluding operator_principal_arn."
+  }
+}
+
 variable "argocd_deploy_role_arn" {
   description = "argocd_deploy_role_arn"
   type        = string
