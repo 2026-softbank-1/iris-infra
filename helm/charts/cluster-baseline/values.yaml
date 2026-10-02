@@ -17,5 +17,10 @@
   },
   "networkPolicy": {
     "enabled": true
+  },
+  "externalAlb": {
+    "enabled": false,
+    "groupName": "",
+    "certificateArn": ""
   }
 }

@@ -85,3 +85,31 @@ spec:
     - ports:
         - {protocol: TCP, port: 443}
 {{- end }}
+{{- with .Values.externalAlb }}{{ if .enabled }}
+---
+# Anchor for the shared internet-facing ALB: keeps the ALB (and its DNS name) alive while
+# no app Ingress exists, owns group-wide settings, and answers unknown hosts with 404.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ .groupName }}-anchor
+  namespace: {{ $.Values.applicationNamespace }}
+  annotations:
+    alb.ingress.kubernetes.io/group.name: {{ .groupName | quote }}
+    alb.ingress.kubernetes.io/group.order: "1000"
+    alb.ingress.kubernetes.io/load-balancer-name: {{ .groupName | quote }}
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+    alb.ingress.kubernetes.io/certificate-arn: {{ .certificateArn | quote }}
+    alb.ingress.kubernetes.io/ssl-policy: ELBSecurityPolicy-TLS13-1-2-2021-06
+    alb.ingress.kubernetes.io/actions.not-found: >-
+      {"type":"fixed-response","fixedResponseConfig":{"contentType":"text/plain","statusCode":"404","messageBody":"not found"}}
+spec:
+  ingressClassName: alb
+  defaultBackend:
+    service:
+      name: not-found
+      port:
+        name: use-annotation
+{{- end }}{{ end }}

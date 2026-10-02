@@ -3,5 +3,10 @@
     "observability",
     "iris-apps"
   ],
-  "applicationNamespace": "iris-apps"
+  "applicationNamespace": "iris-apps",
+  "externalAlb": {
+    "enabled": true,
+    "groupName": "iris-svc-external",
+    "certificateArn": "arn:aws:acm:ap-northeast-2:187069338876:certificate/e4e291c2-69ce-4f73-992c-63c15cd14da1"
+  }
 }

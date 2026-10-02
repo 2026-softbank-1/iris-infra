@@ -29,7 +29,7 @@ Terraform은 VPC·SG·IAM·EKS·노드·CNI/CoreDNS/kube-proxy/Pod Identity/EBS 
 
 관리 node ENI에는 source SG, 앱 control plane에는 target SG를 연결하여 관리→앱 API TCP 443을 허용합니다. bridge는 별도의 SG로 두 API의 443만 접근합니다. SG는 합산되며 management의 source SG를 공유하는 다른 Pod도 같은 네트워크 접근 범위를 가질 수 있습니다. IAM·Access Entry·NetworkPolicy는 별도의 제어입니다. 서브넷 분리만으로 보안 격리를 보장하지 않습니다.
 
-기본 외부 인바운드는 없습니다. 후속 사용자 서비스는 **DNS → public ALB HTTPS → private 앱 Pod**이며 인증서·앱 포트 SG·헬스 체크·application NetworkPolicy를 함께 설정합니다. 사용자 앱은 ADR 0002의 ALB Ingress group으로 ALB 하나를 공유합니다. Argo/Grafana는 ClusterIP와 로컬 port-forward를 사용합니다. NAT는 private 자원의 외부 요청과 응답에 사용합니다.
+외부 인바운드는 클러스터별 ALB 하나뿐입니다(management `iris-platform-external`: Control API, workload `iris-svc-external`: 사용자 서비스). baseline 앵커 Ingress가 ALB를 유지하고 모르는 host는 404로 응답합니다. 후속 사용자 서비스는 **DNS → public ALB HTTPS → private 앱 Pod**이며 인증서·앱 포트 SG·헬스 체크·application NetworkPolicy를 함께 설정합니다. 사용자 앱은 ADR 0002의 ALB Ingress group으로 ALB 하나를 공유합니다. Argo/Grafana는 ClusterIP와 로컬 port-forward를 사용합니다. NAT는 private 자원의 외부 요청과 응답에 사용합니다.
 
 두 AZ에 MNG 1개씩 고정 1노드를 두고 maxPods=35/prefix delegation을 사용합니다. LBC/metrics는 replica 2와 완화된 AZ spread로 장애 후 남은 노드에 재배치할 수 있습니다. Prometheus 20Gi(3d/15GB), Grafana 5Gi, Alertmanager 2Gi는 각 클러스터에서 단일 replica·AZ 종속 gp3를 사용하여 HA가 아닙니다. 사용자 앱/DB HA는 후속 설계입니다.
 

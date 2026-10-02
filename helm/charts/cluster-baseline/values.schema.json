@@ -60,6 +60,49 @@
           "type": "boolean"
         }
       }
+    },
+    "externalAlb": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "enabled",
+        "groupName",
+        "certificateArn"
+      ],
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "groupName": {
+          "type": "string",
+          "enum": [
+            "",
+            "iris-platform-external",
+            "iris-svc-external"
+          ]
+        },
+        "certificateArn": {
+          "type": "string",
+          "pattern": "^(arn:aws:acm:ap-northeast-2:[0-9]{12}:certificate/[0-9a-f-]+)?$"
+        }
+      },
+      "if": {
+        "properties": {
+          "enabled": {
+            "const": true
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "groupName": {
+            "minLength": 1
+          },
+          "certificateArn": {
+            "minLength": 1
+          }
+        }
+      }
     }
   }
 }
