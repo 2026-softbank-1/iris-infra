@@ -11,7 +11,7 @@ locals {
   runtime_names = concat(flatten([for name in local.eks_cluster_names : [for suffix in ["cluster", "node", "cni", "ebs", "lbc"] : "${name}-${suffix}"]]), [
     "${var.project}-${var.environment}-ssm-bridge", "${var.project}-${var.environment}-argocd-management",
     "${var.project}-${var.environment}-argocd-management-deploy", "${var.project}-${var.environment}-argocd-workload-deploy",
-    "${var.project}-${var.environment}-deploy-worker"
+    "${var.project}-${var.environment}-deploy-worker", "${var.project}-${var.environment}-loki"
   ])
   runtime_role_arns   = [for name in local.runtime_names : "arn:aws:iam::${var.aws_account_id}:role/${name}"]
   runtime_policy_arns = [for name in local.eks_cluster_names : "arn:aws:iam::${var.aws_account_id}:policy/${name}-lbc"]
@@ -54,9 +54,9 @@ resource "aws_iam_policy" "runtime_iam" {
     { Sid = "RuntimeRolesOnly", Effect = "Allow", Action = ["iam:CreateRole", "iam:GetRole", "iam:UpdateAssumeRolePolicy", "iam:UpdateRole", "iam:UpdateRoleDescription", "iam:DeleteRole", "iam:ListRoleTags", "iam:TagRole", "iam:UntagRole", "iam:ListRolePolicies", "iam:GetRolePolicy", "iam:PutRolePolicy", "iam:DeleteRolePolicy", "iam:ListAttachedRolePolicies", "iam:ListInstanceProfilesForRole"], Resource = local.runtime_role_arns },
     { Sid = "AttachReviewedPolicies", Effect = "Allow", Action = ["iam:AttachRolePolicy", "iam:DetachRolePolicy"], Resource = local.runtime_role_arns, Condition = { ArnEquals = { "iam:PolicyARN" = local.attach_policy_arns } } },
     { Sid = "LbcPoliciesOnly", Effect = "Allow", Action = ["iam:CreatePolicy", "iam:GetPolicy", "iam:GetPolicyVersion", "iam:CreatePolicyVersion", "iam:DeletePolicyVersion", "iam:DeletePolicy", "iam:ListPolicyVersions", "iam:ListPolicyTags", "iam:TagPolicy", "iam:UntagPolicy"], Resource = local.runtime_policy_arns },
-    { Sid = "PassEksRoles", Effect = "Allow", Action = ["iam:PassRole"], Resource = [for arn in local.runtime_role_arns : arn if !endswith(arn, "ssm-bridge") && !endswith(arn, "deploy-worker")], Condition = { StringEquals = { "iam:PassedToService" = ["eks.amazonaws.com", "pods.eks.amazonaws.com", "ec2.amazonaws.com"] } } },
+    { Sid = "PassEksRoles", Effect = "Allow", Action = ["iam:PassRole"], Resource = [for arn in local.runtime_role_arns : arn if !endswith(arn, "ssm-bridge") && !endswith(arn, "deploy-worker") && !endswith(arn, "loki")], Condition = { StringEquals = { "iam:PassedToService" = ["eks.amazonaws.com", "pods.eks.amazonaws.com", "ec2.amazonaws.com"] } } },
     { Sid = "PassBuildWorkerRole", Effect = "Allow", Action = ["iam:PassRole"], Resource = "arn:aws:iam::${var.aws_account_id}:role/${var.project}-${var.environment}-build-worker", Condition = { StringEquals = { "iam:PassedToService" = "pods.eks.amazonaws.com" } } },
-    { Sid = "PassDeployWorkerRole", Effect = "Allow", Action = ["iam:PassRole"], Resource = "arn:aws:iam::${var.aws_account_id}:role/${var.project}-${var.environment}-deploy-worker", Condition = { StringEquals = { "iam:PassedToService" = "pods.eks.amazonaws.com" } } },
+    { Sid = "PassPodIdentityRoles", Effect = "Allow", Action = ["iam:PassRole"], Resource = [for name in ["deploy-worker", "loki"] : "arn:aws:iam::${var.aws_account_id}:role/${var.project}-${var.environment}-${name}"], Condition = { StringEquals = { "iam:PassedToService" = "pods.eks.amazonaws.com" } } },
     { Sid = "PassBridgeRole", Effect = "Allow", Action = ["iam:PassRole"], Resource = "arn:aws:iam::${var.aws_account_id}:role/${var.project}-${var.environment}-ssm-bridge", Condition = { StringEquals = { "iam:PassedToService" = "ec2.amazonaws.com" } } },
     { Sid = "BridgeInstanceProfileOnly", Effect = "Allow", Action = ["iam:CreateInstanceProfile", "iam:GetInstanceProfile", "iam:DeleteInstanceProfile", "iam:AddRoleToInstanceProfile", "iam:RemoveRoleFromInstanceProfile", "iam:ListInstanceProfileTags", "iam:TagInstanceProfile", "iam:UntagInstanceProfile"], Resource = "arn:aws:iam::${var.aws_account_id}:instance-profile/${var.project}-${var.environment}-ssm-bridge" },
     # Cluster OIDC providers have generated IDs; issuer prefix limits their scope.
