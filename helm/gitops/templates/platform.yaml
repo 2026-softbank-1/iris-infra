@@ -1,0 +1,57 @@
+{{- /* Control plane on management. Chart and target values follow the reviewed infra revision;
+     image digests follow iris-gitops-environments main, written by iris-was's manual deploy workflow. */}}
+{{- $management := .Values.targets.management }}
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: iris-platform-project
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  sourceRepos:
+    - {{ .Values.repoURL | quote }}
+    - {{ .Values.services.repoURL | quote }}
+  destinations:
+    - server: {{ $management.endpoint | quote }}
+      namespace: iris-platform
+  clusterResourceWhitelist: []
+  # Secrets are created by operators and only referenced by name.
+  namespaceResourceWhitelist:
+    - {group: apps, kind: Deployment}
+    - {group: batch, kind: Job}
+    - {group: "", kind: Service}
+    - {group: "", kind: ServiceAccount}
+    - {group: networking.k8s.io, kind: Ingress}
+    - {group: networking.k8s.io, kind: NetworkPolicy}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: iris-platform
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: iris-platform-project
+  sources:
+    - repoURL: {{ .Values.repoURL | quote }}
+      targetRevision: {{ .Values.revision | quote }}
+      path: helm/charts/iris-platform
+      helm:
+        valueFiles:
+          - ../../../clusters/aws-dev-management/values/platform.yaml
+          - $gitops/platform/aws-dev-management/values.yaml
+        # Before the first deploy the digest file does not exist; no component is rendered.
+        ignoreMissingValueFiles: true
+    - repoURL: {{ .Values.services.repoURL | quote }}
+      targetRevision: {{ .Values.services.revision | quote }}
+      ref: gitops
+  destination:
+    server: {{ $management.endpoint | quote }}
+    namespace: iris-platform
+  syncPolicy:
+    automated: {prune: true, selfHeal: true}
+    syncOptions: [ServerSideApply=true]

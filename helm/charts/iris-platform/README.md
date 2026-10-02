@@ -1,8 +1,16 @@
 # iris-platform
 
-상태: scaffold. `Control API, Deployer Worker, Agent, 플랫폼 PostgreSQL·PVC와 Secret 참조`를 구현할 위치입니다.
-현재 templates에는 manifest가 없으며 install/upgrade해도 앱이나 정책이 배포되지 않습니다.
-`values.schema.json`은 객체 형식만 확인하는 임시 schema입니다.
+management EKS의 `iris-platform` namespace에 Iris control plane을 배포합니다. Argo CD Application `iris-platform`(AppProject `iris-platform-project`)이 동기화합니다.
 
-구현 시 values·schema·templates를 함께 추가하고 AWS·로컬 샘플로 lint/render를 검증합니다.
-변경 시 `Chart.yaml` version을 올립니다. values 합성 순서는 차트 기본값 → 타겟 기본값 → 배포별 값입니다.
+| 컴포넌트 | 리소스 | command | ServiceAccount | Secret(envFrom) |
+| --- | --- | --- | --- | --- |
+| Control API | Deployment·Service·Ingress `iris-api` | 이미지 기본 CMD(uvicorn :8000) | `iris-api` | `iris-api-env` |
+| Build Worker | Deployment `iris-build-worker` | `python -m app.workers.build_worker` | `build-worker`(Pod Identity) | `iris-build-worker-env` |
+| Deploy Worker | Deployment `iris-deploy-worker` | `python -m app.workers.deploy_worker` | `deploy-worker` | `iris-deploy-worker-env` |
+| DB migration | Sync hook Job `iris-db-migration`(wave -1, api 이미지) | `alembic upgrade head` | `iris-api` | `iris-api-env` |
+
+- 세 컴포넌트는 iris-was 이미지(`iris/was`) 하나를 쓰고 digest로만 지정합니다. **digest가 빈 컴포넌트는 배포하지 않습니다.**
+- 값 합성: chart 기본값 → `clusters/aws-dev-management/values/platform.yaml`(infra SHA 고정) → `iris-gitops-environments/platform/aws-dev-management/values.yaml`(digest, main 추적, iris-was 수동 배포 workflow가 기록).
+- DB는 foundation의 RDS입니다. 비밀값은 chart에 없고 운영자가 만든 Secret을 이름으로 참조합니다([deploy-platform runbook](../../../docs/runbooks/deploy-platform.md)).
+- NetworkPolicy(baseline `application-boundary`에 추가): ALB 서브넷 → API 8000, 모든 platform Pod → RDS 서브넷 5432, Deploy Worker → `argocd-server` 8080.
+- API Ingress는 baseline 앵커가 소유한 ALB group `iris-platform-external`에 host 규칙만 추가합니다.

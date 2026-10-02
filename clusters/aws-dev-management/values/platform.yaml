@@ -1,2 +1,37 @@
-# TODO: chart/애드온 구현 후 타겟별 설정을 추가합니다.
-{}
+# Target values for iris-platform. Image digests come from iris-gitops-environments platform/aws-dev-management/values.yaml.
+{
+  "imageRepository": "187069338876.dkr.ecr.ap-northeast-2.amazonaws.com/iris/was",
+  "env": {
+    "AWS_REGION": "ap-northeast-2",
+    "LOG_LEVEL": "INFO"
+  },
+  "api": {
+    "ingress": {
+      "host": "api.likelion.uk",
+      "groupName": "iris-platform-external"
+    },
+    "allowedCidrs": [
+      "10.40.240.0/24",
+      "10.40.241.0/24"
+    ]
+  },
+  "buildWorker": {
+    "env": {
+      "CODEBUILD_PROJECT": "iris-dev-build",
+      "ARTIFACT_BUCKET": "iris-dev-build-artifacts-187069338876-ap-northeast-2"
+    }
+  },
+  "deployWorker": {
+    "env": {
+      "BASE_DOMAIN": "likelion.uk",
+      "GITOPS_REPOSITORY": "2026-softbank-1/iris-gitops-environments",
+      "ARGOCD_SERVER_URL": "https://argocd-server.argocd.svc"
+    }
+  },
+  "database": {
+    "egressCidrs": [
+      "10.40.0.0/20",
+      "10.40.16.0/20"
+    ]
+  }
+}

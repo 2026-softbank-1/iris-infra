@@ -1,0 +1,132 @@
+{{- $root := . }}
+{{- range $name, $c := dict "iris-api" .Values.api "iris-build-worker" .Values.buildWorker "iris-deploy-worker" .Values.deployWorker }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $c.serviceAccountName }}
+  labels:
+    {{- include "iris-platform.labels" $root | nindent 4 }}
+{{- if eq $name "iris-api" }}
+# The API calls no AWS or Kubernetes API.
+automountServiceAccountToken: false
+{{- end }}
+---
+{{- if $c.digest }}
+{{ include "iris-platform.deployment" (dict "root" $root "name" $name "component" $c) }}
+---
+{{- end }}
+{{- end }}
+{{- with .Values.api }}{{ if .digest }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: iris-api
+  labels:
+    {{- include "iris-platform.labels" $root | nindent 4 }}
+spec:
+  selector:
+    app.kubernetes.io/name: iris-api
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+{{- if .ingress.host }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: iris-api
+  labels:
+    {{- include "iris-platform.labels" $root | nindent 4 }}
+  annotations:
+    # Group-wide listener, certificate and TLS policy come from the baseline anchor Ingress.
+    alb.ingress.kubernetes.io/group.name: {{ .ingress.groupName | quote }}
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+    alb.ingress.kubernetes.io/healthcheck-path: /healthz
+    alb.ingress.kubernetes.io/success-codes: "200-299"
+spec:
+  ingressClassName: alb
+  rules:
+    - host: {{ .ingress.host | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: iris-api
+                port:
+                  name: http
+{{- end }}
+{{- with .allowedCidrs }}
+---
+# The baseline application-boundary policy admits only in-cluster sources; open the API port to the ALB subnets.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: iris-api-from-alb
+  labels:
+    {{- include "iris-platform.labels" $root | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: iris-api
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        {{- range . }}
+        - ipBlock: {cidr: {{ . | quote }}}
+        {{- end }}
+      ports:
+        - {protocol: TCP, port: {{ $root.Values.api.port }}}
+{{- end }}
+---
+{{- end }}{{ end }}
+{{- with .Values.deployWorker }}{{ if .digest }}
+# The Deploy Worker reads Application status from argocd-server (container port, after Service DNAT).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: iris-deploy-worker-to-argocd
+  labels:
+    {{- include "iris-platform.labels" $root | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: iris-deploy-worker
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .argocd.namespace }}
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: argocd-server
+      ports:
+        - {protocol: TCP, port: {{ .argocd.port }}}
+{{- end }}{{ end }}
+{{- with .Values.database.egressCidrs }}
+---
+# All platform pods (API, workers, migration) reach the RDS subnets on the DB port.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: iris-platform-to-database
+  labels:
+    {{- include "iris-platform.labels" $root | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/part-of: iris-platform
+  policyTypes: [Egress]
+  egress:
+    - to:
+        {{- range . }}
+        - ipBlock: {cidr: {{ . | quote }}}
+        {{- end }}
+      ports:
+        - {protocol: TCP, port: {{ $root.Values.database.port }}}
+{{- end }}
