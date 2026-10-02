@@ -6,6 +6,19 @@ mock_provider "aws" {
     }
   }
 }
+# Mock providers cannot serve the imported zone, and ACM validation options are
+# computed by AWS; fixed values keep plan-time indexing deterministic.
+override_resource {
+  target = aws_route53_zone.main
+  values = { zone_id = "Z0123456789ABCDEFGHIJ", name_servers = ["ns-1.awsdns-01.org"] }
+}
+override_resource {
+  target = aws_acm_certificate.wildcard
+  values = { domain_validation_options = [
+    { domain_name = "*.likelion.uk", resource_record_name = "_x.likelion.uk.", resource_record_type = "CNAME", resource_record_value = "_y.acm-validations.aws." },
+    { domain_name = "likelion.uk", resource_record_name = "_x.likelion.uk.", resource_record_type = "CNAME", resource_record_value = "_y.acm-validations.aws." }
+  ] }
+}
 
 variables {
   aws_account_id = "123456789012"
