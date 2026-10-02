@@ -1,0 +1,77 @@
+{
+  "mode": "daemonset",
+  "image": {
+    "repository": "docker.io/otel/opentelemetry-collector-contrib",
+    "tag": "0.161.0@sha256:fd328de2552466ad78385e1b1289c3f2402b1c45f265b252aab1955b42845ac1"
+  },
+  "resources": {
+    "requests": { "cpu": "100m", "memory": "128Mi" },
+    "limits": { "memory": "512Mi" }
+  },
+  "presets": {
+    "logsCollection": { "enabled": true, "storeCheckpoints": true },
+    "kubeletMetrics": { "enabled": true },
+    "kubernetesAttributes": { "enabled": true }
+  },
+  "ports": {
+    "otlp": { "enabled": false },
+    "otlp-http": { "enabled": false },
+    "jaeger-compact": { "enabled": false },
+    "jaeger-thrift": { "enabled": false },
+    "jaeger-grpc": { "enabled": false },
+    "zipkin": { "enabled": false }
+  },
+  "extraEnvsFrom": [{ "secretRef": { "name": "otel-write-auth" } }],
+  "config": {
+    "extensions": {
+      "basicauth/client": { "client_auth": { "username": "otel", "password": "${env:WRITE_PASSWORD}" } }
+    },
+    "receivers": {
+      "jaeger": null,
+      "zipkin": null,
+      "prometheus": null,
+      "otlp": null,
+      "filelog": { "include": ["/var/log/pods/svc-*_*/*/*.log"] },
+      "kubeletstats": { "collection_interval": "30s" }
+    },
+    "processors": {
+      "k8sattributes": {
+        "extract": {
+          "labels": [{ "tag_name": "iris.release_id", "key": "iris/release-id", "from": "pod" }]
+        }
+      },
+      "filter/metrics": {
+        "error_mode": "ignore",
+        "metrics": {
+          "metric": [
+            "not IsMatch(resource.attributes[\"k8s.namespace.name\"], \"^svc-\")",
+            "name != \"k8s.pod.cpu.time\" and name != \"k8s.pod.memory.working_set\" and name != \"k8s.pod.network.io\""
+          ]
+        }
+      }
+    },
+    "exporters": {
+      "debug": null,
+      "otlphttp": {
+        "endpoint": "http://GATEWAY_NLB_DNS:4318",
+        "auth": { "authenticator": "basicauth/client" }
+      }
+    },
+    "service": {
+      "extensions": ["health_check", "basicauth/client"],
+      "pipelines": {
+        "logs": {
+          "receivers": ["filelog"],
+          "processors": ["memory_limiter", "k8sattributes", "batch"],
+          "exporters": ["otlphttp"]
+        },
+        "metrics": {
+          "receivers": ["kubeletstats"],
+          "processors": ["memory_limiter", "k8sattributes", "filter/metrics", "batch"],
+          "exporters": ["otlphttp"]
+        },
+        "traces": null
+      }
+    }
+  }
+}

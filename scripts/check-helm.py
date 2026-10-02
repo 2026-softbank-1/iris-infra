@@ -153,7 +153,7 @@ def check_platform(directory, targets, bootstrap):
     assert {d['metadata']['name'] for d in docs if d['kind'] in {'Deployment','Job','Ingress'}}=={'iris-platform-api','iris-platform-migration'}, 'Only components with a digest deploy; the agent also needs enabled.'
     enabled=directory/'gitops-platform.json';enabled.write_text(json.dumps({'revision':'a'*40,'targets':targets,'platform':{'enabled':True}}))
     docs=render(ROOT/'helm/gitops', enabled, namespace='argocd')
-    assert sum(d['kind']=='Application' for d in docs)==11 and sum(d['kind']=='AppProject' for d in docs)==4
+    assert sum(d['kind']=='Application' for d in docs)==12 and sum(d['kind']=='AppProject' for d in docs)==4
     app=next(d for d in docs if d['kind']=='Application' and d['metadata']['name']=='iris-platform')
     assert app['metadata']['finalizers']==['resources-finalizer.argocd.argoproj.io'] and app['spec']['syncPolicy']['automated']=={'prune':True,'selfHeal':True}
     assert app['spec']['destination']=={'server':targets['management']['endpoint'],'namespace':'iris-platform'}
@@ -183,7 +183,7 @@ def main():
         values.write_text(json.dumps({'revision':'a'*40,'targets':targets}))
         gitops = render(ROOT/'helm/gitops', values, namespace='argocd')
         # Platform is opt-in at bootstrap (GITOPS_PLATFORM_ENABLED); check_platform covers it.
-        assert sum(d['kind']=='Application' for d in gitops)==10
+        assert sum(d['kind']=='Application' for d in gitops)==11
         assert sum(d['kind']=='AppProject' for d in gitops)==3
         appset = next(d for d in gitops if d['kind']=='ApplicationSet')['spec']
         chart_source, values_source = appset['template']['spec']['sources']
@@ -250,6 +250,16 @@ def main():
                     assert set(relay['service']['pipelines'])=={'logs','metrics'}
                 else:
                     assert not balancers
+                if name=='opentelemetry-collector' and purpose=='workload':
+                    # Agent: no listening ports (user Pods share the node), only svc-* logs, sends to the gateway NLB.
+                    agent = next(d for d in docs if d['kind']=='DaemonSet')['spec']['template']['spec']['containers'][0]
+                    assert not agent.get('ports') and not any(d['kind']=='Service' for d in docs)
+                    relay = yaml.safe_load(next(d for d in docs if d['kind']=='ConfigMap')['data']['relay'])
+                    assert set(relay['receivers'])=={'file_log','kubeletstats'} and relay['receivers']['file_log']['include']==['/var/log/pods/svc-*_*/*/*.log']
+                    assert set(relay['service']['pipelines'])=={'logs','metrics'}
+                    exporter = relay['exporters']['otlp_http']
+                    assert re.fullmatch(r'http://iris-otel-gateway-[a-z0-9]+\.elb\.ap-northeast-2\.amazonaws\.com:4318', exporter['endpoint']), 'Set the management gateway NLB DNS (kubectl -n observability get svc opentelemetry-collector).'
+                    assert exporter['auth']['authenticator']=='basicauth/client'
                 if name in ('aws-load-balancer-controller','metrics-server'):
                     deployment = next(d for d in docs if d['kind']=='Deployment')
                     assert deployment['spec']['replicas']==2
