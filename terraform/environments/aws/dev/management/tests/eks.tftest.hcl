@@ -25,6 +25,7 @@ override_data {
     ssm_bridge_security_group_id            = "sg-0123456789abcdef3"
     argocd_management_role_arn              = "arn:aws:iam::123456789012:role/argocd"
     argocd_deploy_role_arns                 = { management = "arn:aws:iam::123456789012:role/argocd-management-deploy", workload = "arn:aws:iam::123456789012:role/argocd-workload-deploy" }
+    deploy_worker_role_arn                  = "arn:aws:iam::123456789012:role/deploy-worker"
     build_worker_role_arn                   = "arn:aws:iam::123456789012:role/build-worker"
   } }
 }
@@ -38,5 +39,13 @@ run "foundation_contract" {
   assert {
     condition     = output.target.id == "aws-dev-management" && output.target.subnet_ids_by_az == data.terraform_remote_state.foundation.outputs.management_subnet_ids_by_az && output.target.argocd_role_arn == data.terraform_remote_state.foundation.outputs.argocd_deploy_role_arns["management"] && output.target.ssm_bridge_instance_id == "i-0123456789abcdef0" && output.target.additional_operator_principal_arns == var.additional_operator_principal_arns
     error_message = "Consume only the correct foundation target contract, without cross-root state."
+  }
+}
+
+run "platform_pod_identity" {
+  command = plan
+  assert {
+    condition     = aws_eks_pod_identity_association.deploy_worker.namespace == "iris-platform" && aws_eks_pod_identity_association.deploy_worker.service_account == "deploy-worker" && aws_eks_pod_identity_association.deploy_worker.role_arn == data.terraform_remote_state.foundation.outputs.deploy_worker_role_arn && aws_eks_pod_identity_association.build_worker.service_account == "build-worker"
+    error_message = "Management must bind separate Build/Deploy service accounts to their own foundation roles."
   }
 }

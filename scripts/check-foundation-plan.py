@@ -20,7 +20,7 @@ BUILD = {
 }
 PREFIXES = {'aws_ecr_repository.platform', 'aws_ecr_lifecycle_policy.platform',
             'aws_subnet.public', 'aws_subnet.private'}
-EXACT = BUILD | {'aws_vpc.shared', 'aws_nat_gateway.egress["0"]', 'aws_eip.nat["0"]', 'aws_route53_zone.main'}
+EXACT = BUILD | {'aws_vpc.shared', 'aws_nat_gateway.egress["0"]', 'aws_eip.nat["0"]', 'aws_route53_zone.main', 'aws_db_instance.platform'}
 
 
 def protected(address):

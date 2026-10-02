@@ -55,3 +55,8 @@ output "workload_cluster_name" {
   description = "subnet discovery 태그와 일치하는 앱 EKS 이름"
   value       = var.workload_cluster_name
 }
+
+output "deploy_worker_role_arn" {
+  description = "Deploy Worker management Pod Identity role"
+  value       = aws_iam_role.deploy_worker.arn
+}

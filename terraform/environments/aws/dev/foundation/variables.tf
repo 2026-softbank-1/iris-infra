@@ -98,3 +98,31 @@ variable "domain_name" {
   type        = string
   default     = "likelion.uk"
 }
+
+variable "platform_db_engine_version" {
+  description = "Platform RDS PostgreSQL minor version"
+  type        = string
+  default     = "17.11"
+}
+
+variable "platform_db_instance_class" {
+  description = "Platform RDS instance class. db.t4g.micro는 서울 기준 월 약 $20 수준입니다."
+  type        = string
+  default     = "db.t4g.micro"
+}
+
+variable "platform_db_password_version" {
+  description = "Increase to rotate the platform DB password (RDS and Secrets Manager together)."
+  type        = number
+  default     = 1
+}
+
+variable "platform_db_backup_retention_days" {
+  description = "RDS 자동 백업 보존 일수. AWS Free 플랜 계정은 최대 1일이며, 플랜 업그레이드 후 7일 이상으로 올립니다."
+  type        = number
+  default     = 1
+  validation {
+    condition     = var.platform_db_backup_retention_days >= 1 && var.platform_db_backup_retention_days <= 35
+    error_message = "1-35 days; 0 would disable automated backups."
+  }
+}

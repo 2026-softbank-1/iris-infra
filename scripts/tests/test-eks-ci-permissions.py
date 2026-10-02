@@ -79,7 +79,7 @@ elif action.startswith('simulate-'):
   children=[]
   for r in vals('--resource-arns'):
    denied=(ctx.get('aws:RequestedRegion')=='us-west-2' or 'iris-permission-audit-unrelated' in r or
-    (a=='iam:PassRole' and r.endswith('build-worker') and ctx.get('iam:PassedToService')=='ec2.amazonaws.com') or
+    (a=='iam:PassRole' and ((r.endswith('build-worker') and ctx.get('iam:PassedToService')=='ec2.amazonaws.com') or (r.endswith('deploy-worker') and ctx.get('iam:PassedToService')!='pods.eks.amazonaws.com'))) or
     (a=='eks:CreateCluster' and (ctx.get('eks:endpointPublicAccess')=='true' or ctx.get('aws:RequestTag/Project','').endswith('-other'))) or
     (a=='ec2:RunInstances' and ((':instance/' in r and ctx.get('ec2:InstanceType')!='t3.micro') or
      (':image/' in r and ctx.get('ec2:Owner')!='amazon') or (':volume/' in r and ctx.get('aws:RequestTag/Project','').endswith('-other')))))
@@ -244,6 +244,11 @@ class PermissionAuditTests(unittest.TestCase):
         for name in C.clusters:
             self.assertIn(("eks:CreateAddon", f"arn:aws:eks:{C.region}:{ACCOUNT}:podidentityassociation/{name}/a-test123"), positive)
         self.assertIn(("iam:PassRole", f"arn:aws:iam::{ACCOUNT}:role/iris-dev-build-worker"), positive)
+        deploy = f"arn:aws:iam::{ACCOUNT}:role/iris-dev-deploy-worker"
+        self.assertIn(("iam:PassRole", deploy), positive)
+        self.assertIn(("iam:CreateRole", deploy), positive)
+        negative = [case for case in cases if not case.allow and deploy in case.resources]
+        self.assertEqual({next(x['ContextKeyValues'][0] for x in case.context if x['ContextKeyName']=='iam:PassedToService') for case in negative}, {'ec2.amazonaws.com','eks.amazonaws.com'})
         self.assertIn(("ec2:DescribeInstanceCreditSpecifications", "*"), positive)
         self.assertGreater(sum(len(c.actions) * len(c.resources) for c in cases if c.allow), 440)
         self.assertGreaterEqual(sum(len(c.actions) * len(c.resources) for c in cases if not c.allow), 12)

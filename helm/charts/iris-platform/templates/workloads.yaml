@@ -1,0 +1,108 @@
+{{- $components := dict "api" .Values.api "build-worker" .Values.buildWorker "deploy-worker" .Values.deployWorker }}
+{{- range $component, $settings := $components }}
+{{- /* Digests come from iris-gitops-environments; a component without one is not deployed yet. */}}
+{{- if $settings.digest }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $.Release.Name }}-{{ $component }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+  labels:
+    {{- include "iris-platform.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $component }}
+spec:
+  replicas: {{ $settings.replicas }}
+  revisionHistoryLimit: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: {maxSurge: 1, maxUnavailable: 0}
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ $.Release.Name | quote }}
+      app.kubernetes.io/component: {{ $component }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ toJson $settings | sha256sum | quote }}
+        checksum/shared: {{ toJson (dict "database" $.Values.database "was" $.Values.was "awsRegion" $.Values.awsRegion) | sha256sum | quote }}
+      labels:
+        {{- include "iris-platform.labels" $ | nindent 8 }}
+        app.kubernetes.io/component: {{ $component }}
+        iris.dev/database-client: "true"
+    spec:
+      serviceAccountName: {{ if eq $component "api" }}{{ $.Release.Name }}-api{{ else }}{{ $component }}{{ end }}
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: {{ default 30 $settings.terminationGracePeriodSeconds }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        seccompProfile: {type: RuntimeDefault}
+      initContainers:
+        {{- include "iris-platform.database-guard" (dict "root" $ "digest" $settings.digest "secret" $.Values.database.runtimeSecret) | nindent 8 }}
+      containers:
+        - name: {{ $component }}
+          image: {{ include "iris-platform.image" (dict "root" $ "digest" $settings.digest) | quote }}
+          imagePullPolicy: IfNotPresent
+          {{- if eq $component "api" }}
+          command: [uvicorn, app.main:app, --host, 0.0.0.0, --port, "8000"]
+          ports:
+            - {name: http, containerPort: 8000}
+          startupProbe:
+            httpGet: {path: /healthz, port: http}
+            periodSeconds: 5
+            failureThreshold: 60
+          livenessProbe:
+            httpGet: {path: /healthz, port: http}
+            periodSeconds: 10
+          readinessProbe:
+            httpGet: {path: /readyz, port: http}
+            periodSeconds: 5
+          {{- else if eq $component "build-worker" }}
+          command: [python, -m, app.workers.build_worker]
+          {{- else }}
+          command: [python, -m, app.workers.deploy_worker]
+          {{- end }}
+          envFrom:
+            - configMapRef:
+                name: {{ $.Release.Name }}-{{ $component }}
+          env:
+            {{- include "iris-platform.database-env" (dict "root" $ "secret" $.Values.database.runtimeSecret) | nindent 12 }}
+            {{- if eq $component "build-worker" }}
+            {{- range $key := list "GITHUB_APP_ID" "GITHUB_APP_PRIVATE_KEY" "GITHUB_PUBLIC_INSTALLATION_ID" }}
+            - name: {{ $key }}
+              valueFrom:
+                secretKeyRef: {name: {{ $.Values.buildWorker.githubSecret | quote }}, key: {{ $key }}}
+            {{- end }}
+            {{- else if eq $component "deploy-worker" }}
+            {{- range $key := list "GITOPS_APP_ID" "GITOPS_APP_PRIVATE_KEY" "GITOPS_INSTALLATION_ID" }}
+            - name: {{ $key }}
+              valueFrom:
+                secretKeyRef: {name: {{ $.Values.deployWorker.githubSecret | quote }}, key: {{ $key }}}
+            {{- end }}
+            - name: ARGOCD_TOKEN
+              valueFrom:
+                secretKeyRef: {name: {{ $.Values.deployWorker.argocdSecret | quote }}, key: ARGOCD_TOKEN}
+            {{- end }}
+          volumeMounts:
+            {{- include "iris-platform.database-mount" $ | nindent 12 }}
+            {{- if eq $component "deploy-worker" }}
+            - {name: argocd-ca, mountPath: /etc/iris-argocd, readOnly: true}
+            {{- end }}
+          securityContext:
+            {{- include "iris-platform.security" $ | nindent 12 }}
+          resources:
+            {{- toYaml $settings.resources | nindent 12 }}
+      volumes:
+        {{- include "iris-platform.database-volume" $ | nindent 8 }}
+        {{- if eq $component "deploy-worker" }}
+        - name: argocd-ca
+          configMap:
+            name: {{ $.Values.deployWorker.caConfigMap | quote }}
+            items:
+              - {key: {{ $.Values.deployWorker.caKey | quote }}, path: ca-bundle.pem}
+        {{- end }}
+{{- end }}
+{{- end }}

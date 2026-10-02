@@ -1,20 +1,21 @@
 {
   "was": {
     "image": {
-      "repository": "187069338876.dkr.ecr.ap-northeast-2.amazonaws.com/iris/was"
+      "repository": "123456789012.dkr.ecr.ap-northeast-2.amazonaws.com/iris/was"
     },
     "logLevel": "INFO"
   },
   "database": {
-    "runtimeSecret": "iris-platform-db-runtime",
-    "migrationSecret": "iris-platform-db-migration",
+    "runtimeSecret": "iris-db-runtime",
+    "migrationSecret": "iris-db-migration",
     "urlKey": "DATABASE_URL",
     "caConfigMap": "iris-rds-ca",
     "caKey": "ca-bundle.pem"
   },
   "api": {
+    "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     "replicas": 1,
-    "host": "api.likelion.uk",
+    "host": "api.example.com",
     "resources": {
       "requests": {
         "cpu": "100m",
@@ -27,10 +28,11 @@
     }
   },
   "buildWorker": {
+    "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     "replicas": 1,
     "codebuildProject": "iris-dev-build",
-    "artifactBucket": "iris-dev-build-artifacts-187069338876-ap-northeast-2",
-    "githubSecret": "iris-build-github-app",
+    "artifactBucket": "iris-dev-build-artifacts-123456789012-ap-northeast-2",
+    "githubSecret": "iris-build-github",
     "resources": {
       "requests": {
         "cpu": "100m",
@@ -44,13 +46,14 @@
     "terminationGracePeriodSeconds": 120
   },
   "deployWorker": {
+    "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     "replicas": 1,
-    "baseDomain": "likelion.uk",
+    "baseDomain": "example.com",
     "gitopsRepository": "2026-softbank-1/iris-gitops-environments",
-    "githubSecret": "iris-gitops-github-app",
-    "argocdUrl": "https://argocd-server.argocd.svc",
-    "argocdSecret": "iris-argocd-reader",
-    "caConfigMap": "iris-deploy-worker-ca",
+    "githubSecret": "iris-deploy-github",
+    "argocdUrl": "https://argocd-server.argocd.svc.cluster.local",
+    "argocdSecret": "iris-deploy-argocd",
+    "caConfigMap": "iris-deploy-ca",
     "caKey": "ca-bundle.pem",
     "resources": {
       "requests": {
@@ -65,12 +68,13 @@
     "terminationGracePeriodSeconds": 60
   },
   "errorAgent": {
-    "enabled": false,
+    "enabled": true,
     "image": {
-      "repository": "187069338876.dkr.ecr.ap-northeast-2.amazonaws.com/iris/error-check-agent"
+      "repository": "123456789012.dkr.ecr.ap-northeast-2.amazonaws.com/iris/error-check-agent",
+      "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
     },
-    "secret": "",
-    "model": "",
+    "secret": "iris-error-agent",
+    "model": "fixture-model",
     "resources": {
       "requests": {
         "cpu": "100m",
@@ -98,12 +102,12 @@
   },
   "network": {
     "albSubnetCidrs": [
-      "10.40.240.0/24",
-      "10.40.241.0/24"
+      "10.0.0.0/24",
+      "10.0.1.0/24"
     ],
     "rdsSubnetCidrs": [
-      "10.40.0.0/20",
-      "10.40.16.0/20"
+      "10.0.16.0/24",
+      "10.0.17.0/24"
     ]
   },
   "awsRegion": "ap-northeast-2"
