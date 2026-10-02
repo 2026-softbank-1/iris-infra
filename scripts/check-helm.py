@@ -91,7 +91,7 @@ def main():
         api_ingress = next(d for d in platform if d['kind']=='Ingress')
         assert api_ingress['spec']['rules'][0]['host']=='api.likelion.uk' and api_ingress['metadata']['annotations']['alb.ingress.kubernetes.io/group.name']=='iris-platform-external'
         migration = next(d for d in platform if d['kind']=='Job')['metadata']['annotations']
-        assert migration['argocd.argoproj.io/hook']=='Sync' and migration['argocd.argoproj.io/sync-wave']=='-1'
+        assert migration['argocd.argoproj.io/hook']=='PreSync'
         policies = {d['metadata']['name'] for d in platform if d['kind']=='NetworkPolicy'}
         assert policies=={'iris-api-from-alb','iris-deploy-worker-to-argocd','iris-platform-to-database'}
         platform_kinds = {(d['apiVersion'].rpartition('/')[0], d['kind']) for d in platform}

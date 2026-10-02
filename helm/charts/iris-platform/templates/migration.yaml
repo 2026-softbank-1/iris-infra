@@ -1,5 +1,5 @@
 {{- if .Values.api.digest }}
-# Runs on every sync before the components (wave 0).
+# PreSync: runs once per sync before any component rolls out (iris-was rule: no migration at app start).
 # alembic upgrade head is idempotent; schema changes ship with the api image.
 apiVersion: batch/v1
 kind: Job
@@ -8,9 +8,8 @@ metadata:
   labels:
     {{- include "iris-platform.labels" . | nindent 4 }}
   annotations:
-    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook: PreSync
     argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
-    argocd.argoproj.io/sync-wave: "-1"
 spec:
   backoffLimit: 3
   activeDeadlineSeconds: 600

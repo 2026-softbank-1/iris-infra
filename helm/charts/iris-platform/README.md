@@ -7,7 +7,7 @@ management EKS의 `iris-platform` namespace에 Iris control plane을 배포합�
 | Control API | Deployment·Service·Ingress `iris-api` | 이미지 기본 CMD(uvicorn :8000) | `iris-api` | `iris-api-env` |
 | Build Worker | Deployment `iris-build-worker` | `python -m app.workers.build_worker` | `build-worker`(Pod Identity) | `iris-build-worker-env` |
 | Deploy Worker | Deployment `iris-deploy-worker` | `python -m app.workers.deploy_worker` | `deploy-worker` | `iris-deploy-worker-env` |
-| DB migration | Sync hook Job `iris-db-migration`(wave -1, api 이미지) | `alembic upgrade head` | `iris-api` | `iris-api-env` |
+| DB migration | PreSync hook Job `iris-db-migration`(api 이미지) | `alembic upgrade head` | `iris-api` | `iris-api-env` |
 
 - 세 컴포넌트는 iris-was 이미지(`iris/was`) 하나를 쓰고 digest로만 지정합니다. **digest가 빈 컴포넌트는 배포하지 않습니다.**
 - 값 합성: chart 기본값 → `clusters/aws-dev-management/values/platform.yaml`(infra SHA 고정) → `iris-gitops-environments/platform/aws-dev-management/values.yaml`(digest, main 추적, iris-was 수동 배포 workflow가 기록).
