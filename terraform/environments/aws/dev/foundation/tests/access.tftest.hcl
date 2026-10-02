@@ -10,6 +10,10 @@ run "private_bridge_and_argocd" {
     error_message = "Bridge must be private, no inbound/SSH and no surplus CPU charges."
   }
   assert {
+    condition     = aws_instance.ssm_bridge.volume_tags == tomap(local.access_tags) && aws_instance.ssm_bridge.volume_tags["Component"] == "access" && aws_instance.ssm_bridge.root_block_device[0].encrypted && aws_instance.ssm_bridge.root_block_device[0].volume_type == "gp3" && aws_instance.ssm_bridge.root_block_device[0].volume_size == 8 && aws_instance.ssm_bridge.root_block_device[0].delete_on_termination
+    error_message = "Bridge must send all owner tags in the launch request and retain its encrypted 8Gi gp3 root volume. Post-launch root_block_device tags cannot satisfy RunInstances RequestTag conditions."
+  }
+  assert {
     condition     = aws_iam_role_policy_attachment.ssm_bridge.policy_arn == "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore" && length(aws_iam_role.argocd_deploy) == 2 && jsondecode(aws_iam_role_policy.argocd_management.policy).Statement[0].Action == ["sts:AssumeRole", "sts:TagSession"]
     error_message = "Bridge gets no Kubernetes admin role; GitOps roles only assume named cluster identities."
   }

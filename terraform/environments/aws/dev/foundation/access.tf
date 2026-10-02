@@ -49,6 +49,9 @@ resource "aws_instance" "ssm_bridge" {
   associate_public_ip_address = false
   vpc_security_group_ids      = [aws_security_group.ssm_bridge.id]
   iam_instance_profile        = aws_iam_instance_profile.ssm_bridge.name
+  # RunInstances must receive owner tags before IAM authorizes the new volume.
+  # root_block_device.tags are applied after launch by the AWS provider.
+  volume_tags = local.access_tags
   metadata_options {
     http_tokens                 = "required"
     http_put_response_hop_limit = 1
@@ -58,7 +61,6 @@ resource "aws_instance" "ssm_bridge" {
     volume_type           = "gp3"
     encrypted             = true
     delete_on_termination = true
-    tags                  = local.access_tags
   }
   credit_specification { cpu_credits = "standard" }
   user_data  = <<-SH
