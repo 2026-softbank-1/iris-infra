@@ -195,7 +195,8 @@ def main():
         assert sum(d['kind']=='AppProject' for d in gitops)==3
         appset = next(d for d in gitops if d['kind']=='ApplicationSet')['spec']
         chart_source, values_source = appset['template']['spec']['sources']
-        assert appset['syncPolicy']['applicationsSync']=='create-update', 'Removed service directories must not delete running services.'
+        assert appset['syncPolicy']['applicationsSync']=='sync', 'A removed service directory must delete its Application (Deploy Worker REMOVE).'
+        assert appset['template']['metadata']['finalizers']==['resources-finalizer.argocd.argoproj.io'], 'Deleting a service Application must also delete its workload.'
         assert chart_source['targetRevision']==json.loads((ROOT/'helm/gitops/values.yaml').read_text())['services']['chartRevision']=='iris-service-'+yaml.safe_load((ROOT/'helm/charts/iris-service/Chart.yaml').read_text())['version'], 'ApplicationSet must pin the current iris-service chart tag.'
         assert values_source['ref']=='values' and chart_source['helm']['valueFiles']==['$values/{{ .path.path }}/values.yaml']
         assert appset['template']['metadata']['name']=='svc-{{ index .path.segments 1 }}' and appset['template']['spec']['destination']=={'server':targets['workload']['endpoint'],'namespace':'svc-{{ index .path.segments 1 }}'}

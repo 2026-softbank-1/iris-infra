@@ -80,7 +80,9 @@ argocd app wait iris-platform --sync --health --timeout 900   # 확인용
 - 플랫폼 API/Worker의 지원된 배포 경로로 사용자 서비스를 하나 배포해 `services/{id}/prod/values.yaml`, release trailer, `svc-{id}` Application/workload와 결과 상태를 확인합니다. 사람은 운영 GitOps `services/`를 직접 수정하지 않습니다.
 - Error Agent를 켰다면 내부 Service `/healthz`와 정상 인증·LLM 호출을 확인합니다. 공개 Ingress는 생성하지 않습니다. WAS↔Agent 연동은 애플리케이션 구현 범위입니다.
 
-현재 서비스 삭제 경로는 구현되지 않았습니다. ApplicationSet `create-update`는 디렉터리 제거만으로 Application을 지우지 않도록 유지합니다. ApplicationSet 자체 삭제/철거는 별도 절차이며 이 보호와 같지 않습니다.
+서비스 삭제는 Deploy Worker의 REMOVE job이 `services/{id}/prod` 디렉터리를 지우는 커밋으로 시작합니다(iris-was ADR 0016). ApplicationSet은 `applicationsSync: sync`라 사라진 디렉터리의 Application `svc-{id}`를 지우고, Application의 `resources-finalizer`가 Deployment·Service·Ingress·NetworkPolicy를 함께 지웁니다. 사람이 운영 GitOps `services/`에서 디렉터리를 지우면 같은 이유로 서비스가 내려가므로 직접 수정하지 않습니다. `CreateNamespace`로 만든 `svc-{id}` namespace는 Application 삭제 때 남을 수 있어 필요하면 별도로 정리합니다. ApplicationSet 자체 삭제/철거는 별도 절차입니다.
+
+이 정책은 root Application이 고정한 revision을 읽어 반영됩니다. 병합 뒤 운영자가 새 immutable SHA로 bootstrap해야 적용됩니다.
 
 ## RDS 접근과 비밀번호
 
