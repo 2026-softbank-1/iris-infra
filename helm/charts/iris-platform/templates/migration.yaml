@@ -1,0 +1,46 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ .Release.Name }}-migration
+  labels:
+    {{- include "iris-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: migration
+  annotations:
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/sync-wave: "-1"
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded
+spec:
+  activeDeadlineSeconds: {{ .Values.migration.activeDeadlineSeconds }}
+  backoffLimit: {{ .Values.migration.backoffLimit }}
+  template:
+    metadata:
+      labels:
+        {{- include "iris-platform.labels" . | nindent 8 }}
+        app.kubernetes.io/component: migration
+        iris.dev/database-client: "true"
+    spec:
+      serviceAccountName: {{ .Release.Name }}-migration
+      automountServiceAccountToken: false
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        seccompProfile: {type: RuntimeDefault}
+      initContainers:
+        {{- include "iris-platform.database-guard" (dict "root" . "secret" .Values.database.migrationSecret) | nindent 8 }}
+      containers:
+        - name: migration
+          image: {{ include "iris-platform.image" . | quote }}
+          imagePullPolicy: IfNotPresent
+          command: [alembic, upgrade, head]
+          env:
+            {{- include "iris-platform.database-env" (dict "root" . "secret" .Values.database.migrationSecret) | nindent 12 }}
+          volumeMounts:
+            {{- include "iris-platform.database-mount" . | nindent 12 }}
+          securityContext:
+            {{- include "iris-platform.security" . | nindent 12 }}
+          resources:
+            {{- toYaml .Values.migration.resources | nindent 12 }}
+      volumes:
+        {{- include "iris-platform.database-volume" . | nindent 8 }}

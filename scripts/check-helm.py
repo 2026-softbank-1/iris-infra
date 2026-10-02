@@ -56,6 +56,106 @@ def group_kind(doc):
     return (doc['apiVersion'].rpartition('/')[0], doc['kind'])
 
 
+def check_platform(directory, targets, bootstrap):
+    chart=ROOT/'helm/charts/iris-platform'
+    for fixture in sorted((chart/'ci').glob('*.yaml')):
+        docs=render(chart, fixture, release='iris-platform', namespace='iris-platform')
+        values=json.loads(fixture.read_text())
+        assert not any(d['kind'] in {'Secret','PersistentVolumeClaim','StatefulSet','Namespace'} for d in docs)
+        deployments={d['metadata']['labels']['app.kubernetes.io/component']:d for d in docs if d['kind']=='Deployment'}
+        assert set(deployments)=={'api','build-worker','deploy-worker'} | ({'error-agent'} if values['errorAgent']['enabled'] else set())
+        job=next(d for d in docs if d['kind']=='Job')
+        notes=job['metadata']['annotations']
+        assert notes['argocd.argoproj.io/hook']=='Sync' and notes['argocd.argoproj.io/sync-wave']=='-1'
+        assert notes['argocd.argoproj.io/hook-delete-policy']=='BeforeHookCreation,HookSucceeded'
+        assert job['spec']['activeDeadlineSeconds']==600 and job['spec']['backoffLimit']==1
+        assert not job['spec'].get('ttlSecondsAfterFinished'), 'Failed migration must remain inspectable.'
+        was=values['was']['image']['repository']+'@'+values['was']['image']['digest']
+        for component, doc in {**deployments,'migration':job}.items():
+            pod=doc['spec']['template']['spec']; container=pod['containers'][0]
+            assert pod['automountServiceAccountToken'] is False and pod['securityContext']['runAsNonRoot'] is True
+            assert container['securityContext']['allowPrivilegeEscalation'] is False and container['securityContext']['capabilities']['drop']==['ALL']
+            env={e['name']:e for e in container['env']}
+            if component=='error-agent':
+                assert container['command']==['python','-m','ai_error_check_agent.api','--host','0.0.0.0','--port','8001']
+                assert set(env)=={'LLM_API_KEY','AGENT_API_KEY'} and not pod.get('initContainers')
+                continue
+            assert container['image']==was and pod['securityContext']['runAsUser']==1001
+            assert env['PGSSLMODE']['value']=='verify-full' and env['PGSSLROOTCERT']['value']=='/etc/iris-rds/ca-bundle.pem'
+            expected_secret=values['database']['migrationSecret' if component=='migration' else 'runtimeSecret']
+            assert env['DATABASE_URL']['valueFrom']['secretKeyRef']=={'name':expected_secret,'key':values['database']['urlKey']}
+            guard=pod['initContainers'][0]
+            assert guard['image']==was and guard['env']==container['env'][:3]
+            assert guard['volumeMounts']==[{'name':'rds-ca','mountPath':'/etc/iris-rds','readOnly':True}]
+            assert 'make_url' in guard['args'][0] and 'sslmode' in guard['args'][0] and 'cafile=' in guard['args'][0]
+            if component=='migration':
+                assert container['command']==['alembic','upgrade','head']
+                assert pod['serviceAccountName']=='iris-platform-migration' and pod['restartPolicy']=='Never'
+            elif component=='api':
+                assert pod['serviceAccountName']=='iris-platform-api' and set(env)=={'DATABASE_URL','PGSSLMODE','PGSSLROOTCERT'}
+                assert container['ports']==[{'name':'http','containerPort':8000}]
+                assert container['readinessProbe']['httpGet']=={'path':'/readyz','port':'http'}
+                assert container['livenessProbe']['httpGet']=={'path':'/healthz','port':'http'}
+            else:
+                assert pod['serviceAccountName']==component and not any(k.endswith('Probe') for k in container), 'Workers have no HTTP health endpoints.'
+                assert container['command']==['python','-m','app.workers.'+component.replace('-','_')]
+                assert not any('AWS_ACCESS_KEY' in key or 'AWS_SECRET_ACCESS' in key for key in env)
+                if component=='build-worker':
+                    assert pod['terminationGracePeriodSeconds']>=120 and 'ARGOCD_TOKEN' not in env
+                    assert all(env[key]['valueFrom']['secretKeyRef']['name']==values['buildWorker']['githubSecret'] for key in ('GITHUB_APP_ID','GITHUB_APP_PRIVATE_KEY','GITHUB_PUBLIC_INSTALLATION_ID'))
+                else:
+                    assert 'GITHUB_APP_PRIVATE_KEY' not in env
+                    assert env['ARGOCD_TOKEN']['valueFrom']['secretKeyRef']['name']==values['deployWorker']['argocdSecret']
+                    assert all(env[key]['valueFrom']['secretKeyRef']['name']==values['deployWorker']['githubSecret'] for key in ('GITOPS_APP_ID','GITOPS_APP_PRIVATE_KEY','GITOPS_INSTALLATION_ID'))
+                    assert next(v for v in pod['volumes'] if v['name']=='argocd-ca')['configMap']['name']==values['deployWorker']['caConfigMap']
+        prep=[d for d in docs if d['kind'] in {'ServiceAccount','ConfigMap','NetworkPolicy'}]
+        assert all(d['metadata']['annotations']['argocd.argoproj.io/sync-wave']=='-2' for d in prep)
+        ingress=next(d for d in docs if d['kind']=='Ingress'); notes=ingress['metadata']['annotations']
+        assert notes['alb.ingress.kubernetes.io/group.name']=='iris-platform-external' and notes['alb.ingress.kubernetes.io/target-type']=='ip'
+        assert notes['alb.ingress.kubernetes.io/healthcheck-path']=='/readyz' and notes['alb.ingress.kubernetes.io/success-codes']=='204'
+        assert not any(key in notes for key in ('alb.ingress.kubernetes.io/certificate-arn','alb.ingress.kubernetes.io/listen-ports','alb.ingress.kubernetes.io/scheme')), 'Shared settings belong to baseline anchor.'
+        service=next(d for d in docs if d['kind']=='Service' and d['metadata']['name']=='iris-platform-api')['spec']
+        assert service['type']=='ClusterIP' and service['ports']==[{'name':'http','port':8000,'targetPort':'http'}]
+        policies={d['metadata']['name']:d['spec'] for d in docs if d['kind']=='NetworkPolicy'}
+        alb=policies['iris-platform-api-alb'];rds=policies['iris-platform-rds'];argo=policies['iris-platform-deploy-argocd']
+        assert alb['ingress'][0]['ports']==[{'protocol':'TCP','port':8000}] and alb['podSelector']['matchLabels']['app.kubernetes.io/component']=='api'
+        assert [e['ipBlock']['cidr'] for e in alb['ingress'][0]['from']]==values['network']['albSubnetCidrs']
+        assert rds['podSelector']['matchLabels']['iris.dev/database-client']=='true' and rds['egress'][0]['ports']==[{'protocol':'TCP','port':5432}]
+        assert [e['ipBlock']['cidr'] for e in rds['egress'][0]['to']]==values['network']['rdsSubnetCidrs']
+        assert argo['egress'][0]['ports']==[{'protocol':'TCP','port':8080}]
+        server=next(d for d in bootstrap if d['kind']=='Deployment' and d['metadata']['name']=='argocd-server')
+        assert 8080 in [p['containerPort'] for p in server['spec']['template']['spec']['containers'][0]['ports']]
+        assert argo['egress'][0]['to'][0]['podSelector']['matchLabels']['app.kubernetes.io/name']==server['spec']['template']['metadata']['labels']['app.kubernetes.io/name']
+        total_cpu=sum(int(doc['spec']['template']['spec']['containers'][0]['resources']['limits']['cpu'].removesuffix('m')) for doc in [*deployments.values(),job])
+        assert total_cpu<4000, 'Initial platform limits must leave quota headroom for migration/rollout.'
+    import copy
+    good=json.loads((chart/'ci/was-values.yaml').read_text())
+    mutations=[lambda v:v.update(unknown=True),lambda v:v['was']['image'].update(digest='latest'),lambda v:v['api'].update(host=''),lambda v:v['database'].update(runtimeSecret=''),lambda v:v['database'].update(migrationSecret=v['database']['runtimeSecret']),lambda v:v['buildWorker'].update(githubSecret=v['deployWorker']['githubSecret']),lambda v:v['network'].update(rdsSubnetCidrs=[]),lambda v:v['network'].update(albSubnetCidrs=['0.0.0.0/0']),lambda v:v['network'].update(rdsSubnetCidrs=['999.0.0.0/24']),lambda v:v['errorAgent'].update(enabled=True)]
+    bad=directory/'bad-platform.json'
+    for change in mutations:
+        values=copy.deepcopy(good);change(values);bad.write_text(json.dumps(values))
+        result=subprocess.run([HELM,'template','iris-platform',str(chart),'-f',str(bad),'--kube-version',VERSIONS['kubernetes']+'.0','--namespace','iris-platform'],capture_output=True)
+        assert result.returncode, 'Invalid platform inputs must fail before deployment.'
+    result=subprocess.run([HELM,'template','iris-platform',str(chart),'-f',str(ROOT/'clusters/aws-dev-management/values/platform.yaml'),'--kube-version',VERSIONS['kubernetes']+'.0','--namespace','iris-platform'],capture_output=True)
+    cluster_values=json.loads((ROOT/'clusters/aws-dev-management/values/platform.yaml').read_text())
+    if not cluster_values['was']['image']['digest']:
+        assert result.returncode, 'Incomplete cluster values must not accidentally enable platform deployment.'
+    else:
+        assert not result.returncode, 'Configured cluster values must render successfully.'
+    enabled=directory/'gitops-platform.json';enabled.write_text(json.dumps({'revision':'a'*40,'targets':targets,'platform':{'enabled':True}}))
+    docs=render(ROOT/'helm/gitops', enabled, namespace='argocd')
+    assert sum(d['kind']=='Application' for d in docs)==9 and sum(d['kind']=='AppProject' for d in docs)==4
+    app=next(d for d in docs if d['kind']=='Application' and d['metadata']['name']=='iris-platform')
+    assert not app['metadata'].get('finalizers') and 'automated' not in app['spec']['syncPolicy']
+    assert app['spec']['destination']=={'server':targets['management']['endpoint'],'namespace':'iris-platform'}
+    assert app['spec']['source']['targetRevision']=='a'*40 and app['spec']['source']['path']=='helm/charts/iris-platform'
+    assert app['spec']['source']['helm']=={'releaseName':'iris-platform','valueFiles':['../../../clusters/aws-dev-management/values/platform.yaml']}
+    project=next(d for d in docs if d['kind']=='AppProject' and d['metadata']['name']=='iris-platform')['spec']
+    assert project['clusterResourceWhitelist']==[] and project['destinations']==[app['spec']['destination']]
+    allowed={(p['group'],p['kind']) for p in project['namespaceResourceWhitelist']}
+    assert allowed=={('apps','Deployment'),('','Service'),('','ConfigMap'),('','ServiceAccount'),('batch','Job'),('networking.k8s.io','NetworkPolicy'),('networking.k8s.io','Ingress')}
+
+
 def main():
     assert command('version', '--short').startswith('v'+VERSIONS['helm']+'+'), 'Use pinned Helm version.'
     command('repo', 'add', 'iris-argocd', VERSIONS['charts']['argo-cd']['repo'])
@@ -95,6 +195,7 @@ def main():
         bad.write_text(json.dumps({'revision':'a'*40,'targets':targets,'services':{'repoURL':'https://github.com/other/repo.git'}}))
         failed = subprocess.run([HELM,'template','check',str(ROOT/'helm/gitops'),'-f',str(bad)],capture_output=True)
         assert failed.returncode, 'Only the reviewed GitOps repository may feed user services.'
+        check_platform(directory, targets, bootstrap)
         charts = {}
         for name, pin in VERSIONS['charts'].items():
             if name=='argo-cd': continue
@@ -142,8 +243,7 @@ def main():
         docs=render(chart,values,release='demo',namespace='iris-check')
         kinds={d['kind'] for d in docs}
         assert {'Deployment','Service','Ingress'} <= kinds
-    command('lint','--strict',ROOT/'helm/charts/iris-platform')
-    print('Pinned charts/images, GitOps schema, baseline, storage and replicas: passed. No runtime deployment tested.')
+    print('Pinned charts/images, GitOps schema, baseline, platform TLS/migration/credentials, storage and replicas: passed. No runtime deployment tested.')
 
 
 if __name__=='__main__':main()

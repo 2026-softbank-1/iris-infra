@@ -1,2 +1,106 @@
-# TODO: 구현 시 기본값을 정의합니다. 실제 Secret 값은 기록하지 않습니다.
-{}
+{
+  "was": {
+    "image": {
+      "repository": "",
+      "digest": ""
+    },
+    "logLevel": "INFO"
+  },
+  "database": {
+    "runtimeSecret": "",
+    "migrationSecret": "",
+    "urlKey": "DATABASE_URL",
+    "caConfigMap": "",
+    "caKey": "ca-bundle.pem"
+  },
+  "api": {
+    "replicas": 1,
+    "host": "",
+    "resources": {
+      "requests": {
+        "cpu": "100m",
+        "memory": "256Mi"
+      },
+      "limits": {
+        "cpu": "500m",
+        "memory": "512Mi"
+      }
+    }
+  },
+  "buildWorker": {
+    "replicas": 1,
+    "codebuildProject": "",
+    "artifactBucket": "",
+    "githubSecret": "",
+    "resources": {
+      "requests": {
+        "cpu": "100m",
+        "memory": "256Mi"
+      },
+      "limits": {
+        "cpu": "500m",
+        "memory": "512Mi"
+      }
+    },
+    "terminationGracePeriodSeconds": 120
+  },
+  "deployWorker": {
+    "replicas": 1,
+    "baseDomain": "",
+    "gitopsRepository": "2026-softbank-1/iris-gitops-environments",
+    "githubSecret": "",
+    "argocdUrl": "",
+    "argocdSecret": "",
+    "caConfigMap": "",
+    "caKey": "ca-bundle.pem",
+    "resources": {
+      "requests": {
+        "cpu": "100m",
+        "memory": "256Mi"
+      },
+      "limits": {
+        "cpu": "500m",
+        "memory": "512Mi"
+      }
+    },
+    "terminationGracePeriodSeconds": 60
+  },
+  "errorAgent": {
+    "enabled": false,
+    "image": {
+      "repository": "",
+      "digest": ""
+    },
+    "secret": "",
+    "model": "",
+    "resources": {
+      "requests": {
+        "cpu": "100m",
+        "memory": "256Mi"
+      },
+      "limits": {
+        "cpu": "500m",
+        "memory": "512Mi"
+      }
+    }
+  },
+  "migration": {
+    "resources": {
+      "requests": {
+        "cpu": "100m",
+        "memory": "256Mi"
+      },
+      "limits": {
+        "cpu": "500m",
+        "memory": "512Mi"
+      }
+    },
+    "activeDeadlineSeconds": 600,
+    "backoffLimit": 1
+  },
+  "network": {
+    "albSubnetCidrs": [],
+    "rdsSubnetCidrs": []
+  },
+  "awsRegion": "ap-northeast-2"
+}

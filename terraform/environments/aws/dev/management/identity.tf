@@ -13,3 +13,11 @@ resource "aws_eks_pod_identity_association" "build_worker" {
   role_arn        = data.terraform_remote_state.foundation.outputs.build_worker_role_arn
   depends_on      = [module.eks]
 }
+
+resource "aws_eks_pod_identity_association" "deploy_worker" {
+  cluster_name    = module.eks.name
+  namespace       = "iris-platform"
+  service_account = "deploy-worker"
+  role_arn        = data.terraform_remote_state.foundation.outputs.deploy_worker_role_arn
+  depends_on      = [module.eks]
+}

@@ -1,0 +1,46 @@
+{{- if .Values.platform.enabled }}
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: iris-platform
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  sourceRepos:
+    - {{ .Values.repoURL | quote }}
+  destinations:
+    - server: {{ .Values.targets.management.endpoint | quote }}
+      namespace: iris-platform
+  clusterResourceWhitelist: []
+  namespaceResourceWhitelist:
+    - {group: apps, kind: Deployment}
+    - {group: "", kind: Service}
+    - {group: "", kind: ConfigMap}
+    - {group: "", kind: ServiceAccount}
+    - {group: batch, kind: Job}
+    - {group: networking.k8s.io, kind: NetworkPolicy}
+    - {group: networking.k8s.io, kind: Ingress}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: iris-platform
+  namespace: argocd
+spec:
+  project: iris-platform
+  source:
+    repoURL: {{ .Values.repoURL | quote }}
+    targetRevision: {{ .Values.revision | quote }}
+    path: helm/charts/iris-platform
+    helm:
+      releaseName: iris-platform
+      valueFiles:
+        - ../../../clusters/aws-dev-management/values/platform.yaml
+  destination:
+    server: {{ .Values.targets.management.endpoint | quote }}
+    namespace: iris-platform
+  # Initial synchronization and subsequent releases are explicit operations.
+  syncPolicy:
+    syncOptions: [PruneLast=true]
+{{- end }}

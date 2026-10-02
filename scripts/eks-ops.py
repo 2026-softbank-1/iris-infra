@@ -236,6 +236,9 @@ def wait_for(check, message, timeout=600):
 
 def bootstrap():
     require('helm','git')
+    platform_flag=os.environ.get('GITOPS_PLATFORM_ENABLED','0')
+    need(platform_flag in ('0','1'),'GITOPS_PLATFORM_ENABLED must be 0 or 1.')
+    platform_enabled=platform_flag=='1'
     sha=os.environ.get('GITOPS_REVISION','')
     need(re.fullmatch(r'[0-9a-f]{40}([0-9a-f]{24})?',sha),'Set GITOPS_REVISION to the reviewed commit merged into main.')
     need(run(['git','-C',str(ROOT),'rev-parse','HEAD']).strip()==sha,'Check out GITOPS_REVISION before bootstrap.')
@@ -251,6 +254,12 @@ def bootstrap():
     need(run(['helm','version','--short']).strip().startswith('v'+versions['helm']+'+'),'Use the pinned Helm version from helm/versions.json.')
     targets={id.removeprefix('aws-dev-'):ready(load_target(id)) for id in TARGETS}
     management=targets['management']
+    if platform_enabled:
+        chart=str(ROOT/'helm/charts/iris-platform')
+        platform_values=str(ROOT/'clusters/aws-dev-management/values/platform.yaml')
+        version=versions['kubernetes']+'.0'
+        run(['helm','lint','--strict',chart,'-f',platform_values,'--kube-version',version,'--namespace','iris-platform'])
+        run(['helm','template','iris-platform',chart,'-f',platform_values,'--kube-version',version,'--namespace','iris-platform'])
     # All inputs, both APIs, CA/RBAC, nodes and CNI are checked before any write.
     kubectl(management,'create','namespace','argocd','--dry-run=client','-o','json')
     ns={'apiVersion':'v1','kind':'Namespace','metadata':{'name':'argocd'}}
@@ -269,7 +278,7 @@ def bootstrap():
     for purpose,target in targets.items():
         auth={'awsAuthConfig':{'clusterName':target['name'],'roleARN':target['argocd_role_arn']},'tlsClientConfig':{'insecure':False,'caData':target['ca_data']}}
         objects.append({'apiVersion':'v1','kind':'Secret','metadata':{'name':f'iris-{purpose}-cluster','namespace':'argocd','labels':{'argocd.argoproj.io/secret-type':'cluster'}},'type':'Opaque','stringData':{'name':target['name'],'server':target['endpoint'],'config':json.dumps(auth)}})
-    values={'repoURL':repo_url,'revision':sha,'services':{'repoURL':gitops_url},'targets':{p:{k:t[k] for k in ('endpoint','name','region','vpc_id')} for p,t in targets.items()}}
+    values={'repoURL':repo_url,'revision':sha,'services':{'repoURL':gitops_url},'platform':{'enabled':platform_enabled},'targets':{p:{k:t[k] for k in ('endpoint','name','region','vpc_id')} for p,t in targets.items()}}
     objects += [
         {'apiVersion':'argoproj.io/v1alpha1','kind':'AppProject','metadata':{'name':'iris-root','namespace':'argocd'},'spec':{'sourceRepos':[repo_url],'destinations':[{'server':management['endpoint'],'namespace':'argocd'}],'clusterResourceWhitelist':[],'namespaceResourceWhitelist':[{'group':'argoproj.io','kind':'Application'},{'group':'argoproj.io','kind':'AppProject'},{'group':'argoproj.io','kind':'ApplicationSet'}]}},
         {'apiVersion':'argoproj.io/v1alpha1','kind':'Application','metadata':{'name':'iris-addons','namespace':'argocd'},'spec':{'project':'iris-root','source':{'repoURL':repo_url,'targetRevision':sha,'path':'helm/gitops','helm':{'valuesObject':values}},'destination':{'server':management['endpoint'],'namespace':'argocd'},'syncPolicy':{'automated':{'prune':False,'selfHeal':True},'syncOptions':['ServerSideApply=true']}}}]
@@ -278,9 +287,15 @@ def bootstrap():
     def synced():
         apps=json.loads(kubectl(management,'get','applications','-n','argocd','-o','json'))['items']
         statuses={a['metadata']['name']:a.get('status',{}) for a in apps}
-        return all(statuses.get(n,{}).get('sync',{}).get('status')=='Synced' and statuses.get(n,{}).get('health',{}).get('status')=='Healthy' for n in names)
+        addons_healthy=all(statuses.get(n,{}).get('sync',{}).get('status')=='Synced' and statuses.get(n,{}).get('health',{}).get('status')=='Healthy' for n in names[1:])
+        root=statuses.get('iris-addons',{})
+        root_ready=root.get('sync',{}).get('status')=='Synced' and (platform_enabled or root.get('health',{}).get('status')=='Healthy')
+        return addons_healthy and root_ready and (not platform_enabled or 'iris-platform' in statuses)
     wait_for(synced,'Addon sync/health timeout; inspect Applications without exposing repository Secrets.',1800)
-    print('ArgoCD and eight addon Applications are Synced/Healthy. Platform ECR pull: not verified.')
+    if platform_enabled:
+        print('Root is Synced; eight addons are Synced/Healthy; iris-platform Application exists. Platform requires a manual full sync; deployment and ECR pull are not verified.')
+    else:
+        print('ArgoCD and eight addon Applications are Synced/Healthy. Platform ECR pull: not verified.')
 
 
 def port_forward(target, service, port):
