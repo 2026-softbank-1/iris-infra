@@ -153,7 +153,7 @@ def check_platform(directory, targets, bootstrap):
     assert {d['metadata']['name'] for d in docs if d['kind'] in {'Deployment','Job','Ingress'}}=={'iris-platform-api','iris-platform-migration'}, 'Only components with a digest deploy; the agent also needs enabled.'
     enabled=directory/'gitops-platform.json';enabled.write_text(json.dumps({'revision':'a'*40,'targets':targets,'platform':{'enabled':True}}))
     docs=render(ROOT/'helm/gitops', enabled, namespace='argocd')
-    assert sum(d['kind']=='Application' for d in docs)==9 and sum(d['kind']=='AppProject' for d in docs)==4
+    assert sum(d['kind']=='Application' for d in docs)==11 and sum(d['kind']=='AppProject' for d in docs)==4
     app=next(d for d in docs if d['kind']=='Application' and d['metadata']['name']=='iris-platform')
     assert app['metadata']['finalizers']==['resources-finalizer.argocd.argoproj.io'] and app['spec']['syncPolicy']['automated']=={'prune':True,'selfHeal':True}
     assert app['spec']['destination']=={'server':targets['management']['endpoint'],'namespace':'iris-platform'}
@@ -183,7 +183,7 @@ def main():
         values.write_text(json.dumps({'revision':'a'*40,'targets':targets}))
         gitops = render(ROOT/'helm/gitops', values, namespace='argocd')
         # Platform is opt-in at bootstrap (GITOPS_PLATFORM_ENABLED); check_platform covers it.
-        assert sum(d['kind']=='Application' for d in gitops)==8
+        assert sum(d['kind']=='Application' for d in gitops)==10
         assert sum(d['kind']=='AppProject' for d in gitops)==3
         appset = next(d for d in gitops if d['kind']=='ApplicationSet')['spec']
         chart_source, values_source = appset['template']['spec']['sources']
@@ -227,12 +227,29 @@ def main():
             if purpose=='workload':
                 assert yaml.safe_load((ROOT/'helm/charts/iris-service/values.yaml').read_text())['route']['groupName']==group, 'Service Ingresses must join the workload anchor ALB group.'
             rendered = list(baseline)
+            # Addons render where the GitOps Application exists; each needs its cluster values file.
+            enabled = {d['metadata']['name'].removeprefix(f'iris-{purpose}-') for d in gitops if d['kind']=='Application' and d['metadata']['name'].startswith(f'iris-{purpose}-')} - {'baseline'}
+            assert enabled == {name for name in charts if (base/(name+'.yaml')).exists()}, f'{purpose} addons and values files differ: {sorted(enabled)}'
             for name,chart in charts.items():
+                if name not in enabled: continue
                 params = ('--set','clusterName=iris-dev-'+purpose,'--set','region=ap-northeast-2','--set','vpcId=vpc-0123456789abcdef0') if name=='aws-load-balancer-controller' else ()
-                docs = render(chart,base/(name+'.yaml'),release='monitoring' if name=='kube-prometheus-stack' else name,namespace='observability' if name=='kube-prometheus-stack' else 'kube-system',parameters=params)
+                namespace = 'kube-system' if name in ('aws-load-balancer-controller','metrics-server') else 'observability'
+                docs = render(chart,base/(name+'.yaml'),release='monitoring' if name=='kube-prometheus-stack' else name,namespace=namespace,parameters=params)
                 check_images(docs)
                 rendered += docs
-                assert not any(d['kind']=='Ingress' or (d['kind']=='Service' and d['spec'].get('type')=='LoadBalancer') for d in docs)
+                balancers = [d for d in docs if d['kind']=='Service' and d['spec'].get('type')=='LoadBalancer']
+                assert not any(d['kind']=='Ingress' for d in docs)
+                if name=='opentelemetry-collector' and purpose=='management':
+                    # The only addon load balancer: internal NLB for workload agents, behind basic auth.
+                    [nlb] = balancers
+                    assert nlb['metadata']['annotations']['service.beta.kubernetes.io/aws-load-balancer-scheme']=='internal'
+                    assert nlb['spec']['loadBalancerSourceRanges']==['10.40.32.0/20','10.40.48.0/20'] and [p['port'] for p in nlb['spec']['ports']]==[4318]
+                    relay = yaml.safe_load(next(d for d in docs if d['kind']=='ConfigMap')['data']['relay'])
+                    assert list(relay['receivers'])==['otlp'] and list(relay['receivers']['otlp']['protocols'])==['http'], 'Gateway must accept only authenticated OTLP/HTTP.'
+                    assert relay['receivers']['otlp']['protocols']['http']['auth']['authenticator']=='basicauth/server'
+                    assert set(relay['service']['pipelines'])=={'logs','metrics'}
+                else:
+                    assert not balancers
                 if name in ('aws-load-balancer-controller','metrics-server'):
                     deployment = next(d for d in docs if d['kind']=='Deployment')
                     assert deployment['spec']['replicas']==2
@@ -241,9 +258,16 @@ def main():
                         args=deployment['spec']['template']['spec']['containers'][0]['args']
                         assert '--kubelet-certificate-authority=/var/run/secrets/kubernetes.io/serviceaccount/ca.crt' in args
                         assert '--kubelet-insecure-tls' not in args
-                else:
+                elif name=='loki':
+                    workloads = [d for d in docs if d['kind'] in ('Deployment','StatefulSet','DaemonSet')]
+                    assert [(d['kind'],d['metadata']['name'],d['spec']['replicas']) for d in workloads]==[('StatefulSet','loki',1)], 'SingleBinary only: no gateway, caches or canary.'
+                    assert workloads[0]['spec']['template']['spec']['serviceAccountName']=='loki', 'Pod Identity is bound to observability/loki.'
+                    assert any(d['kind']=='Service' and d['metadata']['name']=='loki' and 3100 in [p['port'] for p in d['spec']['ports']] for d in docs)
+                elif name=='kube-prometheus-stack':
                     prom=next(d for d in docs if d['kind']=='Prometheus')['spec']
-                    assert prom['retention']=='3d' and prom['retentionSize']=='15GB'
+                    # Management also keeps user service metrics written by the OTel gateway.
+                    assert prom['retention']=={'management':'7d','workload':'3d'}[purpose] and prom['retentionSize']=='15GB'
+                    assert prom.get('enableRemoteWriteReceiver', False)==(purpose=='management')
                     assert prom['storage']['volumeClaimTemplate']['spec']['resources']['requests']['storage']=='20Gi'
                     assert any(d['kind']=='Service' and d['metadata']['name']=='monitoring-prometheus' for d in docs)
             missing = {group_kind(d) for d in rendered if d['kind'] in CLUSTER_SCOPED} - allowed[purpose]

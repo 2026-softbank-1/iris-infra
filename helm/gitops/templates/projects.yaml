@@ -12,6 +12,8 @@ spec:
     - https://aws.github.io/eks-charts
     - https://kubernetes-sigs.github.io/metrics-server/
     - https://prometheus-community.github.io/helm-charts
+    - https://open-telemetry.github.io/opentelemetry-helm-charts
+    - https://grafana.github.io/helm-charts
   destinations:
     - server: {{ $target.endpoint | quote }}
       namespace: kube-system
