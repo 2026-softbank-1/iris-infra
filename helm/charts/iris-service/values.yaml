@@ -3,6 +3,8 @@
 # 실제 Secret 값은 기록하지 않습니다.
 replicas: 1
 containerPort: 8080
+# Only public values or references to existing Secrets in svc-{service_id}.
+environment: []
 health:
   timeoutSeconds: 300
 resources:

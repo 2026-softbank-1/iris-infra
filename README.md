@@ -52,3 +52,5 @@ mock/정적/렌더 검사는 AWS 배포나 IAM 충분성·실제 네트워크 �
 - [문제 확인](docs/runbooks/troubleshooting.md), [철거](docs/runbooks/teardown.md)
 - [팀 명령](scripts/README.md), [target 계약](contracts/target.md)
 - [서비스 ECR 빌드 템플릿](examples/github-actions/README.md)
+
+1002 파이프라인 환경 계약 변경: [docs/1002-integration-design.md](docs/1002-integration-design.md).
