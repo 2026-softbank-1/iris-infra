@@ -284,8 +284,9 @@ def bootstrap():
         {'apiVersion':'argoproj.io/v1alpha1','kind':'Application','metadata':{'name':'iris-addons','namespace':'argocd'},'spec':{'project':'iris-root','source':{'repoURL':repo_url,'targetRevision':sha,'path':'helm/gitops','helm':{'valuesObject':values}},'destination':{'server':management['endpoint'],'namespace':'argocd'},'syncPolicy':{'automated':{'prune':False,'selfHeal':True},'syncOptions':['ServerSideApply=true']}}}]
     apply(management,objects)
     addons=('baseline','aws-load-balancer-controller','metrics-server','kube-prometheus-stack')
-    # Logs and user metrics are received and stored in management only (helm/gitops applications.yaml).
-    names=['iris-addons']+[f'iris-{p}-{a}' for p in targets for a in addons+(('opentelemetry-collector','loki') if p=='management' else ())]
+    addons+=('opentelemetry-collector',)
+    # Loki stores logs in management only (helm/gitops applications.yaml).
+    names=['iris-addons']+[f'iris-{p}-{a}' for p in targets for a in addons+(('loki',) if p=='management' else ())]
     def synced():
         apps=json.loads(kubectl(management,'get','applications','-n','argocd','-o','json'))['items']
         statuses={a['metadata']['name']:a.get('status',{}) for a in apps}

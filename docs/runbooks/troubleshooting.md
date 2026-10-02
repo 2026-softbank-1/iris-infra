@@ -38,3 +38,7 @@ TODO: 실제 Namespace·Job·release 이름과 로그 위치를 구현 후 추�
 생성 권한은 AMI, 실제 subnet/SG 태그, 새 ENI, `t3.micro` instance, volume, instance/volume `CreateTags`, bridge 역할 `PassRole`을 함께 확인합니다. IAM simulation에는 리소스별 실제 요청·리소스 태그와 owner 별칭을 넣고 제3자 AMI·다른 리전·큰 인스턴스·태그 누락·미승인 역할이 차단되는지도 검사합니다. 암호화된 root volume은 계정 EBS 기본 KMS key를 사용하므로 사용자 관리 키라면 해당 키 권한도 확인합니다. simulation 결과는 실제 EC2 호출 성공을 보장하지 않습니다.
 
 거부 메시지는 `sts:DecodeAuthorizationMessage`로 해독할 수 있지만, 붙여 넣은 토큰이나 CloudTrail의 `errorMessage`가 잘려 `...`로 끝나면 유효한 입력이 아닙니다. 이때 해독 성공으로 보고하지 말고 CloudTrail의 원래 요청 파라미터·실제 적용 정책·AWS 조건 문서를 대조합니다.
+
+### bootstrap 뒤 LBC webhook `x509: certificate signed by unknown authority`
+
+LBC chart는 렌더링마다 webhook 인증서를 새로 만듭니다. bootstrap(Argo 재동기화)이 Secret `aws-load-balancer-tls`와 webhook `caBundle`을 새 값으로 바꿔도 실행 중인 LBC Pod는 이전 인증서를 계속 쓰므로, 새 LoadBalancer Service·Ingress의 TargetGroupBinding 생성이 이 오류로 실패합니다(Service 이벤트 `FailedDeployModel`). Secret과 두 webhook의 CA가 같은지 확인한 뒤 해당 클러스터에서 `kubectl -n kube-system rollout restart deploy/aws-load-balancer-controller`로 복구합니다(replica 2, 순차 재시작). 2026-10-02 observability addon bootstrap에서 두 클러스터 모두 발생했습니다.
