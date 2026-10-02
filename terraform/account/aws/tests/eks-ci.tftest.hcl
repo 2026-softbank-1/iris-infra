@@ -103,3 +103,54 @@ run "runtime_boundaries_and_session" {
     error_message = "Bridge volume RunInstances authorization must retain the exact account/region ARN and all four owner request tags; do not relax IAM to allow untagged volumes."
   }
 }
+
+run "eks_provider_permission_paths" {
+  command = plan
+  assert {
+    condition     = length([for s in jsondecode(aws_iam_policy.runtime_compute.policy).Statement : s if s.Sid == "DiscoverCompute" && s.Resource == "*" && contains(s.Action, "ec2:DescribeInstanceCreditSpecifications") && s.Condition.StringEquals["aws:RequestedRegion"] == var.aws_region]) == 1
+    error_message = "Burstable bridge refresh requires regional DescribeInstanceCreditSpecifications."
+  }
+  assert {
+    condition = length([for s in jsondecode(aws_iam_policy.eks_deployment.policy).Statement : s if contains(s.Action, "eks:CreateCluster")]) == 1 && length([
+      for s in jsondecode(aws_iam_policy.eks_deployment.policy).Statement : s if s.Sid == "CreateOwnedPrivateClusters" && s.Action == ["eks:CreateCluster"] && s.Resource == "*" && jsonencode(s.Condition) == jsonencode({
+        StringEquals = {
+          "aws:RequestedRegion"        = var.aws_region, "aws:RequestTag/Project" = var.project,
+          "aws:RequestTag/Environment" = var.environment, "aws:RequestTag/ManagedBy" = "Terraform",
+          "aws:RequestTag/Component"   = "eks", "eks:authenticationMode" = "API", "eks:supportType" = "STANDARD"
+        },
+        Bool = {
+          "eks:endpointPrivateAccess"                   = "true", "eks:endpointPublicAccess" = "false",
+          "eks:bootstrapClusterCreatorAdminPermissions" = "false", "eks:bootstrapSelfManagedAddons" = "false"
+        }
+      })
+    ]) == 1
+    error_message = "CreateCluster has no resource-level ARN support; its wildcard exception must require owned private API clusters with the approved authentication/bootstrap/support settings."
+  }
+  assert {
+    condition = length([for s in jsondecode(aws_iam_policy.eks_deployment.policy).Statement : s if s.Sid == "ManageNamedClusters" && toset(s.Resource) == toset([
+      "arn:aws:eks:${var.aws_region}:${var.aws_account_id}:cluster/${var.management_cluster_name}",
+      "arn:aws:eks:${var.aws_region}:${var.aws_account_id}:cluster/${var.workload_cluster_name}"
+      ]) && !contains(s.Action, "eks:CreateCluster")]) == 1 && length([
+      for s in jsondecode(aws_iam_policy.eks_deployment.policy).Statement : s if s.Sid == "AddonPodIdentityCreation" && s.Action == ["eks:CreateAddon"] && toset(s.Resource) == toset([
+        "arn:aws:eks:${var.aws_region}:${var.aws_account_id}:podidentityassociation/${var.management_cluster_name}/*",
+        "arn:aws:eks:${var.aws_region}:${var.aws_account_id}:podidentityassociation/${var.workload_cluster_name}/*"
+      ]) && s.Condition.StringEquals["aws:RequestedRegion"] == var.aws_region
+    ]) == 1
+    error_message = "EBS addon creation must authorize its Pod Identity resources while retaining the two named cluster boundary."
+  }
+  assert {
+    condition = length([for s in jsondecode(aws_iam_policy.eks_deployment.policy).Statement : s if s.Sid == "ReadChildUpdates" && toset(s.Action) == toset(["eks:DescribeUpdate", "eks:ListUpdates"]) && toset(s.Resource) == toset(flatten([
+      for name in [var.management_cluster_name, var.workload_cluster_name] : [
+        "arn:aws:eks:${var.aws_region}:${var.aws_account_id}:addon/${name}/*/*",
+        "arn:aws:eks:${var.aws_region}:${var.aws_account_id}:nodegroup/${name}/*/*"
+      ]
+    ])) && s.Condition.StringEquals["aws:RequestedRegion"] == var.aws_region]) == 1
+    error_message = "Provider nodegroup/addon update waiters require child update reads scoped to these two clusters."
+  }
+  assert {
+    condition = !contains(local.runtime_role_arns, "arn:aws:iam::${var.aws_account_id}:role/${var.project}-${var.environment}-build-worker") && length([
+      for s in jsondecode(aws_iam_policy.runtime_iam.policy).Statement : s if s.Sid == "PassBuildWorkerToPods" && s.Action == ["iam:PassRole"] && s.Resource == "arn:aws:iam::${var.aws_account_id}:role/${var.project}-${var.environment}-build-worker" && jsonencode(s.Condition) == jsonencode({ StringEquals = { "iam:PassedToService" = "pods.eks.amazonaws.com" } })
+    ]) == 1
+    error_message = "Management may pass the existing Build Worker to EKS Pod Identity only; its runtime IAM administration inventory must not expand."
+  }
+}
