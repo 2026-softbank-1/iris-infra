@@ -1,0 +1,73 @@
+{
+  "mode": "deployment",
+  "replicaCount": 1,
+  "image": {
+    "repository": "docker.io/otel/opentelemetry-collector-contrib",
+    "tag": "0.161.0@sha256:fd328de2552466ad78385e1b1289c3f2402b1c45f265b252aab1955b42845ac1"
+  },
+  "resources": {
+    "requests": { "cpu": "100m", "memory": "128Mi" },
+    "limits": { "memory": "512Mi" }
+  },
+  "ports": {
+    "otlp": { "enabled": false },
+    "jaeger-compact": { "enabled": false },
+    "jaeger-thrift": { "enabled": false },
+    "jaeger-grpc": { "enabled": false },
+    "zipkin": { "enabled": false }
+  },
+  "service": {
+    "type": "LoadBalancer",
+    "loadBalancerSourceRanges": ["10.40.32.0/20", "10.40.48.0/20"],
+    "annotations": {
+      "service.beta.kubernetes.io/aws-load-balancer-type": "external",
+      "service.beta.kubernetes.io/aws-load-balancer-scheme": "internal",
+      "service.beta.kubernetes.io/aws-load-balancer-nlb-target-type": "ip",
+      "service.beta.kubernetes.io/aws-load-balancer-name": "iris-otel-gateway"
+    }
+  },
+  "extraEnvsFrom": [{ "secretRef": { "name": "otel-write-auth" } }],
+  "config": {
+    "extensions": {
+      "basicauth/server": { "htpasswd": { "inline": "otel:${env:WRITE_PASSWORD}" } }
+    },
+    "receivers": {
+      "jaeger": null,
+      "zipkin": null,
+      "prometheus": null,
+      "otlp": {
+        "protocols": {
+          "grpc": null,
+          "http": {
+            "endpoint": "${env:MY_POD_IP}:4318",
+            "auth": { "authenticator": "basicauth/server" }
+          }
+        }
+      }
+    },
+    "exporters": {
+      "debug": null,
+      "otlphttp/loki": { "endpoint": "http://loki.observability:3100/otlp" },
+      "prometheusremotewrite": {
+        "endpoint": "http://monitoring-prometheus.observability:9090/api/v1/write",
+        "resource_to_telemetry_conversion": { "enabled": true }
+      }
+    },
+    "service": {
+      "extensions": ["health_check", "basicauth/server"],
+      "pipelines": {
+        "logs": {
+          "receivers": ["otlp"],
+          "processors": ["memory_limiter", "batch"],
+          "exporters": ["otlphttp/loki"]
+        },
+        "metrics": {
+          "receivers": ["otlp"],
+          "processors": ["memory_limiter", "batch"],
+          "exporters": ["prometheusremotewrite"]
+        },
+        "traces": null
+      }
+    }
+  }
+}
