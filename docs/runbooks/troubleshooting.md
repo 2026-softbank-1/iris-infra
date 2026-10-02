@@ -28,3 +28,13 @@ TODO: 실제 Namespace·Job·release 이름과 로그 위치를 구현 후 추�
 `aws_instance.ssm_bridge` 생성 시 `ec2:RunInstances`가 `volume/*`에서 거부되면 CI 역할의 `bridge-launch` 정책 연결과 생성 요청의 소유 태그를 확인합니다. 정책은 리전과 `Project`, `Environment`, `ManagedBy`, `Component` 태그를 제한합니다. AWS provider 6.67.0에서 `root_block_device.tags`는 생성 후에 적용하므로 생성 시 IAM 조건을 충족하지 못합니다. `volume_tags = local.access_tags`로 생성 요청에 `Component=access`까지 전달해야 하며 두 태그 설정은 함께 사용하지 않습니다.
 
 현재 정책이 연결돼 있다면 이 수정에 account 재apply는 필요 없습니다. 부분 적용된 foundation state와 기존 빌드/ECR 자원을 유지하고, 수정 코드가 반영된 main workflow에서 새 plan을 검토하여 삭제·교체 없이 재시도합니다. 수정 전 SHA의 실패한 workflow를 재실행하면 같은 오류가 납니다. foundation 전체 destroy나 IAM 태그 조건 완화로 복구하지 않습니다. IAM simulation과 mock 검사는 실제 EC2 생성 성공을 보장하지 않으며 수정 후 배포 결과에서 별도로 확인합니다.
+
+### SSM bridge 생성의 image RunInstances 거부
+
+같은 생성 요청에서 `image/ami-*`가 거부되면 `bridge-launch`의 `RunBridgeImage` 조건을 확인합니다. Amazon 소유 AMI의 IAM `ec2:Owner` 값은 `amazon`입니다. `DescribeImages`가 반환하는 숫자 `OwnerId`를 대신 넣으면 조건이 맞지 않을 수 있습니다([AWS 예제](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ExamplePolicies_EC2.html)). 실제 bridge 이미지는 AL2023 x86_64 SSM parameter로 선택합니다.
+
+이 수정은 IAM 정책 변경이므로 관리자 자격으로 수정한 account stack의 plan을 검토하고 apply한 뒤, 수정 코드가 반영된 main workflow에서 foundation의 새 plan을 검토하여 재시도합니다. account 적용 없이 CI만 재실행하면 기존 AMI 조건이 유지됩니다. 부분 적용된 state·빌드·ECR을 보존하고 foundation 전체 destroy는 사용하지 않습니다.
+
+생성 권한은 AMI, 실제 subnet/SG 태그, 새 ENI, `t3.micro` instance, volume, instance/volume `CreateTags`, bridge 역할 `PassRole`을 함께 확인합니다. IAM simulation에는 리소스별 실제 요청·리소스 태그와 owner 별칭을 넣고 제3자 AMI·다른 리전·큰 인스턴스·태그 누락·미승인 역할이 차단되는지도 검사합니다. 암호화된 root volume은 계정 EBS 기본 KMS key를 사용하므로 사용자 관리 키라면 해당 키 권한도 확인합니다. simulation 결과는 실제 EC2 호출 성공을 보장하지 않습니다.
+
+거부 메시지는 `sts:DecodeAuthorizationMessage`로 해독할 수 있지만, 붙여 넣은 토큰이나 CloudTrail의 `errorMessage`가 잘려 `...`로 끝나면 유효한 입력이 아닙니다. 이때 해독 성공으로 보고하지 말고 CloudTrail의 원래 요청 파라미터·실제 적용 정책·AWS 조건 문서를 대조합니다.

@@ -25,7 +25,8 @@ resource "aws_iam_role_policy_attachment" "runtime_compute" {
 resource "aws_iam_policy" "bridge_launch" {
   name = "${var.project}-${var.environment}-bridge-launch"
   policy = jsonencode({ Version = "2012-10-17", Statement = [
-    { Sid = "RunBridgeImage", Effect = "Allow", Action = ["ec2:RunInstances"], Resource = "arn:aws:ec2:${var.aws_region}::image/*", Condition = { StringEquals = merge(local.eks_region, { "ec2:Owner" = "137112412989" }) } },
+    # EC2 uses the "amazon" owner alias when authorizing Amazon-owned AMIs.
+    { Sid = "RunBridgeImage", Effect = "Allow", Action = ["ec2:RunInstances"], Resource = "arn:aws:ec2:${var.aws_region}::image/*", Condition = { StringEquals = merge(local.eks_region, { "ec2:Owner" = "amazon" }) } },
     { Sid = "RunBridgeNetwork", Effect = "Allow", Action = ["ec2:RunInstances"], Resource = ["${local.compute_prefix}:subnet/*", "${local.compute_prefix}:security-group/*"], Condition = { StringEquals = merge(local.eks_region, { "aws:ResourceTag/Project" = var.project, "aws:ResourceTag/Environment" = var.environment, "aws:ResourceTag/ManagedBy" = "Terraform" }) } },
     # EC2 requires separate authorization for the untagged transient ENI.
     { Sid = "RunBridgeEni", Effect = "Allow", Action = ["ec2:RunInstances"], Resource = "${local.compute_prefix}:network-interface/*", Condition = { StringEquals = local.eks_region } },
