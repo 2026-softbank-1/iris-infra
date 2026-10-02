@@ -68,7 +68,22 @@
     "networkPolicy": {
       "type": "object",
       "additionalProperties": false,
-      "properties": { "allowedCidrs": { "type": "array", "items": { "type": "string" } } }
+      "properties": {
+        "allowedCidrs": { "type": "array", "items": { "type": "string" } },
+        "egressDeniedCidrs": { "type": "array", "items": { "type": "string" } },
+        "egressAllowed": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["cidr", "port"],
+            "properties": {
+              "cidr": { "type": "string" },
+              "port": { "type": "integer", "minimum": 1, "maximum": 65535 }
+            }
+          }
+        }
+      }
     }
   },
   "definitions": {

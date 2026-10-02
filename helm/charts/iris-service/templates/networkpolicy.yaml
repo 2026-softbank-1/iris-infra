@@ -21,3 +21,43 @@ spec:
         - port: {{ $.Values.containerPort }}
           protocol: TCP
 {{- end }}
+{{- with .Values.networkPolicy.egressDeniedCidrs }}
+---
+# 신뢰할 수 없는 코드가 VPC 안(로그 수집 NLB, 노드 hostPort, 다른 클러스터)과 IMDS·Pod Identity Agent 에
+# 닿지 못하게 합니다. 같은 namespace·DNS·VPC 밖은 열고, VPC 안 허용 대상은 egressAllowed 로만 엽니다.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: restrict-egress
+  labels:
+    {{- include "iris-service.labels" $ | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector: {}
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              {{- toYaml . | nindent 14 }}
+    {{- range $.Values.networkPolicy.egressAllowed }}
+    - to:
+        - ipBlock:
+            cidr: {{ .cidr | quote }}
+      ports:
+        - {protocol: TCP, port: {{ .port }}}
+    {{- end }}
+{{- end }}
