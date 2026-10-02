@@ -75,6 +75,8 @@ GitHub Actions 변수와 자동 배포 절차는 [Terraform CI runbook](../../..
 
 `ci-eks.tf`는 정확한 두 cluster ARN과 addon/nodegroup/access/pod identity child ARN, named runtime IAM role/LBC policy, AWS managed attachment allowlist, service별 PassRole, EKS issuer OIDC와 service-linked-role 생성 권한을 정의합니다. GitHub OIDC나 CI 자기 역할/policy 수정 범위는 없습니다.
 
-`ci-access.tf`는 request/resource owner tags의 SG/LT/compute 변경과 private bridge t3.micro RunInstances를 별도 관리형 정책으로 제공합니다. read-only discovery는 지정 리전에서만 `*`, 새 ENI는 RunInstances 인증의 지역/리소스 예외입니다. AMI는 Amazon Linux owner137112412989로 제한합니다. instance/volume에는 owner tag가 필요합니다.
+`ci-access.tf`는 request/resource owner tags의 SG/LT/compute 변경과 private bridge t3.micro RunInstances를 별도 관리형 정책으로 제공합니다. read-only discovery는 지정 리전에서만 `*`, 새 ENI는 RunInstances 인증의 지역/리소스 예외입니다. AMI는 지정 리전의 Amazon 소유 이미지로 제한하며 IAM의 `ec2:Owner` 조건에는 `amazon` 별칭을 사용합니다. `DescribeImages`의 숫자 `OwnerId`와 이 조건값을 혼동하지 않습니다([AWS 예제](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ExamplePolicies_EC2.html)). IAM 허용 범위는 Amazon 소유 AMI들이며 실제 bridge 선택은 foundation의 고정 AL2023 x86_64 SSM parameter를 유지합니다. instance/volume에는 owner tag가 필요합니다.
+
+AMI 조건 수정은 관리자가 account plan을 검토하고 apply해야 실제 CI 역할에 반영됩니다. foundation workflow는 자신의 IAM 정책을 갱신할 수 없습니다. account 적용 후 수정 코드가 반영된 workflow에서 foundation의 새 plan을 확인하여 재시도합니다. mock 테스트는 AMI·subnet/SG·ENI·instance·volume·생성 태그·PassRole의 제한을 검사하지만 실제 EC2 생성 성공은 배포 후 확인합니다.
 
 네트워크에 더해 EKS/runtime-IAM/runtime-compute/bridge-launch 정책 4개를 붙이며 각각 IAM6144자 한도를 mock으로 검사합니다. CI 역할 `max_session_duration=7200`, workflow STS7200, deploy timeout120분을 함께 적용합니다. `make tf-test`는 실제 로컬 backend/state/tfvars를 사용하지 않습니다. 실제 IAM 충분성은 배포 후 확인합니다.

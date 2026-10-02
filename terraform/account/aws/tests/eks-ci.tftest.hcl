@@ -1,6 +1,70 @@
 mock_provider "aws" {
   mock_resource "aws_iam_policy" { defaults = { arn = "arn:aws:iam::123456789012:policy/mock" } }
 }
+
+run "bridge_launch_authorization" {
+  command = plan
+  assert {
+    condition = sort([for statement in jsondecode(aws_iam_policy.bridge_launch.policy).Statement : statement.Sid]) == sort(["RunBridgeImage", "RunBridgeNetwork", "RunBridgeEni", "RunTaggedBridge", "RunTaggedBridgeVolume"]) && alltrue([
+      for statement in jsondecode(aws_iam_policy.bridge_launch.policy).Statement : statement.Effect == "Allow" && statement.Action == ["ec2:RunInstances"] && statement.Condition.StringEquals["aws:RequestedRegion"] == var.aws_region
+    ])
+    error_message = "Bridge launch must authorize all five resource statements individually and retain explicit regional RunInstances actions."
+  }
+  assert {
+    condition = alltrue([
+      for statement in jsondecode(aws_iam_policy.bridge_launch.policy).Statement :
+      statement.Resource == "arn:aws:ec2:${var.aws_region}::image/*" && jsonencode(statement.Condition) == jsonencode({ StringEquals = { "aws:RequestedRegion" = var.aws_region, "ec2:Owner" = "amazon" } }) if statement.Sid == "RunBridgeImage"
+    ])
+    error_message = "Amazon-owned AMI launch authorization requires the amazon owner alias, not the DescribeImages numeric OwnerId."
+  }
+  assert {
+    condition = alltrue([
+      for statement in jsondecode(aws_iam_policy.bridge_launch.policy).Statement :
+      statement.Resource == ["arn:aws:ec2:${var.aws_region}:${var.aws_account_id}:subnet/*", "arn:aws:ec2:${var.aws_region}:${var.aws_account_id}:security-group/*"] && jsonencode(statement.Condition) == jsonencode({
+        StringEquals = {
+          "aws:RequestedRegion"         = var.aws_region
+          "aws:ResourceTag/Project"     = var.project
+          "aws:ResourceTag/Environment" = var.environment
+          "aws:ResourceTag/ManagedBy"   = "Terraform"
+        }
+      }) if statement.Sid == "RunBridgeNetwork"
+      ]) && alltrue([
+      for statement in jsondecode(aws_iam_policy.bridge_launch.policy).Statement :
+      statement.Resource == "arn:aws:ec2:${var.aws_region}:${var.aws_account_id}:network-interface/*" && jsonencode(statement.Condition) == jsonencode({ StringEquals = { "aws:RequestedRegion" = var.aws_region } }) if statement.Sid == "RunBridgeEni"
+    ])
+    error_message = "Existing subnet/SG resources need owner resource tags; the transient ENI must have its own regional authorization without nonexistent owner tags."
+  }
+  assert {
+    condition = alltrue([
+      for statement in jsondecode(aws_iam_policy.bridge_launch.policy).Statement :
+      statement.Resource == ["arn:aws:ec2:${var.aws_region}:${var.aws_account_id}:instance/*"] && jsonencode(statement.Condition) == jsonencode({
+        StringEquals = {
+          "aws:RequestedRegion"        = var.aws_region
+          "ec2:InstanceType"           = "t3.micro"
+          "aws:RequestTag/Project"     = var.project
+          "aws:RequestTag/Environment" = var.environment
+          "aws:RequestTag/ManagedBy"   = "Terraform"
+          "aws:RequestTag/Component"   = ["eks", "access"]
+        }
+      }) if statement.Sid == "RunTaggedBridge"
+    ])
+    error_message = "Bridge instance launches must remain t3.micro and require all four owner request tags."
+  }
+  assert {
+    condition = length([for statement in jsondecode(aws_iam_policy.runtime_compute.policy).Statement : statement if statement.Sid == "TagsOnCreate"]) == 1 && alltrue([
+      for statement in jsondecode(aws_iam_policy.runtime_compute.policy).Statement :
+      statement.Effect == "Allow" && statement.Action == ["ec2:CreateTags"] && contains(statement.Resource, "arn:aws:ec2:${var.aws_region}:${var.aws_account_id}:instance/*") && contains(statement.Resource, "arn:aws:ec2:${var.aws_region}:${var.aws_account_id}:volume/*") && statement.Condition.StringEquals["aws:RequestedRegion"] == var.aws_region && contains(statement.Condition.StringEquals["ec2:CreateAction"], "RunInstances") && statement.Condition.StringEquals["aws:RequestTag/Project"] == var.project && statement.Condition.StringEquals["aws:RequestTag/Environment"] == var.environment && statement.Condition.StringEquals["aws:RequestTag/ManagedBy"] == "Terraform" && statement.Condition.StringEquals["aws:RequestTag/Component"] == ["eks", "access"] if statement.Sid == "TagsOnCreate"
+    ])
+    error_message = "Launch-time CreateTags must authorize both instance and volume with the same owner request tags and RunInstances creation context."
+  }
+  assert {
+    condition = length([for statement in jsondecode(aws_iam_policy.runtime_iam.policy).Statement : statement if statement.Sid == "PassBridgeRole"]) == 1 && alltrue([
+      for statement in jsondecode(aws_iam_policy.runtime_iam.policy).Statement :
+      statement.Effect == "Allow" && statement.Action == ["iam:PassRole"] && statement.Resource == "arn:aws:iam::${var.aws_account_id}:role/${var.project}-${var.environment}-ssm-bridge" && jsonencode(statement.Condition) == jsonencode({ StringEquals = { "iam:PassedToService" = "ec2.amazonaws.com" } }) if statement.Sid == "PassBridgeRole"
+    ])
+    error_message = "CI may pass only the named bridge role to EC2 through the bridge authorization."
+  }
+}
 variables {
   aws_account_id             = "123456789012"
   github_oidc_subject_prefix = "repo:example/infra"
