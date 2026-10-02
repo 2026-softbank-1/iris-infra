@@ -118,7 +118,9 @@ def check_platform(directory, targets, bootstrap):
         ingress=next(d for d in docs if d['kind']=='Ingress'); notes=ingress['metadata']['annotations']
         assert notes['alb.ingress.kubernetes.io/group.name']=='iris-platform-external' and notes['alb.ingress.kubernetes.io/target-type']=='ip'
         assert notes['alb.ingress.kubernetes.io/healthcheck-path']=='/readyz' and notes['alb.ingress.kubernetes.io/success-codes']=='204'
-        assert not any(key in notes for key in ('alb.ingress.kubernetes.io/certificate-arn','alb.ingress.kubernetes.io/listen-ports','alb.ingress.kubernetes.io/scheme')), 'Shared settings belong to baseline anchor.'
+        assert not any(key in notes for key in ('alb.ingress.kubernetes.io/certificate-arn','alb.ingress.kubernetes.io/scheme')), 'Shared settings belong to baseline anchor.'
+        # listen-ports is per Ingress in LBC; it must match the anchor or HTTPS gets no rule.
+        assert json.loads(notes['alb.ingress.kubernetes.io/listen-ports'])==[{'HTTP':80},{'HTTPS':443}]
         service=next(d for d in docs if d['kind']=='Service' and d['metadata']['name']=='iris-platform-api')['spec']
         assert service['type']=='ClusterIP' and service['ports']==[{'name':'http','port':8000,'targetPort':'http'}]
         policies={d['metadata']['name']:d['spec'] for d in docs if d['kind']=='NetworkPolicy'}

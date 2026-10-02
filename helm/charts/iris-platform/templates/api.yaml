@@ -22,6 +22,9 @@ metadata:
   annotations:
     alb.ingress.kubernetes.io/group.name: iris-platform-external
     alb.ingress.kubernetes.io/target-type: ip
+    # listen-ports is per Ingress (not inherited from the group anchor); without it LBC only
+    # adds rules to HTTP:80, which the anchor redirects, so HTTPS never routes to the API.
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
     alb.ingress.kubernetes.io/healthcheck-protocol: HTTP
     alb.ingress.kubernetes.io/healthcheck-port: traffic-port
     alb.ingress.kubernetes.io/healthcheck-path: /readyz

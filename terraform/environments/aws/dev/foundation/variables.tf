@@ -115,7 +115,7 @@ variable "platform_db_password_version" {
   description = "Increase to rotate the platform DB password (RDS and Secrets Manager together)."
   type        = number
   # 2: resynced after a console reset on 2026-10-02 left RDS and Secrets Manager apart.
-  default     = 2
+  default = 2
 }
 
 variable "platform_db_backup_retention_days" {
