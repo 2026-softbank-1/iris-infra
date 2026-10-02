@@ -130,6 +130,9 @@ def check_platform(directory, targets, bootstrap):
         assert rds['podSelector']['matchLabels']['iris.dev/database-client']=='true' and rds['egress'][0]['ports']==[{'protocol':'TCP','port':5432}]
         assert [e['ipBlock']['cidr'] for e in rds['egress'][0]['to']]==values['network']['rdsSubnetCidrs']
         assert argo['egress'][0]['ports']==[{'protocol':'TCP','port':8080}]
+        obs=policies['iris-platform-api-observability']
+        assert obs['podSelector']['matchLabels']['app.kubernetes.io/component']=='api'
+        assert [(r['to'][0]['podSelector']['matchLabels']['app.kubernetes.io/name'],r['ports']) for r in obs['egress']]==[('loki',[{'protocol':'TCP','port':3100}]),('prometheus',[{'protocol':'TCP','port':9090}])], 'API reads only Loki and Prometheus in observability.'
         server=next(d for d in bootstrap if d['kind']=='Deployment' and d['metadata']['name']=='argocd-server')
         assert 8080 in [p['containerPort'] for p in server['spec']['template']['spec']['containers'][0]['ports']]
         assert argo['egress'][0]['to'][0]['podSelector']['matchLabels']['app.kubernetes.io/name']==server['spec']['template']['metadata']['labels']['app.kubernetes.io/name']
