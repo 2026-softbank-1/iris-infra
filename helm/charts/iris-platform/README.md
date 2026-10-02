@@ -4,13 +4,15 @@ Management EKS의 `iris-platform` namespace에 Iris 플랫폼을 배포하는 Ch
 
 | 구성 요소 | 이미지 / 실행 | 네트워크·자격증명 |
 | --- | --- | --- |
-| API | WAS digest, `uvicorn app.main:app --host 0.0.0.0 --port 8000` | ALB → ClusterIP 8000, runtime DB Secret |
-| Build Worker | 같은 WAS digest, `python -m app.workers.build_worker` | `build-worker` Pod Identity, runtime DB·Build GitHub App |
-| Deploy Worker | 같은 WAS digest, `python -m app.workers.deploy_worker` | `deploy-worker` Pod Identity, runtime DB·별도 GitOps App·Argo reader token |
-| Migration | 같은 WAS digest, `alembic upgrade head` | 별도 DDL DB Secret, Worker AWS 권한 없음 |
-| Error Check Agent | 선택 image digest, `python -m ai_error_check_agent.api --host 0.0.0.0 --port 8001` | 내부 ClusterIP 8001, LLM·Agent API key |
+| API | `api.digest`, `uvicorn app.main:app --host 0.0.0.0 --port 8000` | ALB → ClusterIP 8000, runtime DB Secret |
+| Build Worker | `buildWorker.digest`, `python -m app.workers.build_worker` | `build-worker` Pod Identity, runtime DB·Build GitHub App |
+| Deploy Worker | `deployWorker.digest`, `python -m app.workers.deploy_worker` | `deploy-worker` Pod Identity, runtime DB·별도 GitOps App·Argo reader token |
+| Migration | `api.digest`, `alembic upgrade head` | 별도 DDL DB Secret, Worker AWS 권한 없음 |
+| Error Check Agent | `errorAgent.image.digest`, `python -m ai_error_check_agent.api --host 0.0.0.0 --port 8001` | 내부 ClusterIP 8001, LLM·Agent API key |
 
 API와 Worker는 최초 replica 1입니다. Worker에는 존재하지 않는 HTTP health probe를 넣지 않습니다. Build Worker 종료 유예는 최소 120초입니다. Error Agent는 기본 비활성화입니다. Code Analyzer는 운영 서버·이미지 준비 후 별도로 설계합니다.
+
+**버전(digest)은 이 저장소에 두지 않습니다.** 각 서비스 레포의 수동 배포 workflow가 `iris-gitops-environments/platform/aws-dev-management/<repo>.yaml`에 컴포넌트별 digest만 커밋하고(`was.yaml`: `api`·`buildWorker`·`deployWorker`, `error-check-agent.yaml`: `errorAgent.image`), Argo CD Application `iris-platform`이 이 저장소의 values와 병합해 자동 sync합니다. digest가 없는 컴포넌트는 렌더링하지 않으므로 컴포넌트를 따로 배포할 수 있습니다. Error Agent는 `enabled`와 digest가 모두 있어야 배포됩니다.
 
 ## values
 
@@ -18,7 +20,7 @@ API와 Worker는 최초 replica 1입니다. Worker에는 존재하지 않는 HTT
 
 | 설정 | 필요한 값 |
 | --- | --- |
-| `was.image` | `…amazonaws.com/iris/was` repository, 실제 `sha256:<64 hex>` digest |
+| `was.image.repository` | `…amazonaws.com/iris/was` (digest는 GitOps 파일의 컴포넌트별 `digest`) |
 | `api.host` | 운영자가 선택한 API FQDN; management 앵커 인증서 SAN과 일치 |
 | `database.runtimeSecret`, `migrationSecret` | 서로 다른 기존 Secret 이름, 공통 `urlKey`(기본 `DATABASE_URL`) |
 | `database.caConfigMap`, `caKey` | RDS CA bundle을 보관한 기존 ConfigMap과 데이터 키 |
@@ -31,7 +33,7 @@ API와 Worker는 최초 replica 1입니다. Worker에는 존재하지 않는 HTT
 | `deployWorker.caConfigMap`, `caKey` | Argo 내부 CA와 GitHub 등 공개 HTTPS CA를 포함한 완전한 bundle |
 | `network.albSubnetCidrs` | management ALB가 위치한 public subnet CIDR 목록 |
 | `network.rdsSubnetCidrs` | RDS subnet CIDR 목록; failover 가능한 모든 subnet 포함 |
-| `errorAgent.enabled`, `image`, `secret`, `model` | Agent 활성화 때 실제 image digest·아래 두 Secret 키·LLM 모델 |
+| `errorAgent.enabled`, `image.repository`, `secret`, `model` | Agent 활성화 여부·ECR 저장소·아래 두 Secret 키·LLM 모델 (digest는 `error-check-agent.yaml`) |
 
 모든 Secret·CA ConfigMap은 `iris-platform`에 별도 준비합니다.
 
@@ -52,7 +54,7 @@ DB URL은 `postgresql+asyncpg://<user>:<encoded-password>@<rds-endpoint>:5432/<d
 
 API·Worker·Job은 `PGSSLMODE=verify-full`, `PGSSLROOTCERT=/etc/iris-rds/ca-bundle.pem`을 사용합니다. 동일 WAS digest의 initContainer가 URL 형식·TLS query 충돌·CA 파싱을 검사하고, 오류에는 URL·비밀번호를 출력하지 않습니다. 이 검사는 실제 DB 연결이나 사용자 권한을 검증하지 않습니다. RDS endpoint hostname을 사용하고 runtime role에는 필요한 테이블 DML 권한만, migration role에는 Alembic DDL과 테이블 소유권을 준비합니다. 새 테이블에 runtime role 권한이 부여되도록 default privileges도 관리합니다.
 
-Argo의 **전체 sync**는 준비 리소스(wave -2) → migration `Sync` hook(wave -1) → Deployment(wave 0) 순서입니다. Job은 timeout/backoff가 있고 성공하면 삭제하며 실패하면 남깁니다. 재시도 시 이전 Job을 교체합니다. 선택적 resource sync는 hook을 건너뛰므로 release에 사용하지 않습니다. Helm 단독 install에는 Argo wave/hook 순서가 적용되지 않으므로 운영 배포 경로는 Argo 전체 sync입니다.
+GitOps digest 커밋이 들어오면 Argo가 **자동 sync**합니다: 준비 리소스(wave -2) → migration `Sync` hook(wave -1, `api.digest`가 있을 때) → Deployment(wave 0). migration은 첫 설치에서도 chart가 만든 RDS egress NetworkPolicy가 있어야 하므로 PreSync가 아니라 wave -1 Sync hook입니다. Job은 timeout/backoff가 있고 성공하면 삭제하며 실패하면 남깁니다. 재시도 시 이전 Job을 교체합니다. 선택적 resource sync는 hook을 건너뛰므로 release에 사용하지 않습니다.
 
 ## Ingress·CA·회전
 

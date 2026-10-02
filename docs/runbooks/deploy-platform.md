@@ -1,13 +1,13 @@
 # Iris 플랫폼 배포
 
-`helm/charts/iris-platform`은 management EKS의 API·Build Worker·Deploy Worker와 선택적 Error Check Agent를 구현합니다. DB는 외부 RDS PostgreSQL입니다. 사용자 서비스는 별도 workload EKS에 배포되며 `iris-gitops-environments`에는 사용자 서비스별 values만 둡니다. 플랫폼 Chart와 플랫폼 values는 이 인프라 저장소에 둡니다.
+`helm/charts/iris-platform`은 management EKS의 API·Build Worker·Deploy Worker와 선택적 Error Check Agent를 구현합니다. DB는 외부 RDS PostgreSQL입니다. 사용자 서비스는 별도 workload EKS에 배포됩니다. 플랫폼 Chart와 실행 방식 values는 이 인프라 저장소에, 컴포넌트별 이미지 digest는 `iris-gitops-environments/platform/aws-dev-management/<repo>.yaml`에 둡니다.
 
 현재 코드 검증은 Helm lint/render, backend 없는 Terraform validate, 격리 mock test입니다. 실제 이미지 pull·RDS 연결·migration·Worker·인터넷 HTTPS 동작은 아래 운영 검증 전까지 확인된 것이 아닙니다. WAS의 조사한 커밋은 `/healthz`, `/readyz`만 제공하므로 이 Chart가 업무 API나 Agent 연동을 구현하지는 않습니다.
 
 ## 배포 전 입력과 선행 조건
 
 1. [EKS 운영 경로](eks-access.md)로 management/workload, baseline, LBC, metrics, 관측 스택과 Argo를 먼저 준비합니다. `iris-platform` Namespace·Quota·기본 NetworkPolicy와 management ALB 앵커가 있어야 합니다.
-2. WAS 이미지를 `iris/was` ECR에 게시하고 실행할 digest를 선택합니다. API·두 Worker·migration은 같은 digest입니다. WAS 이미지의 실행 UID는 1001입니다. Error Agent 소스에는 아직 루트 Dockerfile이 없으므로 별도 저장소에서 dependencies·모듈·numeric non-root USER를 포함한 이미지를 준비한 뒤 활성화합니다. Code Analyzer는 후속 작업입니다.
+2. 이미지는 각 서비스 레포의 수동 배포 workflow가 ECR에 게시하고 digest를 GitOps 파일에 커밋합니다(iris-was: API·Build Worker·Deploy Worker를 골라서, migration은 API digest). WAS 이미지의 실행 UID는 1001입니다. Error Agent 소스에는 아직 루트 Dockerfile이 없으므로 별도 저장소에서 dependencies·모듈·numeric non-root USER를 포함한 이미지를 준비한 뒤 활성화합니다. Code Analyzer는 후속 작업입니다.
 3. RDS PostgreSQL endpoint·database·runtime DML 계정·별도 migration DDL 계정, DB subnet CIDR와 SG 5432 접근을 준비합니다. RDS 생성·SG 변경은 이 Chart에 포함되지 않습니다. Alembic의 schema 소유권과 새 테이블 DML/default privileges를 준비합니다.
 4. API hostname을 선택하고 management ALB로 DNS를 연결합니다. `api.host`는 기존 baseline 앵커 ACM 인증서의 SAN과 맞아야 합니다. 새 도메인·새 인증서가 필요하면 DNS/ACM 작업을 따로 계획합니다. `deployWorker.baseDomain`은 사용자 서비스 wildcard 도메인입니다.
 5. Build GitHub App과 **별도 Deploy GitHub App**의 ID·PEM·installation을 준비합니다. Deploy App은 `iris-gitops-environments`에 Contents read/write 권한이 있어야 합니다. 해당 저장소 main 보호는 force push·삭제를 금지하고 직접 커밋을 허용해야 합니다. PR 필수가 켜졌다면 승인된 GitHub App bypass 설정을 확인합니다.
@@ -25,7 +25,7 @@ Terraform 코드에는 foundation의 `deploy_worker_role_arn`과 management `iri
 
 ## 비밀값 없는 values와 정적 검사
 
-`clusters/aws-dev-management/values/platform.yaml`의 빈 image digest·hostname·Secret/CA 이름·CodeBuild/S3·Argo URL·CIDR를 실제 값으로 채웁니다. 기본 `errorAgent.enabled=false`를 유지하고 이미지와 keys/model이 준비됐을 때만 켭니다. 가짜 `ci/*` 값은 운영에 쓰지 않습니다.
+`clusters/aws-dev-management/values/platform.yaml`에 ECR 저장소·hostname·Secret/CA 이름·CodeBuild/S3·Argo URL·CIDR가 채워져 있습니다. digest는 이 파일에 넣지 않습니다. 기본 `errorAgent.enabled=false`를 유지하고 이미지와 keys/model이 준비됐을 때만 켭니다. 가짜 `ci/*` 값은 운영에 쓰지 않습니다.
 
 ```sh
 make scaffold-check
@@ -53,18 +53,17 @@ helm template iris-platform helm/charts/iris-platform \
 
 1. 채운 values와 구현을 검토·병합한 immutable SHA를 준비하고 깨끗한 checkout에서 기존 bootstrap 필수 환경변수/credential/target 조건을 충족합니다.
 2. `GITOPS_PLATFORM_ENABLED=1`로 bootstrap합니다. 이 플래그는 정확히 `0` 또는 `1`이며 기본은 `0`입니다. 활성화 시 platform Chart를 cluster values로 strict lint/render하고 두 target 선행 검사를 통과한 뒤 첫 클러스터 변경을 수행합니다.
-3. root `iris-addons`는 Synced, 기존 8개 addon은 Synced/Healthy, 새 `iris-platform` Application은 존재하는 상태까지 기다립니다. 플랫폼은 수동 Application이므로 아직 미배포 상태에서 root health가 Progressing일 수 있습니다. bootstrap은 platform Healthy를 주장하거나 기다리지 않습니다.
-4. `iris-platform` 전체 sync를 실행합니다. 처음에는 자동 sync·자동 prune을 켜지 않습니다. 실패한 hook을 선택적 sync로 우회하지 않습니다.
+3. root `iris-addons`는 Synced, 기존 8개 addon은 Synced/Healthy, 새 `iris-platform` Application은 존재하는 상태까지 기다립니다. bootstrap은 platform Healthy를 주장하거나 기다리지 않습니다. GitOps digest가 없으면 SA·ConfigMap·NetworkPolicy만 생깁니다.
+4. 서비스 레포의 **Deploy platform** workflow를 실행합니다(iris-was는 API부터). digest 커밋을 Argo가 감지(약 3분)해 자동 sync합니다. 실패한 hook을 선택적 sync로 우회하지 않습니다.
 
 ```sh
 # 기존 bootstrap 필수 환경변수는 eks-access runbook 참조
 GITOPS_PLATFORM_ENABLED=1 make bootstrap CLUSTER=aws-dev-management
-# 인증·대상 확인 후 management Argo CD에 대해 실행
-argocd app sync iris-platform
-argocd app wait iris-platform --sync --health --timeout 900
+# 이후 배포는 iris-was Actions "Deploy platform" (main, 수동 실행)
+argocd app wait iris-platform --sync --health --timeout 900   # 확인용
 ```
 
-준비 SA·ConfigMap·NetworkPolicy는 wave -2, migration Sync hook은 wave -1, Deployment는 wave 0입니다. 성공한 migration Job은 삭제되며 실패한 Job은 남깁니다. 다음 전체 sync는 실패한 Job을 교체하여 다시 실행합니다. 이 순서는 Argo 전체 sync에 해당하며 단독 Helm install은 같은 실행 순서를 제공하지 않습니다.
+준비 SA·ConfigMap·NetworkPolicy는 wave -2, migration Sync hook은 wave -1, Deployment는 wave 0입니다. 성공한 migration Job은 삭제되며 실패한 Job은 남깁니다. 다음 sync(재시도 또는 다음 digest 커밋)는 실패한 Job을 교체하여 다시 실행합니다. 단독 Helm install은 같은 실행 순서를 제공하지 않습니다.
 
 ## 실제 배포 확인
 
@@ -77,8 +76,30 @@ argocd app wait iris-platform --sync --health --timeout 900
 
 현재 서비스 삭제 경로는 구현되지 않았습니다. ApplicationSet `create-update`는 디렉터리 제거만으로 Application을 지우지 않도록 유지합니다. ApplicationSet 자체 삭제/철거는 별도 절차이며 이 보호와 같지 않습니다.
 
+## RDS 접근과 비밀번호
+
+RDS(`iris-dev-platform`, foundation `database.tf`)는 management 노드와 SSM bridge에서만 5432로 접근합니다. 접속 정보는 Secrets Manager `iris-dev-platform-db`(username·password·host·port·dbname)에 있고 비밀번호는 Terraform state에 없습니다. DB 계정 분리(runtime DML, migration DDL)는 이 master 계정으로 bridge를 통해 한 번 준비합니다.
+
+```bash
+F=terraform/environments/aws/dev/foundation
+aws ssm start-session --target "$(terraform -chdir=$F output -raw ssm_bridge_instance_id)" \
+  --document-name AWS-StartPortForwardingSessionToRemoteHost \
+  --parameters "host=$(terraform -chdir=$F output -raw platform_db_endpoint),portNumber=5432,localPortNumber=15432"
+psql "host=127.0.0.1 port=15432 dbname=iris user=iris sslmode=require"   # 다른 터미널
+```
+
+자동 교체는 없습니다. master 비밀번호는 foundation 변수 `platform_db_password_version`을 올려 apply하면 RDS와 Secrets Manager가 함께 바뀝니다.
+
+## 다른 레포의 플랫폼 서비스 추가
+
+레포마다 자기 digest 파일(`platform/aws-dev-management/<repo>.yaml`)만 씁니다.
+
+1. iris-infra PR: Chart에 컴포넌트(고정 필드·템플릿·schema)를 추가하고 `clusters/aws-dev-management/values/platform.yaml`에 실행 방식을, `terraform/config/platform-ecr-repositories.json`에 레포를 둡니다(ECR과 Argo valueFiles 목록의 원본). merge 후 bootstrap.
+2. account: `github_ecr_publishers.<repo>`에 그 레포 OIDC subject로 ECR publisher 역할을 추가합니다(관리자 apply).
+3. 그 레포에 iris-was의 `.github/workflows/deploy-platform.yml`·`scripts/build-push-ecr.sh`를 복사해 ECR 저장소·역할·`VALUES_FILE`·컴포넌트 키만 바꾸고 secret `GITOPS_APP_PRIVATE_KEY`를 넣습니다.
+
 ## 실패·롤백·Secret/CA 회전
 
-migration 실패 시 Job 상태·비밀값 없는 로그를 확인하고 DB 접속·CA·권한을 수정한 뒤 전체 sync를 재시도합니다. Chart는 DB downgrade를 자동 실행하지 않습니다. 배포 전에 RDS 백업과 스키마 호환성을 확인합니다. 되돌리기는 root Application을 이전 검토 SHA로 맞추고 이전 플랫폼 values/image를 전체 sync합니다. 현재 schema와 이전 코드가 호환되는지 먼저 확인해야 하며, 이전 migration도 `upgrade head`를 실행한다는 점을 고려합니다. 이전 이미지에 현재 DB revision 파일이 없으면 migration이 실패하므로 백업 복구 또는 호환 release 계획 없이 이전 SHA를 sync하지 않습니다. Secret·CA는 Git revision에 포함되지 않아 별도 복구/회전이 필요합니다.
+migration 실패 시 Job 상태·비밀값 없는 로그를 확인하고 DB 접속·CA·권한을 수정한 뒤 전체 sync를 재시도합니다. Chart는 DB downgrade를 자동 실행하지 않습니다. 배포 전에 RDS 백업과 스키마 호환성을 확인합니다. 이미지 되돌리기는 `iris-gitops-environments`의 해당 digest 커밋을 revert하는 커밋입니다. 실행 방식 values를 되돌릴 때만 root Application을 이전 검토 SHA로 bootstrap합니다. 현재 schema와 이전 코드가 호환되는지 먼저 확인해야 하며, 이전 migration도 `upgrade head`를 실행한다는 점을 고려합니다. 이전 이미지에 현재 DB revision 파일이 없으면 migration이 실패하므로 백업 복구 또는 호환 release 계획 없이 이전 SHA를 sync하지 않습니다. Secret·CA는 Git revision에 포함되지 않아 별도 복구/회전이 필요합니다.
 
-Secret 환경변수는 Pod 생성 시 읽으므로 교체 후 해당 Deployment를 재시작합니다. CA ConfigMap volume은 갱신되지만 이미 초기화된 client/DB pool이 새 CA를 읽지 않을 수 있으므로 CA 회전 뒤에도 관련 Pod를 재시작합니다. 중간에 실패한 migration은 원인 해결 후 전체 sync로 재실행합니다. `platform.enabled=false`는 기존 Application/워크로드의 안전한 철거 명령이 아니며 별도 삭제 승인을 대신하지 않습니다.
+Secret 환경변수는 Pod 생성 시 읽으므로 교체 후 해당 Deployment를 재시작합니다. CA ConfigMap volume은 갱신되지만 이미 초기화된 client/DB pool이 새 CA를 읽지 않을 수 있으므로 CA 회전 뒤에도 관련 Pod를 재시작합니다. 중간에 실패한 migration은 원인 해결 후 sync를 재시도합니다. `platform.enabled=false`는 기존 Application/워크로드의 안전한 철거 명령이 아니며 별도 삭제 승인을 대신하지 않습니다.

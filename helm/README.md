@@ -12,6 +12,6 @@ GitOps source는 private iris-infra의 immutable SHA만 허용합니다. credent
 
 `iris-service` 검증은 chart의 `ci/aws-values.yaml`, `ci/local-values.yaml`을 사용합니다. 이전 `examples/*-service-values.yaml`/`service-defaults.yaml`의 초안 필드는 새 계약과 맞지 않습니다. [ADR 0002](../docs/decisions/0002-gitops-deployment.md)와 [deployment 계약](../contracts/deployment.md)을 참고합니다.
 
-`gitops.platform.enabled`는 기본 false입니다. `GITOPS_PLATFORM_ENABLED=1` bootstrap은 운영 values lint/render를 먼저 검사하고 management에 수동 `iris-platform` Application을 생성합니다. API·Worker·migration은 같은 WAS digest를 사용하며 DB migration Sync hook 이후 workload를 적용합니다. 아직 이미지가 없거나 Secret/CA/hostname/CIDR가 준비되지 않았다면 활성화하지 않습니다. [플랫폼 Chart](charts/iris-platform/README.md), [배포 runbook](../docs/runbooks/deploy-platform.md)을 참고합니다.
+`gitops.platform.enabled`는 기본 false입니다. `GITOPS_PLATFORM_ENABLED=1` bootstrap은 운영 values lint/render를 먼저 검사하고 management에 자동 sync `iris-platform` Application을 생성합니다. 컴포넌트별 digest는 `iris-gitops-environments/platform/aws-dev-management/<repo>.yaml`(서비스 레포 workflow가 커밋)에서 읽고, digest가 없는 컴포넌트는 배포하지 않습니다. DB migration Sync hook 이후 workload를 적용합니다. 아직 이미지가 없거나 Secret/CA/hostname/CIDR가 준비되지 않았다면 활성화하지 않습니다. [플랫폼 Chart](charts/iris-platform/README.md), [배포 runbook](../docs/runbooks/deploy-platform.md)을 참고합니다.
 
-플랫폼 Chart·values는 이 저장소에 유지합니다. 별도 GitOps 저장소는 사용자 서비스의 desired state만 담으며 Deploy Worker 쓰기 GitHub App과 Argo 읽기 credential을 분리합니다. 코드 정의와 실제 클러스터 적용 상태는 별도로 확인합니다.
+플랫폼 Chart와 실행 방식 values는 이 저장소에 유지합니다. 별도 GitOps 저장소는 사용자 서비스 values(`services/`)와 플랫폼 digest(`platform/`)를 담으며 Deploy Worker 쓰기 GitHub App과 Argo 읽기 credential을 분리합니다. 코드 정의와 실제 클러스터 적용 상태는 별도로 확인합니다.
