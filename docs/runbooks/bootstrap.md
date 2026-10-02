@@ -1,16 +1,16 @@
-# bootstrap
+# 계정·state와 최초 배포
 
-1. AWS 로그인 방식을 준비하고 `aws sts get-caller-identity`로 계정 ID를 확인합니다.
-2. 각 root의 `.example` 설정을 로컬 파일로 복사하고 실제 계정·리전·버킷명으로 바꿉니다.
-3. 구현된 bootstrap S3 구성과 버킷명을 확인합니다. 버킷명은 `<project>-tfstate-<aws_account_id>-<aws_region>`이며 backend.hcl에도 같은 이름을 입력합니다.
-4. bootstrap은 backend.tf의 S3 선언을 주석 상태로 두고 로컬 init/plan/apply합니다. 최초 계획은 버킷·versioning·암호화·public access block 4개 생성입니다. prevent_destroy를 적용하고 force_destroy는 false로 유지합니다.
-5. 버킷 생성 후 bootstrap의 S3 선언을 활성화하고 `terraform init -migrate-state -backend-config=backend.hcl`로 state를 이전합니다. 로컬 state를 Git에 올리지 않습니다.
-6. account의 GitHub OIDC 역할과 foundation 빌드·네트워크 배포 권한을 관리자가 적용하고 [CI runbook](terraform-ci.md)에 따라 main 자동 apply를 연결합니다. 기존 IAM은 import합니다. CI는 bootstrap 다음에 foundation 빌드·네트워크를 적용합니다. 기존 foundation state가 있다면 CI와 같은 key로 먼저 이전합니다. 적용 전 [네트워크 입력과 출력 계약](../../terraform/environments/aws/dev/foundation/README.md), 기존 VPC/VPN과 CIDR 중복, AZ 가용성을 확인합니다. 팀 IAM·공통 배포 역할과 EKS는 후속 구현합니다.
-7. management와 workload는 리소스·입력·IAM을 준비하고 `.scaffold`를 제거한 후 실행합니다. CI에서는 foundation 다음에 순서대로 적용합니다. foundation만 참조하고 서로의 state는 참조하지 않습니다.
-8. EKS kubeconfig를 생성하며 clusters의 kubeContext 별칭을 지정합니다. 계정·context를 재확인합니다.
-9. baseline·외부 addon을 구현한 뒤 `make bootstrap CLUSTER=...`를 사용합니다.
-10. IAM/RBAC·스토리지·Ingress·image pull을 확인합니다.
+기존 bootstrap/account/foundation state를 먼저 확인합니다. 현재 코드가 구현된 것은 실제 적용 성공을 뜻하지 않습니다. account 관리자 작업·main merge·Helm/Kubernetes 배포는 각 실행 시 운영자가 승인한 범위로 진행합니다.
 
-현재 state용 S3 버킷, GitHub CI OIDC 역할·네트워크 CI 권한, foundation의 공유 VPC 네트워크와 CodeBuild·빌드 입력 S3·로그·빌드 역할을 구현했습니다. 팀 IAM·EKS 자원과 클러스터 bootstrap은 미구현입니다.
-S3 state 파일에는 Get/Put, `.tflock`에는 Get/Put/Delete 권한이 필요하며 CI plan 역할에도 잠금 권한을 부여합니다.
-공식 [S3 backend 문서](https://developer.hashicorp.com/terraform/language/backend/s3)를 참고합니다.
+1. `aws sts get-caller-identity`로 실제 계정과 운영자 IAM principal을 확인합니다. Free 계정 EKS 서비스 허용/크레딧/만료/quota를 확인하고 Paid 전환은 자동으로 하지 않습니다.
+2. 각 root의 `.example`을 로컬 backend.hcl/tfvars로 복사하고 실제 계정·리전·버킷을 맞춥니다. 실제 설정/state/plan/credentials는 Git에 넣지 않습니다.
+3. state 버킷이 없을 때만 최초 bootstrap을 로컬 backend로 plan/apply한 후 기존 S3 선언과 `init -migrate-state`를 사용합니다. 버킷은 versioning/encryption/public block/prevent_destroy/force_destroy=false를 유지합니다. 이미 존재하면 생성 과정을 반복하지 않습니다.
+4. 기존 foundation state가 `aws/dev/foundation/terraform.tfstate`에 있는지 확인합니다. 다른 위치의 state는 백업·내용·주소 확인 후 이전하고 외부 생성 자원은 검토하여 import합니다.
+5. 관리자 account plan/apply로 기존 OIDC/build/ECR/network와 새 EKS/runtime IAM/compute/bridge 권한, CI session7200을 선적용합니다. [CI runbook](terraform-ci.md)의 variables/subject/input을 준비합니다.
+6. CIDR/AZ/기존 자원 보존 plan과 비용·철거 시각을 검토하고 **사용자가 main merge**합니다. CI가 bootstrap→foundation→management→workload를 자동 apply합니다. 두 EKS는 foundation만 읽습니다.
+7. [private API runbook](eks-access.md)으로 output export·두 SSM 터널·TLS/RBAC/node/CNI를 확인합니다.
+8. 운영자가 local Helm/kubectl/plugin과 read-only private Git credential, 검토 완료 main SHA를 준비하여 `make bootstrap CLUSTER=aws-dev-management`를 실행합니다. Argo 설치와 root/8addon sync가 완료되어야 합니다.
+9. 두 target의 읽기 전용 smoke를 실행합니다. 쓰기/PodIdentity/NetworkPolicy/PVC/기존 ECR digest/노드 drain은 명시한 opt-in exercise로 추가 확인합니다.
+10. 실제 iris-platform/사용자 앱/DB/Ingress는 후속 구현입니다. 관측 singleton EBS는 HA가 아니며 [철거](teardown.md)를 별도로 수행합니다.
+
+S3 state에는 Get/Put, `.tflock`에는 Get/Put/Delete가 필요합니다. account는 CI 대상이 아니며 전체 state 읽기를 서비스·GitOps에 주지 않습니다. [S3 backend](https://developer.hashicorp.com/terraform/language/backend/s3)를 참고합니다.

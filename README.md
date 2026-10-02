@@ -1,97 +1,54 @@
 # iris-infra
 
-Iris 플랫폼의 AWS 자원, Kubernetes 공통 설정, Helm 차트와 운영 절차를 관리하는 저장소입니다.
-서비스 소스와 API / Worker의 배포 오케스트레이션은 각 서비스·백엔드 저장소에서 관리합니다.
+Iris의 AWS 인프라, Kubernetes 공통 설정, Helm/GitOps와 운영 절차를 관리합니다. API/Worker의 배포 오케스트레이션과 서비스 소스는 각 서비스 저장소가 관리합니다.
 
-현재는 **bootstrap S3 버킷·GitHub CI 인증·foundation 빌드 자원·공유 VPC 네트워크·플랫폼 ECR 구현**이 준비되어 있습니다.
-`terraform/bootstrap/aws`는 state 버킷·versioning·암호화·public access block을 관리합니다.
-`terraform/account/aws`는 GitHub OIDC와 bootstrap 자동 배포 역할을 관리합니다.
-foundation은 VPC·서브넷·IGW·NAT·라우팅·관리→앱 API 접근용 SG를 정의하며, 네트워크 CI 권한은 account에서 관리자가 먼저 적용합니다.
-플랫폼 이미지 3개의 ECR과 서비스별 OIDC publisher 입력, [복사용 GitHub Actions 빌드 템플릿](examples/github-actions/README.md)을 제공합니다. 플랫폼 ECR의 CI 관리 권한도 account에서 먼저 적용합니다.
-`helm/charts/iris-service`는 사용자 앱 chart로 구현했습니다(배포는 GitOps, [ADR 0002](docs/decisions/0002-gitops-deployment.md)).
-EKS, 팀 IAM과 운영 스크립트의 실제 배포 동작은 아직 구현하지 않았습니다.
-`.scaffold`가 있는 Terraform stack은 팀 명령에서 plan/apply를 차단합니다.
-구현·검증 후 해당 표시를 제거하고 아래 순서로 진행합니다.
+공유 VPC·빌드 자원·플랫폼 ECR에 더해 **private 관리/앱 EKS, SSM API 접근, Argo CD와 두 클러스터의 관측 스택**을 코드로 구현했습니다. 실제 AWS/Kubernetes 적용 성공은 별도 배포 후 확인해야 합니다. `iris-service` chart는 최신 main에서 구현됐으며 사용자 앱은 GitOps로 배포합니다. `iris-platform`과 로컬 k3d는 계속 scaffold입니다.
 
-## 구성
+| 위치 | 책임 |
+| --- | --- |
+| `terraform/bootstrap/aws` | 보호된 S3 state 버킷 |
+| `terraform/account/aws` | 관리자 선적용 GitHub OIDC/CI IAM |
+| `terraform/environments/aws/dev/foundation` | 공유 VPC·AZ별 NAT·SSM bridge·Argo IAM·기존 CodeBuild/ECR |
+| `terraform/environments/aws/dev/management` | 관리 EKS·노드·Argo/Build Worker Pod Identity |
+| `terraform/environments/aws/dev/workload` | 앱 EKS·노드·운영자/Argo Access Entry |
+| `terraform/modules/eks` | EKS 1.35·AZ별 MNG·managed addon·SG·IAM |
+| `helm/bootstrap` | 관리 EKS Argo CD Helm 설치 |
+| `helm/gitops` | 두 EKS의 baseline/LBC/metrics/monitoring Applications |
+| `helm/charts`, `clusters` | baseline·iris-service chart 및 target별 values |
+| `scripts`, `contracts`, `docs/runbooks` | 검증·API 접근·연동 계약·운영 |
 
-```text
-terraform/
-  bootstrap/aws/                    # Terraform state S3
-  account/aws/                      # 계정 IAM, GitHub OIDC / CI 역할
-  environments/aws/dev/
-    foundation/                     # VPC, ECR, 공통 workload IAM
-    management/                     # 관리 EKS, Pod Identity
-    workload/                       # 앱 EKS, Argo CD Access Entry
-  modules/eks/                      # 두 EKS의 재사용 구성
-helm/charts/
-  cluster-baseline/                  # Namespace, RBAC, Quota
-  iris-platform/                     # API, Worker, Agent, 플랫폼 PostgreSQL
-  iris-service/                      # 공통 앱 Deployment, Service, Ingress
-clusters/
-  aws-dev-management/
-  aws-dev-workload/
-  local-workload/
-local/                              # k3d, 이미지 import, 로컬 접속
-contracts/                          # 백엔드·CLI 연동 규격 초안
-examples/                           # AWS·로컬 values와 BuildKit 샘플 위치
-scripts/                            # 검증과 팀 명령
-docs/                              # 아키텍처, 결정 기록, runbook
-.github/workflows/                  # PR 검증, main bootstrap 자동 apply
-```
+사용자 앱은 Deploy Worker가 `gitops-environments`에 values를 커밋하고 Argo ApplicationSet이 `iris-service`의 고정 Git tag를 사용해 배포합니다([ADR 0002](docs/decisions/0002-gitops-deployment.md)). 이번 EKS bootstrap은 공통 addon까지 설치하며 사용자 앱 ApplicationSet 연결은 후속 범위입니다.
 
-## 도구
+각 클러스터는 서울 2a/2c에 m7i-flex.large On-Demand 노드 1대씩 두며 전체 4대입니다. NAT 기본값은 `per_az`입니다. API public endpoint와 기본 외부 ALB/Ingress는 만들지 않습니다. Argo/Grafana는 SSM 터널을 거쳐 로컬에서 접근합니다.
 
-- Terraform: `.terraform-version`의 **1.16.4** (root의 최소 조건은 1.10).
-- AWS provider: 6.x. 첫 init 후 각 root의 `.terraform.lock.hcl`을 commit하여 정확한 버전을 고정합니다.
-- Helm, AWS CLI v2, kubectl, k3d, Docker: 해당 기능 구현 시 클러스터 버전과 호환되는 버전을 확정합니다.
-- Bash, Make, Python 3: 현재 scaffold 검증과 공통 명령에 사용합니다.
+## 검증
 
-Terraform 고정 버전은 [공식 릴리스](https://releases.hashicorp.com/terraform/1.16.4/)를 기준으로 했습니다.
-
-## 시작
+Terraform **1.16.4**, 기존 AWS provider **6.67.0** lock, Helm **3.19.1**, Python 3 + `PyYAML==6.0.3`을 사용합니다. 운영에는 kubectl **1.35**, AWS CLI v2와 Session Manager plugin도 직접 준비합니다.
 
 ```bash
-make help
 make scaffold-check
-make tf-fmt-check
-# 지정 Terraform 버전과 provider 다운로드가 가능할 때:
 make tf-check
-# Helm 설치 후: 현재는 빈 차트의 기본 형식만 검증합니다.
+make tf-test
+python3 scripts/tests/test-tf-ci.py
+python3 scripts/tests/test-eks-ops.py
 make helm-check
 ```
 
-AWS 계정 ID, state 버킷, 리전, EKS·노드 설정, 이미지와 도메인을 팀 값으로 확정합니다.
-`terraform.tfvars.example`과 `backend.hcl.example`을 각 stack에서 복사하여 로컬 설정을 만듭니다.
-실제 설정·state·plan·Secret은 Git에 올리지 않습니다. 예시의 `000000000000`은 실제 계정 ID로 교체합니다.
+mock/정적/렌더 검사는 AWS 배포나 IAM 충분성·실제 네트워크 연결을 증명하지 않습니다. 테스트는 실제 backend/state/tfvars 대신 임시 데이터 디렉터리와 복사본을 사용합니다. provider/chart 다운로드에는 인터넷 접근이 필요합니다.
 
-구현 순서: **bootstrap → account / foundation → management / workload → baseline·애드온 → 서비스 샘플 → 플랫폼·빌드 연동 → 로컬 CLI**. chart 는 Git tag 로 릴리스합니다(OCI 는 CLI 필요 시).
-bootstrap은 로컬 state로 S3를 만든 뒤 backend를 활성화하고 state를 이전합니다.
+## 배포
 
-```bash
-# 리소스 구현과 설정 완료 후 사용할 인터페이스
-make tf-init STACK=aws/dev/foundation
-make tf-plan STACK=aws/dev/foundation
-make tf-apply STACK=aws/dev/foundation
-make bootstrap CLUSTER=aws-dev-management
-make smoke-test TARGET=local-workload
-```
+**main merge 후 check → bootstrap → foundation → management → workload가 자동 apply됩니다.** account는 관리자가 먼저 적용하며 CI는 account를 변경하지 않습니다. 계정/기존 state·CIDR·Free EKS 사용 가능 여부·quota를 확인하고 GitHub `EKS_OPERATOR_PRINCIPAL_ARN`과 2시간 CI role session을 준비한 후 사용자가 merge합니다. 기본값 변경은 CI의 대응 `TF_VAR_*`도 맞춰야 하며 `.example`은 CI에서 읽지 않습니다.
 
-bootstrap / smoke-test / export-targets는 현재 미구현 안내와 함께 종료합니다.
-PR에서는 fmt/init/validate와 mock IAM·네트워크 테스트를 실행합니다.
-main에서는 검증 성공 후 OIDC 인증과 bootstrap → foundation 자동 apply를 실행합니다.
-최초 역할 생성과 GitHub 변수 설정은 [Terraform CI runbook](docs/runbooks/terraform-ci.md)에 있습니다.
-네트워크 입력·경로·후속 출력은 [foundation README](terraform/environments/aws/dev/foundation/README.md)에 있습니다.
-후속 EKS stack 배포 workflow는 해당 리소스 구현 후 연결합니다.
+인프라가 적용되면 [private API/기본 스택 runbook](docs/runbooks/eks-access.md)의 출력 export·두 SSM 터널·검토 SHA와 private Git credential 준비를 거쳐 `make bootstrap CLUSTER=aws-dev-management`를 실행합니다. ECR 이미지가 없어도 기본 스택은 설치하며 실제 platform digest pull은 입력이 있을 때만 검증합니다.
+
+실제 tfvars/backend/state/plan/Secret/kubeconfig는 Git에 올리지 않습니다. 기존 빌드/ECR/state를 보존하는 [철거 절차](docs/runbooks/teardown.md)를 사용하며 foundation 전체 destroy나 자동 철거는 제공하지 않습니다.
 
 ## 문서
 
-- [원본 설계안](infra-repository-design.md)
-- [아키텍처와 책임](docs/architecture.md)
-- [설계 결정](docs/decisions/README.md)
-- [계정 준비와 bootstrap](docs/runbooks/bootstrap.md)
-- [Terraform CI와 main 자동 배포](docs/runbooks/terraform-ci.md)
-- [플랫폼 배포](docs/runbooks/deploy-platform.md)
-- [문제 확인](docs/runbooks/troubleshooting.md)
-- [철거](docs/runbooks/teardown.md)
-- [배포·타겟·빌드 계약](contracts/README.md)
+- [아키텍처](docs/architecture.md), [설계 결정](docs/decisions/README.md)
+- [계정 준비](docs/runbooks/bootstrap.md), [main 자동 apply/CI](docs/runbooks/terraform-ci.md)
+- [API 접근·Argo·관측 스택](docs/runbooks/eks-access.md), [후속 플랫폼 배포](docs/runbooks/deploy-platform.md)
+- [문제 확인](docs/runbooks/troubleshooting.md), [철거](docs/runbooks/teardown.md)
+- [팀 명령](scripts/README.md), [target 계약](contracts/target.md)
+- [서비스 ECR 빌드 템플릿](examples/github-actions/README.md)

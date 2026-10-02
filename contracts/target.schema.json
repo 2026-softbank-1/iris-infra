@@ -1,0 +1,348 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Iris EKS infrastructure target v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "targets"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "targets": {
+      "type": "object",
+      "required": [
+        "aws-dev-management",
+        "aws-dev-workload"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "aws-dev-management": {
+          "type": "object",
+          "required": [
+            "id",
+            "account_id",
+            "region",
+            "name",
+            "arn",
+            "endpoint",
+            "ca_data",
+            "kube_context",
+            "vpc_id",
+            "cluster_security_group_id",
+            "api_security_group_id",
+            "node_security_group_id",
+            "management_api_source_security_group_id",
+            "workload_api_target_security_group_id",
+            "ssm_bridge_instance_id",
+            "ssm_bridge_security_group_id",
+            "operator_principal_arn",
+            "argocd_role_arn",
+            "load_balancer_controller_role_arn",
+            "api_port",
+            "subnet_ids_by_az",
+            "node_group_names_by_az",
+            "argocd_management_role_arn"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "enum": [
+                "aws-dev-management",
+                "aws-dev-workload"
+              ]
+            },
+            "account_id": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[0-9]{12}$"
+            },
+            "region": {
+              "type": "string",
+              "minLength": 1,
+              "const": "ap-northeast-2"
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1
+            },
+            "arn": {
+              "type": "string",
+              "minLength": 1
+            },
+            "endpoint": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^https://[A-Za-z0-9.-]+\\.eks\\.amazonaws\\.com$"
+            },
+            "ca_data": {
+              "type": "string",
+              "minLength": 1
+            },
+            "kube_context": {
+              "type": "string",
+              "minLength": 1
+            },
+            "vpc_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "cluster_security_group_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "api_security_group_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "node_security_group_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "management_api_source_security_group_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "workload_api_target_security_group_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "ssm_bridge_instance_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "ssm_bridge_security_group_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "operator_principal_arn": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^arn:aws:iam::[0-9]{12}:(role|user)/.+$"
+            },
+            "argocd_role_arn": {
+              "type": "string",
+              "minLength": 1
+            },
+            "load_balancer_controller_role_arn": {
+              "type": "string",
+              "minLength": 1
+            },
+            "api_port": {
+              "type": "integer",
+              "enum": [
+                10443,
+                11443
+              ]
+            },
+            "subnet_ids_by_az": {
+              "type": "object",
+              "required": [
+                "ap-northeast-2a",
+                "ap-northeast-2c"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "ap-northeast-2a": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "ap-northeast-2c": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            },
+            "node_group_names_by_az": {
+              "type": "object",
+              "required": [
+                "ap-northeast-2a",
+                "ap-northeast-2c"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "ap-northeast-2a": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "ap-northeast-2c": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            },
+            "argocd_management_role_arn": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "aws-dev-workload": {
+          "type": "object",
+          "required": [
+            "id",
+            "account_id",
+            "region",
+            "name",
+            "arn",
+            "endpoint",
+            "ca_data",
+            "kube_context",
+            "vpc_id",
+            "cluster_security_group_id",
+            "api_security_group_id",
+            "node_security_group_id",
+            "management_api_source_security_group_id",
+            "workload_api_target_security_group_id",
+            "ssm_bridge_instance_id",
+            "ssm_bridge_security_group_id",
+            "operator_principal_arn",
+            "argocd_role_arn",
+            "load_balancer_controller_role_arn",
+            "api_port",
+            "subnet_ids_by_az",
+            "node_group_names_by_az"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "enum": [
+                "aws-dev-management",
+                "aws-dev-workload"
+              ]
+            },
+            "account_id": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[0-9]{12}$"
+            },
+            "region": {
+              "type": "string",
+              "minLength": 1,
+              "const": "ap-northeast-2"
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1
+            },
+            "arn": {
+              "type": "string",
+              "minLength": 1
+            },
+            "endpoint": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^https://[A-Za-z0-9.-]+\\.eks\\.amazonaws\\.com$"
+            },
+            "ca_data": {
+              "type": "string",
+              "minLength": 1
+            },
+            "kube_context": {
+              "type": "string",
+              "minLength": 1
+            },
+            "vpc_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "cluster_security_group_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "api_security_group_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "node_security_group_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "management_api_source_security_group_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "workload_api_target_security_group_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "ssm_bridge_instance_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "ssm_bridge_security_group_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "operator_principal_arn": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^arn:aws:iam::[0-9]{12}:(role|user)/.+$"
+            },
+            "argocd_role_arn": {
+              "type": "string",
+              "minLength": 1
+            },
+            "load_balancer_controller_role_arn": {
+              "type": "string",
+              "minLength": 1
+            },
+            "api_port": {
+              "type": "integer",
+              "enum": [
+                10443,
+                11443
+              ]
+            },
+            "subnet_ids_by_az": {
+              "type": "object",
+              "required": [
+                "ap-northeast-2a",
+                "ap-northeast-2c"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "ap-northeast-2a": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "ap-northeast-2c": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            },
+            "node_group_names_by_az": {
+              "type": "object",
+              "required": [
+                "ap-northeast-2a",
+                "ap-northeast-2c"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "ap-northeast-2a": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "ap-northeast-2c": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            },
+            "argocd_management_role_arn": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      }
+    }
+  }
+}

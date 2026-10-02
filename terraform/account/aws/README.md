@@ -21,11 +21,11 @@ cp backend.hcl.example backend.hcl
 네트워크 관리형 정책과 기존 역할에 대한 attachment를 관리합니다.
 이 stack은 배포 인증의 기반이므로 관리자가 로컬에서 적용하고 CI에서는 직접 apply하지 않습니다.
 CI 역할의 권한은 bootstrap 버킷 설정, 배포 root 4개의 state·lock,
-현재 foundation의 빌드 입력 S3·CodeBuild·로그 그룹·빌드 역할 2개, 태그로 제한된 네트워크 관리와 플랫폼 ECR 관리로 구성됩니다.
+foundation 빌드/ECR/네트워크와 새 EKS·runtime IAM·tagged compute·SSM bridge 관리로 구성됩니다.
 CodeBuild에 전달할 수 있는 역할은 빌드용 CodeBuild 역할 하나입니다.
 state와 state 버킷 삭제, account state 접근과 CI 자기 역할·OIDC 변경은 허용하지 않습니다.
 기존 bootstrap 전용 CI에서는 이 stack의 변경된 정책을 관리자가 먼저 적용한 후 배포 코드를 main에 반영합니다.
-네트워크 코드의 main 반영 전에 아래 관리형 정책을 먼저 적용합니다. 후속 EKS 권한도 먼저 추가해야 합니다.
+네트워크 코드의 main 반영 전에 아래 관리형 정책을 먼저 적용합니다. EKS 권한과 session 변경도 main merge 전에 먼저 적용합니다.
 
 ## 플랫폼 ECR과 서비스 publisher
 
@@ -70,3 +70,11 @@ bootstrap에서 S3 backend를 준비한 후 backend.hcl을 사용해 init합니�
 provider lock 파일은 첫 init 이후 commit합니다.
 
 GitHub Actions 변수와 자동 배포 절차는 [Terraform CI runbook](../../../docs/runbooks/terraform-ci.md)을 참고합니다.
+
+## EKS·SSM·Argo CI 권한
+
+`ci-eks.tf`는 정확한 두 cluster ARN과 addon/nodegroup/access/pod identity child ARN, named runtime IAM role/LBC policy, AWS managed attachment allowlist, service별 PassRole, EKS issuer OIDC와 service-linked-role 생성 권한을 정의합니다. GitHub OIDC나 CI 자기 역할/policy 수정 범위는 없습니다.
+
+`ci-access.tf`는 request/resource owner tags의 SG/LT/compute 변경과 private bridge t3.micro RunInstances를 별도 관리형 정책으로 제공합니다. read-only discovery는 지정 리전에서만 `*`, 새 ENI는 RunInstances 인증의 지역/리소스 예외입니다. AMI는 Amazon Linux owner137112412989로 제한합니다. instance/volume에는 owner tag가 필요합니다.
+
+네트워크에 더해 EKS/runtime-IAM/runtime-compute/bridge-launch 정책 4개를 붙이며 각각 IAM6144자 한도를 mock으로 검사합니다. CI 역할 `max_session_duration=7200`, workflow STS7200, deploy timeout120분을 함께 적용합니다. `make tf-test`는 실제 로컬 backend/state/tfvars를 사용하지 않습니다. 실제 IAM 충분성은 배포 후 확인합니다.

@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+# shellcheck source=scripts/common.sh
 source "$(dirname "$0")/common.sh"
-check_cluster "${CLUSTER:-}"
-fail "${CLUSTER}: bootstrap 구현 대기. baseline·애드온 버전과 계정/context 확인 로직을 먼저 구현하세요."
+require_command python3
+selected="${1:-${CLUSTER:-}}"
+check_cluster "$selected"
+if [[ "$#" -gt 0 ]]; then shift; fi
+exec python3 "$REPO_ROOT/scripts/eks-ops.py" bootstrap "$selected" "$@"

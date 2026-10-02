@@ -15,8 +15,9 @@ resource "aws_iam_openid_connect_provider" "github" {
 }
 
 resource "aws_iam_role" "terraform_apply" {
-  name        = "${var.project}-${var.environment}-github-terraform"
-  description = "GitHub Actions main-branch deployment of bootstrap and implemented dev stacks"
+  max_session_duration = 7200
+  name                 = "${var.project}-${var.environment}-github-terraform"
+  description          = "GitHub Actions main-branch deployment of bootstrap and implemented dev stacks"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"

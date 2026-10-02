@@ -1,0 +1,87 @@
+{{- range .Values.namespaces }}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ . }}
+  labels:
+    iris.dev/managed-by: baseline
+    pod-security.kubernetes.io/enforce: {{ if eq . "observability" }}privileged{{ else }}baseline{{ end }}
+    pod-security.kubernetes.io/enforce-version: v1.35
+---
+{{- end }}
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: {{ .Values.storageClass.name }}
+provisioner: ebs.csi.aws.com
+parameters:
+  type: gp3
+  encrypted: "true"
+volumeBindingMode: WaitForFirstConsumer
+allowVolumeExpansion: true
+reclaimPolicy: {{ .Values.storageClass.reclaimPolicy }}
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: application-budget
+  namespace: {{ .Values.applicationNamespace }}
+spec:
+  hard:
+    {{- toYaml .Values.quota | nindent 4 }}
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: application-defaults
+  namespace: {{ .Values.applicationNamespace }}
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        cpu: 100m
+        memory: 128Mi
+      default:
+        cpu: 500m
+        memory: 512Mi
+{{- if .Values.networkPolicy.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: application-boundary
+  namespace: {{ .Values.applicationNamespace }}
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector: {}
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: observability
+  egress:
+    - to:
+        - podSelector: {}
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+    # Pod Identity SDK uses the node agent HTTP endpoint, not EC2 IMDS.
+    - to:
+        - ipBlock: {cidr: 169.254.170.23/32}
+      ports:
+        - {protocol: TCP, port: 80}
+    # AWS APIs, remote Kubernetes API and external HTTPS dependencies.
+    - ports:
+        - {protocol: TCP, port: 443}
+{{- end }}

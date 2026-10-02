@@ -1,0 +1,88 @@
+{
+  "argo-cd": {
+    "global": {
+      "image": {
+        "tag": "v3.5.3@sha256:dd3f47d5a5e4da563a7a398506e892481b358a7cec50abdf320c71aa55904bfa"
+      }
+    },
+    "fullnameOverride": "argocd",
+    "dex": {
+      "enabled": false
+    },
+    "notifications": {
+      "enabled": false
+    },
+    "redis-ha": {
+      "enabled": false
+    },
+    "controller": {
+      "replicas": 1,
+      "serviceAccount": {
+        "create": true,
+        "name": "argocd-application-controller"
+      },
+      "resources": {
+        "requests": {
+          "cpu": "200m",
+          "memory": "256Mi"
+        },
+        "limits": {
+          "cpu": "1000m",
+          "memory": "1Gi"
+        }
+      }
+    },
+    "server": {
+      "replicas": 1,
+      "service": {
+        "type": "ClusterIP"
+      },
+      "serviceAccount": {
+        "create": true,
+        "name": "argocd-server"
+      },
+      "resources": {
+        "requests": {
+          "cpu": "100m",
+          "memory": "128Mi"
+        },
+        "limits": {
+          "memory": "512Mi"
+        }
+      }
+    },
+    "applicationSet": {
+      "replicas": 1,
+      "serviceAccount": {
+        "create": true,
+        "name": "argocd-applicationset-controller"
+      }
+    },
+    "repoServer": {
+      "replicas": 1,
+      "resources": {
+        "requests": {
+          "cpu": "100m",
+          "memory": "128Mi"
+        },
+        "limits": {
+          "memory": "512Mi"
+        }
+      }
+    },
+    "configs": {
+      "cm": {
+        "exec.enabled": "false",
+        "resource.customizations.health.argoproj.io_Application": "hs = {}\nhs.status = \"Progressing\"\nhs.message = \"Waiting for child Application\"\nif obj.status ~= nil and obj.status.health ~= nil then\n  hs.status = obj.status.health.status\n  hs.message = obj.status.health.message or \"\"\nend\nreturn hs\n"
+      },
+      "params": {
+        "server.insecure": false
+      }
+    },
+    "redis": {
+      "image": {
+        "tag": "8.6.4-alpine@sha256:2cc044fc5a07c9b701f8f1255a309ae9ad7856e694ac03513bf3648c01e40763"
+      }
+    }
+  }
+}

@@ -25,3 +25,14 @@ variable "environment" {
   type        = string
   default     = "dev"
 }
+
+
+variable "operator_principal_arn" {
+  description = "Explicit existing operator IAM user/role ARN; no default."
+  type        = string
+}
+variable "state_bucket_name" {
+  description = "Empty means the standard bootstrap bucket name."
+  type        = string
+  default     = ""
+}

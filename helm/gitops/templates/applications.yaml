@@ -1,0 +1,62 @@
+{{- $addons := dict "aws-load-balancer-controller" (dict "repo" "https://aws.github.io/eks-charts" "version" "3.5.0" "ns" "kube-system") "metrics-server" (dict "repo" "https://kubernetes-sigs.github.io/metrics-server/" "version" "3.14.0" "ns" "kube-system") "kube-prometheus-stack" (dict "repo" "https://prometheus-community.github.io/helm-charts" "version" "91.8.2" "ns" "observability") }}
+{{- range $purpose, $target := .Values.targets }}
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: iris-{{ $purpose }}-baseline
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  project: iris-addons-{{ $purpose }}
+  source:
+    repoURL: {{ $.Values.repoURL | quote }}
+    targetRevision: {{ $.Values.revision | quote }}
+    path: helm/charts/cluster-baseline
+    helm:
+      releaseName: baseline
+      valueFiles:
+        - ../../../clusters/aws-dev-{{ $purpose }}/values/baseline.yaml
+  destination:
+    server: {{ $target.endpoint | quote }}
+    namespace: {{ if eq $purpose "management" }}iris-platform{{ else }}iris-apps{{ end }}
+  syncPolicy:
+    automated: {prune: false, selfHeal: true}
+    syncOptions: [CreateNamespace=true, ServerSideApply=true]
+---
+{{- range $name, $addon := $addons }}
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: iris-{{ $purpose }}-{{ $name }}
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  project: iris-addons-{{ $purpose }}
+  sources:
+    - repoURL: {{ $addon.repo | quote }}
+      chart: {{ $name }}
+      targetRevision: {{ $addon.version | quote }}
+      helm:
+        releaseName: {{ if eq $name "kube-prometheus-stack" }}monitoring{{ else }}{{ $name }}{{ end }}
+        valueFiles:
+          - $values/clusters/aws-dev-{{ $purpose }}/values/{{ $name }}.yaml
+        {{- if eq $name "aws-load-balancer-controller" }}
+        parameters:
+          - {name: clusterName, value: {{ $target.name | quote }}}
+          - {name: region, value: {{ $target.region | quote }}}
+          - {name: vpcId, value: {{ $target.vpc_id | quote }}}
+        {{- end }}
+    - repoURL: {{ $.Values.repoURL | quote }}
+      targetRevision: {{ $.Values.revision | quote }}
+      ref: values
+  destination:
+    server: {{ $target.endpoint | quote }}
+    namespace: {{ $addon.ns }}
+  syncPolicy:
+    automated: {prune: false, selfHeal: true}
+    syncOptions: [CreateNamespace=true, ServerSideApply=true]
+---
+{{- end }}
+{{- end }}

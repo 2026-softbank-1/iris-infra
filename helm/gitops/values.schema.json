@@ -1,0 +1,79 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "repoURL",
+    "revision",
+    "targets"
+  ],
+  "properties": {
+    "repoURL": {
+      "enum": ["https://github.com/2026-softbank-1/iris-infra.git", "git@github.com:2026-softbank-1/iris-infra.git"]
+    },
+    "revision": {
+      "type": "string",
+      "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$"
+    },
+    "targets": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "management",
+        "workload"
+      ],
+      "properties": {
+        "management": {
+          "type": "object",
+          "required": [
+            "endpoint",
+            "name",
+            "region",
+            "vpc_id"
+          ],
+          "properties": {
+            "endpoint": {
+              "type": "string",
+              "pattern": "^https://[A-Za-z0-9.-]+\\.eks\\.amazonaws\\.com$"
+            },
+            "name": {
+              "type": "string"
+            },
+            "region": {
+              "const": "ap-northeast-2"
+            },
+            "vpc_id": {
+              "type": "string",
+              "pattern": "^vpc-[0-9a-f]+$"
+            }
+          }
+        },
+        "workload": {
+          "type": "object",
+          "required": [
+            "endpoint",
+            "name",
+            "region",
+            "vpc_id"
+          ],
+          "properties": {
+            "endpoint": {
+              "type": "string",
+              "pattern": "^https://[A-Za-z0-9.-]+\\.eks\\.amazonaws\\.com$"
+            },
+            "name": {
+              "type": "string"
+            },
+            "region": {
+              "const": "ap-northeast-2"
+            },
+            "vpc_id": {
+              "type": "string",
+              "pattern": "^vpc-[0-9a-f]+$"
+            }
+          }
+        }
+      }
+    }
+  }
+}

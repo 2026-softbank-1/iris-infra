@@ -61,3 +61,7 @@ local/k3d.yaml
 .DS_Store
 
 # Commit .terraform.lock.hcl for each root after the first init.
+
+# Python test/import caches
+__pycache__/
+*.pyc

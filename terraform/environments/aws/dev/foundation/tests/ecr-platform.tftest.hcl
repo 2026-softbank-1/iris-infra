@@ -1,4 +1,5 @@
 mock_provider "aws" {
+  mock_data "aws_ssm_parameter" { defaults = { value = "ami-0123456789abcdef0" } }
   mock_resource "aws_iam_role" {
     defaults = {
       arn = "arn:aws:iam::123456789012:role/mock-build-role"

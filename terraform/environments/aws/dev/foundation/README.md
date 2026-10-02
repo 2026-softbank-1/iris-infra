@@ -7,7 +7,7 @@
 - 서비스별 ECR 저장소(`iris/services/{service_id}`)는 Build Worker 가 만듭니다.
 - 플랫폼 ECR은 `iris/was`, `iris/code-analyzer-agent`, `iris/error-check-agent`입니다. 정적 사이트인 `iris-web`은 별도 후속 배포입니다.
 - 네트워크: 공유 VPC, public subnet 2개, 관리용·앱용 private subnet 각 2개, IGW, zonal NAT, routing, 관리→앱 API 접근용 추가 SG 2개.
-- EKS 와 Deploy Worker IAM(ECR 태그만, 클러스터 권한 없음)은 후속 구현입니다. 앱 EKS API 접근은 Argo CD 만 합니다(ADR 0002).
+- SSM private bridge와 Argo management/deploy IAM을 구현했습니다. EKS root가 source/target SG와 Argo/Worker Pod Identity를 연결하며 실제 Worker·GitOps 연동은 후속 범위입니다. 앱 EKS 접근은 Argo deploy role을 사용하며 Deploy Worker는 앱 EKS 권한이 없습니다([ADR 0002](../../../../../docs/decisions/0002-gitops-deployment.md)).
 
 독립 root module이며 state key는 `aws/dev/foundation/terraform.tfstate`입니다.
 기본 입력은 `variables.tf`에 있습니다. 후속 EKS·IAM 연결은 아래 출력 계약을 사용합니다.
@@ -52,11 +52,11 @@ registry 전체 스캔 설정은 변경하지 않습니다. ENHANCED registry라
 | --- | --- |
 | `vpc_cidr` | `10.40.0.0/16` (정규 IPv4 network address, /16만 허용) |
 | `availability_zones` | `["ap-northeast-2a", "ap-northeast-2c"]` (서로 다른 표준 AZ 2개) |
-| `nat_gateway_mode` | `single` (`per_az` 선택 가능) |
+| `nat_gateway_mode` | `per_az` (`single` 선택 가능) |
 | `management_cluster_name` | `iris-dev-management` |
 | `workload_cluster_name` | `iris-dev-workload` |
 
-`variables.tf`와 `terraform.tfvars.example`은 같은 기본값을 사용합니다. 현재 CI는 계정·리전만
+`variables.tf`와 `terraform.tfvars.example`은 같은 기본값을 사용합니다. 현재 CI는 계정·리전·운영자 ARN과 state 버킷을
 전달하고 네트워크에는 이 기본값을 사용합니다. example은 자동 로드되지 않습니다.
 로컬 값을 바꾸면 main 배포 workflow의 대응 `TF_VAR_vpc_cidr`, `TF_VAR_availability_zones`
 (JSON 배열 문자열), `TF_VAR_nat_gateway_mode`, `TF_VAR_management_cluster_name`,
@@ -90,7 +90,7 @@ VPC endpoint, VPN, Flow Logs와 별도 Network ACL 정책은 포함하지 않습
 | `public_subnet_ids_by_az` | map(string), AZ → ALB용 subnet ID |
 | `management_subnet_ids_by_az` | map(string), 관리 EKS control plane·노드 |
 | `workload_subnet_ids_by_az` | map(string), 앱 EKS control plane·노드 |
-| `management_api_source_security_group_id` | string, 관리 Worker 트래픽의 실제 송신 ENI에 연결 |
+| `management_api_source_security_group_id` | string, 관리 Argo 트래픽의 실제 송신 node ENI에 연결 |
 | `workload_api_target_security_group_id` | string, 앱 EKS control plane의 추가 SG로 연결 |
 | `management_cluster_name`, `workload_cluster_name` | string, EKS 이름과 subnet 태그 일치 |
 
@@ -99,15 +99,15 @@ VPC endpoint, VPN, Flow Logs와 별도 Network ACL 정책은 포함하지 않습
 두 클러스터의 shared 태그와 `kubernetes.io/role/elb=1`을 설정합니다.
 
 source SG의 egress와 target SG의 ingress는 SG 참조 TCP 443만 허용합니다. 이는 사용자 앱의 ALB 인바운드와
-별도 경로이며, 이번 단계에서는 SG를 ENI에 연결하거나 EKS endpoint를 만들지 않습니다.
-후속 EKS 모듈은 기본 SG·노드 통신·CNI를 구성하고 private endpoint 접근을 활성화해야 합니다.
+별도 경로이며, management/workload root가 이 SG를 node/control plane에 연결합니다.
+공통 EKS 모듈이 cluster SG·노드 통신·CNI와 private endpoint를 구성합니다.
 SG 규칙은 연결된 모든 SG의 합산으로 적용됩니다. 관리 노드에 source SG를 연결하면 해당 노드의 다른
-워크로드도 source 범위가 될 수 있으므로 Worker의 실제 송신 ENI와 기존 SG를 포함해 검증합니다.
+워크로드도 source 범위가 될 수 있으므로 Argo의 실제 송신 ENI와 기존 SG를 포함해 검증합니다.
 서브넷 분리만으로 워크로드 격리가 보장되지 않으며 IAM 인증·Access Entry·Namespace RBAC도 별도로 필요합니다.
 
 ## 검증과 안전한 적용
 
-`make scaffold-check`, `make tf-check`, foundation/account의 `terraform test`,
+`make scaffold-check`, `make tf-check`, `make tf-test`,
 `python3 scripts/tests/test-tf-ci.py`로 구조·형식·mock 동작을 검증합니다.
 mock 테스트는 실제 AWS API 없이 기본/사용자 지정 토폴로지, NAT 모드, route 연결, SG·태그·출력과
 입력 오류를 검사합니다. 실제 IAM 충분성, 이미지 pull, 외부 인바운드와 관리→앱 API 통신은 보장하지 않습니다.
@@ -119,3 +119,13 @@ main 반영 또는 직접 apply 순서로 진행합니다. 기존 state key와 �
 
 실행 순서와 의존 관계는 [bootstrap runbook](../../../../../docs/runbooks/bootstrap.md)을 참고합니다.
 provider lock 파일은 첫 init 이후 commit합니다.
+
+## SSM·Argo와 NAT 변경
+
+`access.tf`는 management 슬롯0의 private AL2023 t3.micro bridge, inbound 없는 SG, SSM 전용 IAM/profile과 HTTPS/DNS outbound를 생성합니다. Kubernetes admin을 bridge role에 부여하지 않습니다. `argocd.tf`는 management의 argocd 3개 SA Pod Identity trust, 자기 assume과 두 deploy role assume/TagSession을 정의합니다.
+
+추가 출력은 `ssm_bridge_instance_id`, `ssm_bridge_security_group_id`, `argocd_management_role_arn`, `argocd_deploy_role_arns`입니다. 두 EKS root가 foundation만 읽습니다.
+
+NAT 기본값 전환은 기존 `egress["0"]`/`nat["0"]` 주소를 유지하고 슬롯1 NAT/EIP를 추가하며 슬롯1 private default route를 갱신합니다. CIDR/subnet/VPC/build/ECR 교체는 의도하지 않습니다. CI saved-plan guard가 기존 build/ECR/VPC/subnet/NAT0/EIP0 삭제·교체를 차단합니다. 실제 plan에서 그 외 변경도 확인합니다.
+
+main merge 전 account의 EKS/runtime IAM/compute/bridge 정책과 7200초 session을 관리자 선적용합니다. EKS API 접근·Argo 설치는 [운영 runbook](../../../../../docs/runbooks/eks-access.md)을 따릅니다.
