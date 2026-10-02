@@ -24,7 +24,23 @@ resource "aws_iam_policy" "eks_deployment" {
   name = "${var.project}-${var.environment}-eks-deployment"
   policy = jsonencode({ Version = "2012-10-17", Statement = [
     { Sid = "DiscoverEks", Effect = "Allow", Action = ["eks:ListClusters", "eks:DescribeAddonVersions", "eks:DescribeAddonConfiguration", "eks:DescribeClusterVersions"], Resource = "*", Condition = { StringEquals = local.eks_region } },
-    { Sid = "ManageNamedClusters", Effect = "Allow", Action = ["eks:CreateCluster", "eks:DescribeCluster", "eks:UpdateClusterConfig", "eks:UpdateClusterVersion", "eks:DeleteCluster", "eks:ListUpdates", "eks:DescribeUpdate", "eks:ListNodegroups", "eks:ListAddons", "eks:ListAccessEntries", "eks:ListPodIdentityAssociations", "eks:CreateNodegroup", "eks:CreateAddon", "eks:CreateAccessEntry", "eks:CreatePodIdentityAssociation"], Resource = local.eks_cluster_arns, Condition = { StringEquals = local.eks_region } },
+    # CreateCluster does not support resource ARNs or a cluster-name condition.
+    # Creation tags require TagResource below; subsequent operations keep named ARNs.
+    { Sid = "CreateOwnedPrivateClusters", Effect = "Allow", Action = ["eks:CreateCluster"], Resource = "*", Condition = {
+      StringEquals = merge(local.eks_region, {
+        "aws:RequestTag/Project"   = var.project, "aws:RequestTag/Environment" = var.environment,
+        "aws:RequestTag/ManagedBy" = "Terraform", "aws:RequestTag/Component" = "eks",
+        "eks:authenticationMode"   = "API", "eks:supportType" = "STANDARD"
+      }),
+      Bool = {
+        "eks:endpointPrivateAccess"                   = "true", "eks:endpointPublicAccess" = "false",
+        "eks:bootstrapClusterCreatorAdminPermissions" = "false", "eks:bootstrapSelfManagedAddons" = "false"
+      }
+    } },
+    { Sid = "ManageNamedClusters", Effect = "Allow", Action = ["eks:DescribeCluster", "eks:UpdateClusterConfig", "eks:UpdateClusterVersion", "eks:DeleteCluster", "eks:ListUpdates", "eks:DescribeUpdate", "eks:ListNodegroups", "eks:ListAddons", "eks:ListAccessEntries", "eks:ListPodIdentityAssociations", "eks:CreateNodegroup", "eks:CreateAddon", "eks:CreateAccessEntry", "eks:CreatePodIdentityAssociation"], Resource = local.eks_cluster_arns, Condition = { StringEquals = local.eks_region } },
+    { Sid = "AddonPodIdentityCreation", Effect = "Allow", Action = ["eks:CreateAddon"], Resource = [for name in local.eks_cluster_names : "arn:aws:eks:${var.aws_region}:${var.aws_account_id}:podidentityassociation/${name}/*"], Condition = { StringEquals = local.eks_region } },
+    # Provider update waiters authorize both the cluster and the updated child.
+    { Sid = "ReadChildUpdates", Effect = "Allow", Action = ["eks:DescribeUpdate", "eks:ListUpdates"], Resource = flatten([for name in local.eks_cluster_names : ["arn:aws:eks:${var.aws_region}:${var.aws_account_id}:nodegroup/${name}/*/*", "arn:aws:eks:${var.aws_region}:${var.aws_account_id}:addon/${name}/*/*"]]), Condition = { StringEquals = local.eks_region } },
     { Sid = "ManageClusterChildren", Effect = "Allow", Action = ["eks:DescribeNodegroup", "eks:UpdateNodegroupConfig", "eks:UpdateNodegroupVersion", "eks:DeleteNodegroup", "eks:DescribeAddon", "eks:UpdateAddon", "eks:DeleteAddon", "eks:DescribeAccessEntry", "eks:UpdateAccessEntry", "eks:DeleteAccessEntry", "eks:AssociateAccessPolicy", "eks:DisassociateAccessPolicy", "eks:ListAssociatedAccessPolicies", "eks:DescribePodIdentityAssociation", "eks:UpdatePodIdentityAssociation", "eks:DeletePodIdentityAssociation"], Resource = local.eks_child_arns, Condition = { StringEquals = local.eks_region } },
     { Sid = "TagEks", Effect = "Allow", Action = ["eks:TagResource", "eks:UntagResource", "eks:ListTagsForResource"], Resource = concat(local.eks_cluster_arns, local.eks_child_arns), Condition = { StringEquals = local.eks_region } },
     { Sid = "ClusterLogs", Effect = "Allow", Action = ["logs:CreateLogGroup", "logs:DeleteLogGroup", "logs:PutRetentionPolicy", "logs:ListTagsForResource", "logs:TagResource", "logs:UntagResource", "logs:TagLogGroup", "logs:UntagLogGroup"], Resource = flatten([for name in local.eks_cluster_names : ["arn:aws:logs:${var.aws_region}:${var.aws_account_id}:log-group:/aws/eks/${name}/cluster", "arn:aws:logs:${var.aws_region}:${var.aws_account_id}:log-group:/aws/eks/${name}/cluster:*"]]), Condition = { StringEquals = local.eks_region } },

@@ -73,10 +73,18 @@ GitHub Actions 변수와 자동 배포 절차는 [Terraform CI runbook](../../..
 
 ## EKS·SSM·Argo CI 권한
 
-`ci-eks.tf`는 정확한 두 cluster ARN과 addon/nodegroup/access/pod identity child ARN, named runtime IAM role/LBC policy, AWS managed attachment allowlist, service별 PassRole, EKS issuer OIDC와 service-linked-role 생성 권한을 정의합니다. GitHub OIDC나 CI 자기 역할/policy 수정 범위는 없습니다.
+`ci-eks.tf`는 두 cluster ARN과 addon/nodegroup/access/pod identity child ARN, named runtime IAM role/LBC policy, AWS managed attachment allowlist, service별 PassRole, EKS issuer OIDC와 service-linked-role 생성 권한을 정의합니다. `CreateCluster`는 AWS가 resource ARN·cluster 이름 조건을 지원하지 않아 별도 `Resource="*"` 문장을 사용합니다. 지정 리전, Project/Environment/ManagedBy/Component 생성 태그와 private endpoint, API 인증, creator admin 비활성화, self-managed addon 비활성화, STANDARD 지원 조건을 요구합니다. 생성 태그에는 두 cluster ARN의 `TagResource` 의존 권한이 필요하며 이후 관리는 기존 named ARN을 유지합니다. `CreateCluster` 자체가 이름을 제한한다고 해석하지 않습니다. EBS addon 생성의 Pod Identity ARN과 nodegroup/addon 업데이트 조회 ARN도 따로 허용합니다. 기존 Build Worker는 정확한 역할을 `pods.eks.amazonaws.com`에 PassRole할 수 있으며 runtime role 관리 목록에 추가하지 않습니다. GitHub OIDC나 CI 자기 역할/policy 수정 범위는 없습니다.
 
 `ci-access.tf`는 request/resource owner tags의 SG/LT/compute 변경과 private bridge t3.micro RunInstances를 별도 관리형 정책으로 제공합니다. read-only discovery는 지정 리전에서만 `*`, 새 ENI는 RunInstances 인증의 지역/리소스 예외입니다. AMI는 지정 리전의 Amazon 소유 이미지로 제한하며 IAM의 `ec2:Owner` 조건에는 `amazon` 별칭을 사용합니다. `DescribeImages`의 숫자 `OwnerId`와 이 조건값을 혼동하지 않습니다([AWS 예제](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ExamplePolicies_EC2.html)). IAM 허용 범위는 Amazon 소유 AMI들이며 실제 bridge 선택은 foundation의 고정 AL2023 x86_64 SSM parameter를 유지합니다. instance/volume에는 owner tag가 필요합니다.
 
-AMI 조건 수정은 관리자가 account plan을 검토하고 apply해야 실제 CI 역할에 반영됩니다. foundation workflow는 자신의 IAM 정책을 갱신할 수 없습니다. account 적용 후 수정 코드가 반영된 workflow에서 foundation의 새 plan을 확인하여 재시도합니다. mock 테스트는 AMI·subnet/SG·ENI·instance·volume·생성 태그·PassRole의 제한을 검사하지만 실제 EC2 생성 성공은 배포 후 확인합니다.
+`aws_instance`의 burstable instance 조회는 `DescribeInstanceCreditSpecifications`도 호출하므로 지역 discovery 목록에 포함합니다. IAM 수정은 관리자가 account plan을 검토하고 apply해야 실제 CI 역할에 반영됩니다. foundation workflow는 자신의 IAM 정책을 갱신할 수 없습니다. account 적용 후 수정 코드가 반영된 workflow에서 foundation의 새 plan을 확인하여 재시도합니다. mock 테스트는 AMI·subnet/SG·ENI·instance·volume·생성 태그·PassRole의 제한을 검사하지만 실제 EC2 생성 성공은 배포 후 확인합니다.
 
 네트워크에 더해 EKS/runtime-IAM/runtime-compute/bridge-launch 정책 4개를 붙이며 각각 IAM6144자 한도를 mock으로 검사합니다. CI 역할 `max_session_duration=7200`, workflow STS7200, deploy timeout120분을 함께 적용합니다. `make tf-test`는 실제 로컬 backend/state/tfvars를 사용하지 않습니다. 실제 IAM 충분성은 배포 후 확인합니다.
+
+## 배포 전 IAM 검사
+
+[로컬 권한 검사](../../../scripts/README.md)의 `check-eks-ci-permissions.py`는 고정 AWS provider 6.67.0의 현재 bridge·EKS 생성/조회/업데이트/삭제 경로와 IAM 의존 권한을 AWS simulator로 평가합니다. 정책의 Action 목록을 기대값으로 복사하지 않습니다. 로컬 관리자에게 STS caller 조회, IAM 역할/정책 조회와 `SimulatePrincipalPolicy`·`SimulateCustomPolicy`, Access Analyzer `ValidatePolicy` 권한이 필요합니다. 배포 역할의 권한을 추가하거나 assume하지 않습니다.
+
+`--account-plan-json` 모드는 account plan의 대상 역할 attachment/inline policy에서 예정 identity policy를 추출합니다. 관련 ARN·policy·입력·연결이 unknown/누락이면 실패합니다. 신규 정책 ARN이 아직 확정되지 않은 최초 plan은 이 모드로 통과할 수 없습니다. `--role-arn`만 지정하면 적용된 live 정책을 검사합니다. account apply 전에 live 모드가 기존 누락을 거부하는 것은 예상 결과입니다.
+
+허용 조합과 잘못된 리전·태그·클러스터·역할·전달 서비스·public API 생성 등의 거부 조합을 함께 검사하며 예상 action/resource 결과가 모두 있어야 통과합니다. 수정 대상 정책 3개는 Access Analyzer ERROR/SECURITY_WARNING도 검사합니다. 시뮬레이션 통과는 실제 CI OIDC 실행·AWS 서비스 요청·네트워크·quota·SCP·session/resource policy의 최종 효력을 보장하지 않습니다. custom 모드는 identity policy 합집합 평가이며 permissions boundary도 포함하지 않습니다.

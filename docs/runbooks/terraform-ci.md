@@ -34,6 +34,8 @@ make tf-plan STACK=account/aws
 make tf-apply STACK=account/aws
 ```
 
+account 변경을 적용하기 전에는 [로컬 IAM 검사](../../scripts/README.md)의 account plan 모드로 예정 정책을 검증하고, 적용 후에는 live 모드로 CI 역할의 실제 정책을 확인합니다. simulator/Access Analyzer 결과는 실제 배포 성공과 구분합니다.
+
 5. GitHub Settings → Actions → Variables를 설정합니다.
 
 | 변수 | 값 |
@@ -74,3 +76,14 @@ terraform -chdir=<root> providers lock -platform=darwin_arm64 -platform=linux_am
 `make tf-check`는 임시 TF_DATA_DIR을 사용하고 `make tf-test`는 backend.hcl·tfvars·state·override를 제외한 임시 복사본에서 mock 테스트합니다. OIDC 실패는 main subject/role/session 설정, S3 실패는 key/tflock, IAM 실패는 해당 runtime action/resource condition부터 확인합니다. 실제 비밀값·state·plan·kubeconfig는 Git에 포함하지 않습니다.
 
 [GitHub OIDC](https://docs.github.com/en/actions/how-tos/secure-your-work/security-harden-deployments/oidc-in-aws), [S3 backend](https://developer.hashicorp.com/terraform/language/backend/s3), [EKS IAM](https://docs.aws.amazon.com/service-authorization/latest/reference/list_eks.html), [EC2 IAM](https://docs.aws.amazon.com/service-authorization/latest/reference/list_ec2.html), [API/Argo 운영](eks-access.md)을 참고합니다.
+
+## 권한 실패 후 재시도
+
+EC2 실행 권한만 허용해도 provider의 생성 후 조회에서 실패할 수 있습니다. 현재 bridge의 burstable 조회는 `DescribeInstanceCreditSpecifications`, EKS는 `CreateCluster`의 wildcard 예외, EBS addon의 Pod Identity 리소스, Build Worker의 pods 서비스 PassRole, nodegroup/addon 업데이트 조회 범위를 필요로 합니다. [AWS EKS 권한 참조](https://docs.aws.amazon.com/service-authorization/latest/reference/list_eks.html)와 고정 provider 호출 경로를 함께 확인합니다.
+
+1. 관리자 account의 최신 plan을 검토하고 권한 변경을 apply합니다. account는 CI가 갱신하지 않습니다.
+2. `python3 scripts/check-eks-ci-permissions.py --role-arn <terraform_apply_role_arn>`을 실행합니다. account 적용 전의 live 거부를 수정 코드의 실패와 혼동하지 않습니다. plan 모드는 관련 ARN/연결이 확정된 account JSON에서 예정 정책만 검사합니다.
+3. foundation의 새 plan을 생성하고 기존 build/ECR/network 보호 결과와 bridge의 교체 여부를 확인합니다. 실패 전에 생성된 EC2는 실행 중이고 SSM Online이어도 Terraform state에서 tainted일 수 있습니다. 이런 경우 재시도 plan에 교체가 나타날 수 있고 SSM 접속 대상 ID가 바뀝니다. 운영 상태만으로 자동 untaint/import/destroy하지 않으며 복구는 별도 검토합니다.
+4. 검토한 코드가 main에 반영된 뒤 운영자가 승인한 CI 재시도를 진행합니다. 이전 실패의 saved plan은 재사용하지 않습니다.
+
+`CreateCluster` 자체에는 cluster 이름 제한 조건이 없습니다. 리전·소유 태그·private/API/bootstrap/STANDARD 조건을 적용하고, 생성 태그의 `TagResource` 및 이후 관리는 두 named ARN으로 제한합니다. wrong-cluster 검사는 이 ARN 지원 action을 기준으로 합니다. 권한 검사 스크립트는 CI write 권한이나 trust를 확대하지 않고 state·정책·자원을 변경하지 않습니다. 시뮬레이션은 실제 AWS 서비스 권한, CI OIDC, 네트워크, quota, SCP/session/resource policy 등의 최종 결과를 보장하지 않습니다.
