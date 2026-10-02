@@ -85,7 +85,7 @@ def check_platform(directory, targets, bootstrap):
             was=image_of[component]
             assert container['image']==was and pod['securityContext']['runAsUser']==1001
             assert env['PGSSLMODE']['value']=='verify-full' and env['PGSSLROOTCERT']['value']=='/etc/iris-rds/ca-bundle.pem'
-            expected_secret=values['database']['migrationSecret' if component=='migration' else 'runtimeSecret']
+            expected_secret=values['database']['secret']
             assert env['DATABASE_URL']['valueFrom']['secretKeyRef']=={'name':expected_secret,'key':values['database']['urlKey']}
             guard=pod['initContainers'][0]
             assert guard['image']==was and guard['env']==container['env'][:3]
@@ -133,7 +133,7 @@ def check_platform(directory, targets, bootstrap):
         assert total_cpu<4000, 'Initial platform limits must leave quota headroom for migration/rollout.'
     import copy
     good=json.loads((chart/'ci/was-values.yaml').read_text())
-    mutations=[lambda v:v.update(unknown=True),lambda v:v['api'].update(digest='latest'),lambda v:v['api'].update(host=''),lambda v:v['database'].update(runtimeSecret=''),lambda v:v['database'].update(migrationSecret=v['database']['runtimeSecret']),lambda v:v['buildWorker'].update(githubSecret=v['deployWorker']['githubSecret']),lambda v:v['network'].update(rdsSubnetCidrs=[]),lambda v:v['network'].update(albSubnetCidrs=['0.0.0.0/0']),lambda v:v['network'].update(rdsSubnetCidrs=['999.0.0.0/24']),lambda v:v['errorAgent'].update(enabled=True)]
+    mutations=[lambda v:v.update(unknown=True),lambda v:v['api'].update(digest='latest'),lambda v:v['api'].update(host=''),lambda v:v['database'].update(secret=''),lambda v:v['buildWorker'].update(githubSecret=v['deployWorker']['githubSecret']),lambda v:v['network'].update(rdsSubnetCidrs=[]),lambda v:v['network'].update(albSubnetCidrs=['0.0.0.0/0']),lambda v:v['network'].update(rdsSubnetCidrs=['999.0.0.0/24']),lambda v:v['errorAgent'].update(enabled=True)]
     bad=directory/'bad-platform.json'
     for change in mutations:
         values=copy.deepcopy(good);change(values);bad.write_text(json.dumps(values))

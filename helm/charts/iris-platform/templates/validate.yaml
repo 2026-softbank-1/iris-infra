@@ -1,3 +1,2 @@
 {{- if ne .Release.Namespace "iris-platform" }}{{ fail "iris-platform must deploy into namespace iris-platform" }}{{- end }}
-{{- if eq .Values.database.runtimeSecret .Values.database.migrationSecret }}{{ fail "Runtime and migration must reference separate database Secrets" }}{{- end }}
 {{- if eq .Values.buildWorker.githubSecret .Values.deployWorker.githubSecret }}{{ fail "Build and Deploy Workers must reference separate GitHub App Secrets" }}{{- end }}

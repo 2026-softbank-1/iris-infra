@@ -4,10 +4,10 @@ Management EKS의 `iris-platform` namespace에 Iris 플랫폼을 배포하는 Ch
 
 | 구성 요소 | 이미지 / 실행 | 네트워크·자격증명 |
 | --- | --- | --- |
-| API | `api.digest`, `uvicorn app.main:app --host 0.0.0.0 --port 8000` | ALB → ClusterIP 8000, runtime DB Secret |
-| Build Worker | `buildWorker.digest`, `python -m app.workers.build_worker` | `build-worker` Pod Identity, runtime DB·Build GitHub App |
-| Deploy Worker | `deployWorker.digest`, `python -m app.workers.deploy_worker` | `deploy-worker` Pod Identity, runtime DB·별도 GitOps App·Argo reader token |
-| Migration | `api.digest`, `alembic upgrade head` | 별도 DDL DB Secret, Worker AWS 권한 없음 |
+| API | `api.digest`, `uvicorn app.main:app --host 0.0.0.0 --port 8000` | ALB → ClusterIP 8000, DB Secret |
+| Build Worker | `buildWorker.digest`, `python -m app.workers.build_worker` | `build-worker` Pod Identity, DB·Build GitHub App |
+| Deploy Worker | `deployWorker.digest`, `python -m app.workers.deploy_worker` | `deploy-worker` Pod Identity, DB·별도 GitOps App·Argo reader token |
+| Migration | `api.digest`, `alembic upgrade head` | 같은 DB Secret, Worker AWS 권한 없음 |
 | Error Check Agent | `errorAgent.image.digest`, `python -m ai_error_check_agent.api --host 0.0.0.0 --port 8001` | 내부 ClusterIP 8001, LLM·Agent API key |
 
 API와 Worker는 최초 replica 1입니다. Worker에는 존재하지 않는 HTTP health probe를 넣지 않습니다. Build Worker 종료 유예는 최소 120초입니다. Error Agent는 기본 비활성화입니다. Code Analyzer는 운영 서버·이미지 준비 후 별도로 설계합니다.
@@ -22,7 +22,7 @@ API와 Worker는 최초 replica 1입니다. Worker에는 존재하지 않는 HTT
 | --- | --- |
 | `was.image.repository` | `…amazonaws.com/iris/was` (digest는 GitOps 파일의 컴포넌트별 `digest`) |
 | `api.host` | 운영자가 선택한 API FQDN; management 앵커 인증서 SAN과 일치 |
-| `database.runtimeSecret`, `migrationSecret` | 서로 다른 기존 Secret 이름, 공통 `urlKey`(기본 `DATABASE_URL`) |
+| `database.secret` | API·Worker·migration이 함께 쓰는 기존 DB Secret 이름, `urlKey`(기본 `DATABASE_URL`) |
 | `database.caConfigMap`, `caKey` | RDS CA bundle을 보관한 기존 ConfigMap과 데이터 키 |
 | `buildWorker.codebuildProject`, `artifactBucket` | foundation의 `build_codebuild_project_name`, `build_artifact_bucket_name` 출력 |
 | `buildWorker.githubSecret` | 아래 Build GitHub App 키를 가진 기존 Secret |
@@ -39,8 +39,7 @@ API와 Worker는 최초 replica 1입니다. Worker에는 존재하지 않는 HTT
 
 | 기존 Secret | 필수 데이터 키 | 소비자 |
 | --- | --- | --- |
-| runtime DB | `DATABASE_URL` (또는 `database.urlKey`) | API·두 Worker |
-| migration DB | 같은 URL 키 | migration Job만 |
+| DB | `DATABASE_URL` (또는 `database.urlKey`) | API·두 Worker·migration Job |
 | Build GitHub App | `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_PUBLIC_INSTALLATION_ID` | Build Worker만 |
 | Deploy GitHub App | `GITOPS_APP_ID`, `GITOPS_APP_PRIVATE_KEY`, `GITOPS_INSTALLATION_ID` | Deploy Worker만 |
 | Argo reader | `ARGOCD_TOKEN` | Deploy Worker만 |
@@ -52,7 +51,7 @@ GitHub App private key는 PEM 원문이며 ID 값은 정수 문자열입니다. 
 
 DB URL은 `postgresql+asyncpg://<user>:<encoded-password>@<rds-endpoint>:5432/<database>` 형식입니다. 비밀번호 특수문자는 URL 인코딩하고 `ssl`, `sslmode`, `sslrootcert`, `sslcert`, `sslkey`, `sslcrl`, `sslpassword` query parameter를 넣지 않습니다. SQLAlchemy의 asyncpg 경로는 query를 연결 인자로 전달하므로 URL TLS 옵션과 환경변수를 섞지 않습니다.
 
-API·Worker·Job은 `PGSSLMODE=verify-full`, `PGSSLROOTCERT=/etc/iris-rds/ca-bundle.pem`을 사용합니다. 동일 WAS digest의 initContainer가 URL 형식·TLS query 충돌·CA 파싱을 검사하고, 오류에는 URL·비밀번호를 출력하지 않습니다. 이 검사는 실제 DB 연결이나 사용자 권한을 검증하지 않습니다. RDS endpoint hostname을 사용하고 runtime role에는 필요한 테이블 DML 권한만, migration role에는 Alembic DDL과 테이블 소유권을 준비합니다. 새 테이블에 runtime role 권한이 부여되도록 default privileges도 관리합니다.
+API·Worker·Job은 `PGSSLMODE=verify-full`, `PGSSLROOTCERT=/etc/iris-rds/ca-bundle.pem`을 사용합니다. 동일 WAS digest의 initContainer가 URL 형식·TLS query 충돌·CA 파싱을 검사하고, 오류에는 URL·비밀번호를 출력하지 않습니다. 이 검사는 실제 DB 연결이나 사용자 권한을 검증하지 않습니다. RDS endpoint hostname을 사용합니다. 현재는 RDS master 계정 하나를 API·Worker·migration이 함께 씁니다. 계정을 runtime(DML)·migration(DDL)으로 나누려면 chart에 Secret 필드를 다시 분리해야 합니다.
 
 GitOps digest 커밋이 들어오면 Argo가 **자동 sync**합니다: 준비 리소스(wave -2) → migration `Sync` hook(wave -1, `api.digest`가 있을 때) → Deployment(wave 0). migration은 첫 설치에서도 chart가 만든 RDS egress NetworkPolicy가 있어야 하므로 PreSync가 아니라 wave -1 Sync hook입니다. Job은 timeout/backoff가 있고 성공하면 삭제하며 실패하면 남깁니다. 재시도 시 이전 Job을 교체합니다. 선택적 resource sync는 hook을 건너뛰므로 release에 사용하지 않습니다.
 

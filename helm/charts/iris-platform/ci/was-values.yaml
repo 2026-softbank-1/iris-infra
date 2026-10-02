@@ -6,8 +6,7 @@
     "logLevel": "INFO"
   },
   "database": {
-    "runtimeSecret": "iris-db-runtime",
-    "migrationSecret": "iris-db-migration",
+    "secret": "iris-db",
     "urlKey": "DATABASE_URL",
     "caConfigMap": "iris-rds-ca",
     "caKey": "ca-bundle.pem"

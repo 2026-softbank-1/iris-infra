@@ -49,19 +49,13 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "runtimeSecret",
-        "migrationSecret",
+        "secret",
         "urlKey",
         "caConfigMap",
         "caKey"
       ],
       "properties": {
-        "runtimeSecret": {
-          "type": "string",
-          "minLength": 1,
-          "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
-        },
-        "migrationSecret": {
+        "secret": {
           "type": "string",
           "minLength": 1,
           "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
