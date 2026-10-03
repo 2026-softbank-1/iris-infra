@@ -64,4 +64,12 @@ run "platform_images_and_retention" {
     )
     error_message = "Existing CodeBuild and Build Worker permissions must stay on user service repositories."
   }
+
+  assert {
+    condition = (
+      length(one([for statement in jsondecode(aws_iam_role_policy.build_worker.policy).Statement : statement if statement.Sid == "ReadBuildLogs"]).Action) == 1 &&
+      one([for statement in jsondecode(aws_iam_role_policy.build_worker.policy).Statement : statement if statement.Sid == "ReadBuildLogs"]).Action[0] == "logs:GetLogEvents"
+    )
+    error_message = "Build Worker may only read build log events; it must not get broader CloudWatch Logs permissions."
+  }
 }

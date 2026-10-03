@@ -195,6 +195,14 @@ resource "aws_iam_role_policy" "build_worker" {
         Resource = "${aws_s3_bucket.build_artifacts.arn}/snapshots/*"
       },
       {
+        # 실패한 빌드의 로그 끝부분을 읽어 AI 진단에 쓴다(iris-was `builds.log_tail`).
+        # 읽기만 하고 이 빌드 로그 그룹의 스트림으로 한정한다. `:*` 가 로그 스트림까지 덮는다.
+        Sid      = "ReadBuildLogs"
+        Effect   = "Allow"
+        Action   = ["logs:GetLogEvents"]
+        Resource = "${aws_cloudwatch_log_group.build.arn}:*"
+      },
+      {
         # ECR push 권한은 없다. push 는 CodeBuild 역할만 한다.
         Sid    = "ManageServiceRepositories"
         Effect = "Allow"

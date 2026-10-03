@@ -2,7 +2,7 @@
 
 상태: 빌드 자원(`build.tf`), 공유 VPC 네트워크(`network.tf`), 플랫폼 ECR(`ecr-platform.tf`)을 구현했습니다. 코드 구현 상태이며 실제 AWS 적용 여부는 state와 plan으로 확인합니다.
 
-- 구현: 소스 스냅샷 S3(SSE-S3, 1일 만료), CodeBuild `iris-dev-build`(privileged, MEDIUM, 15분), CodeBuild 서비스 역할(`iris/services/*` ECR push), Build Worker 역할(Pod Identity 용).
+- 구현: 소스 스냅샷 S3(SSE-S3, 1일 만료), CodeBuild `iris-dev-build`(privileged, MEDIUM, 15분), CodeBuild 서비스 역할(`iris/services/*` ECR push), Build Worker 역할(Pod Identity 용, 실패한 빌드의 CloudWatch 로그를 읽는 `logs:GetLogEvents` 포함).
 - `buildspec.yml` 은 iris-was Build Worker 가 넘기는 환경변수와 짝을 이룹니다. 바꿀 때 두 저장소를 함께 봅니다. Railpack CLI 는 install 단계에서 고정 버전·체크섬으로 받습니다.
 - 서비스별 ECR 저장소(`iris/services/{service_id}`)는 Build Worker 가 만듭니다.
 - 로그: Loki S3 버킷(SSE-S3, `force_destroy` 없음, 보관은 Loki compactor 7일)과 Loki 역할(`observability/loki` SA만 신뢰, 이 버킷 객체 읽기·쓰기·삭제만). Pod Identity 연결은 management stack 입니다.
