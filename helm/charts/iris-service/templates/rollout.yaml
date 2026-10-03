@@ -53,6 +53,8 @@ spec:
         iris/release-id: {{ .Values.release.id | quote }}
     spec:
       automountServiceAccountToken: false
+      # 아래 preStop 15초 뒤에도 앱이 SIGTERM 을 받고 정리할 30초(Kubernetes 기본값)가 남게 합니다.
+      terminationGracePeriodSeconds: 45
       containers:
         - name: app
           image: {{ include "iris-service.image" . | quote }}
@@ -110,3 +112,10 @@ spec:
               port: http
             {{- end }}
             periodSeconds: 5
+          # Pod 종료 대기: Endpoint 에서 빠진 뒤 LBC 가 ALB target 을 해제해 반영되기까지 몇 초 걸립니다.
+          # 그 사이 들어온 요청이 끊기지 않게 SIGTERM 을 15초 늦춥니다. 사용자 이미지에 shell 이 없을 수 있어
+          # exec 대신 kubelet 의 sleep action 을 씁니다(Kubernetes 1.30 부터 기본 활성).
+          lifecycle:
+            preStop:
+              sleep:
+                seconds: 15

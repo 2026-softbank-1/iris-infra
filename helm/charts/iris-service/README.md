@@ -5,7 +5,7 @@ GitOps 저장소의 `services/{service_id}/prod/values.yaml`(Deploy Worker 작�
 
 | 리소스 | 이름 | 내용 |
 |---|---|---|
-| Rollout(`argoproj.io/v1alpha1`) | `app` | `deploymentStrategy` 에 따른 배포 방식(아래), `automountServiceAccountToken: false`, readiness probe. Argo Rollouts controller 가 필요합니다 |
+| Rollout(`argoproj.io/v1alpha1`) | `app` | `deploymentStrategy` 에 따른 배포 방식(아래), `automountServiceAccountToken: false`, readiness probe, Pod 종료 대기(preStop `sleep` 15초, `terminationGracePeriodSeconds` 45, 0.7.1). Argo Rollouts controller 가 필요합니다 |
 | Service | `app` | ClusterIP `service.port` → `http`(containerPort) |
 | Ingress | `app` | `route.className: alb` 면 ALB group 공유·target-type ip·HTTPS redirect·health check 설정 |
 | NetworkPolicy | `allow-load-balancer` | `networkPolicy.allowedCidrs` 가 있을 때만. 그 CIDR 에서 containerPort 로만 허용 |
