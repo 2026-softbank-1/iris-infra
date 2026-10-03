@@ -65,6 +65,12 @@ def check_platform(directory, targets, bootstrap):
         assert not any(d['kind'] in {'Secret','PersistentVolumeClaim','StatefulSet','Namespace'} for d in docs)
         deployments={d['metadata']['labels']['app.kubernetes.io/component']:d for d in docs if d['kind']=='Deployment'}
         assert set(deployments)=={'api','build-worker','deploy-worker'} | ({'error-agent'} if values['errorAgent']['enabled'] else set())
+        # The API reads CloudWatch build logs only when a log group is set; otherwise it gets neither key.
+        api_config=next(d for d in docs if d['kind']=='ConfigMap' and d['metadata']['name']=='iris-platform-api')['data']
+        if values['api'].get('buildLogGroup'):
+            assert api_config=={'LOG_LEVEL':values['was']['logLevel'],'AWS_REGION':values['awsRegion'],'BUILD_LOG_GROUP':values['api']['buildLogGroup']}
+        else:
+            assert set(api_config)=={'LOG_LEVEL'}, 'An empty build log group must not become an empty BUILD_LOG_GROUP.'
         job=next(d for d in docs if d['kind']=='Job')
         notes=job['metadata']['annotations']
         assert notes['argocd.argoproj.io/hook']=='Sync' and notes['argocd.argoproj.io/sync-wave']=='-1'
@@ -141,7 +147,7 @@ def check_platform(directory, targets, bootstrap):
         assert total_cpu<4000, 'Initial platform limits must leave quota headroom for migration/rollout.'
     import copy
     good=json.loads((chart/'ci/was-values.yaml').read_text())
-    mutations=[lambda v:v.update(unknown=True),lambda v:v['api'].update(digest='latest'),lambda v:v['api'].update(host=''),lambda v:v['database'].update(secret=''),lambda v:v['buildWorker'].update(githubSecret=v['deployWorker']['githubSecret']),lambda v:v['network'].update(rdsSubnetCidrs=[]),lambda v:v['network'].update(albSubnetCidrs=['0.0.0.0/0']),lambda v:v['network'].update(rdsSubnetCidrs=['999.0.0.0/24']),lambda v:v['errorAgent'].update(enabled=True)]
+    mutations=[lambda v:v.update(unknown=True),lambda v:v['api'].update(digest='latest'),lambda v:v['api'].update(host=''),lambda v:v['api'].update(buildLogGroup='/aws/codebuild/not a group'),lambda v:v['database'].update(secret=''),lambda v:v['buildWorker'].update(githubSecret=v['deployWorker']['githubSecret']),lambda v:v['network'].update(rdsSubnetCidrs=[]),lambda v:v['network'].update(albSubnetCidrs=['0.0.0.0/0']),lambda v:v['network'].update(rdsSubnetCidrs=['999.0.0.0/24']),lambda v:v['errorAgent'].update(enabled=True)]
     bad=directory/'bad-platform.json'
     for change in mutations:
         values=copy.deepcopy(good);change(values);bad.write_text(json.dumps(values))

@@ -16,6 +16,7 @@
     "digest": "",
     "replicas": 1,
     "host": "",
+    "buildLogGroup": "",
     "resources": {
       "requests": {
         "cpu": "100m",

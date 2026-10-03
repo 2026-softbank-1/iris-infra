@@ -15,6 +15,7 @@
   "api": {
     "replicas": 1,
     "host": "api.likelion.uk",
+    "buildLogGroup": "/aws/codebuild/iris-dev-build",
     "resources": {
       "requests": {
         "cpu": "100m",

@@ -95,6 +95,10 @@
           "minimum": 1,
           "maximum": 1
         },
+        "buildLogGroup": {
+          "type": "string",
+          "pattern": "^(/aws/codebuild/[A-Za-z0-9_.-]+)?$"
+        },
         "host": {
           "type": "string",
           "minLength": 1,

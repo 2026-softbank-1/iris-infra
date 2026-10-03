@@ -4,7 +4,7 @@ Management EKS의 `iris-platform` namespace에 Iris 플랫폼을 배포하는 Ch
 
 | 구성 요소 | 이미지 / 실행 | 네트워크·자격증명 |
 | --- | --- | --- |
-| API | `api.digest`, `uvicorn app.main:app --host 0.0.0.0 --port 8000` | ALB → ClusterIP 8000, DB Secret |
+| API | `api.digest`, `uvicorn app.main:app --host 0.0.0.0 --port 8000` | ALB → ClusterIP 8000, DB Secret, `iris-platform-api` Pod Identity(빌드 로그 읽기 전용) |
 | Build Worker | `buildWorker.digest`, `python -m app.workers.build_worker` | `build-worker` Pod Identity, DB·Build GitHub App |
 | Deploy Worker | `deployWorker.digest`, `python -m app.workers.deploy_worker` | `deploy-worker` Pod Identity, DB·별도 GitOps App·Argo reader token |
 | Migration | `api.digest`, `alembic upgrade head` | 같은 DB Secret, Worker AWS 권한 없음 |
@@ -22,6 +22,7 @@ API와 Worker는 최초 replica 1입니다. Worker에는 존재하지 않는 HTT
 | --- | --- |
 | `was.image.repository` | `…amazonaws.com/iris/was` (digest는 GitOps 파일의 컴포넌트별 `digest`) |
 | `api.host` | 운영자가 선택한 API FQDN; management 앵커 인증서 SAN과 일치 |
+| `api.buildLogGroup` | (선택) foundation의 CodeBuild 로그 그룹(dev: `/aws/codebuild/iris-dev-build`). 있으면 API ConfigMap에 `AWS_REGION`·`BUILD_LOG_GROUP` 을 넣어 배포 상세의 빌드 로그를 읽는다. 비어 있으면 넣지 않는다 |
 | `was.envSecret` | WAS `.env` 전체를 담은 Secret. API·Worker·migration에 `envFrom`으로 모든 키를 주입(명시 `env`가 우선) |
 | `database.secret` | `DATABASE_URL`을 가진 Secret. `.env` Secret과 같은 이름이면 Secret 하나로 운영 |
 | `database.caConfigMap`, `caKey` | RDS CA bundle을 보관한 기존 ConfigMap과 데이터 키 |

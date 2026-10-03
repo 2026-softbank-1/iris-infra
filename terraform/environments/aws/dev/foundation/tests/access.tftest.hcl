@@ -52,3 +52,28 @@ run "deploy_worker_boundary" {
     error_message = "Deploy Worker may only read manifests and tag images in user service repositories, without Kubernetes/CodeBuild/layer push access."
   }
 }
+
+run "control_api_boundary" {
+  command = apply
+  assert {
+    condition = aws_iam_role.control_api.name == "${var.project}-${var.environment}-control-api" && jsonencode(jsondecode(aws_iam_role.control_api.assume_role_policy).Statement) == jsonencode([{
+      Effect = "Allow", Action = ["sts:AssumeRole", "sts:TagSession"], Principal = { Service = "pods.eks.amazonaws.com" },
+      Condition = { StringEquals = {
+        "aws:RequestTag/eks-cluster-name"           = var.management_cluster_name,
+        "aws:RequestTag/kubernetes-namespace"       = "iris-platform",
+        "aws:RequestTag/kubernetes-service-account" = "iris-platform-api"
+      } }
+    }])
+    error_message = "Only management iris-platform/iris-platform-api may assume the Control API role."
+  }
+  assert {
+    condition = jsonencode(jsondecode(aws_iam_role_policy.control_api.policy).Statement) == jsonencode([{
+      Sid = "ReadBuildLogs", Effect = "Allow", Action = ["logs:GetLogEvents"], Resource = "${aws_cloudwatch_log_group.build.arn}:*"
+    }]) && output.control_api_role_arn == aws_iam_role.control_api.arn
+    error_message = "Control API may only read build log events of the CodeBuild log group, with no write, CodeBuild, ECR, S3 or Kubernetes access."
+  }
+  assert {
+    condition     = aws_iam_role.control_api.name != aws_iam_role.build_worker.name && aws_iam_role.control_api.name != aws_iam_role.deploy_worker.name
+    error_message = "Control API must not share a role with the Build or Deploy Worker."
+  }
+}
