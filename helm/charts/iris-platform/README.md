@@ -35,7 +35,7 @@ API와 Worker는 최초 replica 1입니다. Worker에는 존재하지 않는 HTT
 | `deployWorker.caConfigMap`, `caKey` | Argo 내부 CA와 GitHub 등 공개 HTTPS CA를 포함한 완전한 bundle |
 | `network.albSubnetCidrs` | management ALB가 위치한 public subnet CIDR 목록 |
 | `network.rdsSubnetCidrs` | RDS subnet CIDR 목록; failover 가능한 모든 subnet 포함 |
-| `errorAgent.enabled`, `image.repository`, `secret`, `model` | Agent 활성화 여부·ECR 저장소·아래 두 Secret 키·LLM 모델 (digest는 `error-check-agent.yaml`) |
+| `errorAgent.enabled`, `image.repository`, `secret`, `model`, `env` | Agent 활성화 여부·ECR 저장소·아래 두 Secret 키·LLM 모델·추가 비밀 아닌 환경변수(ConfigMap) (digest는 `error-check-agent.yaml`) |
 
 모든 Secret·CA ConfigMap은 `iris-platform`에 별도 준비합니다.
 

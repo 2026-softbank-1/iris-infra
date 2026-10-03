@@ -83,6 +83,9 @@
         "cpu": "500m",
         "memory": "512Mi"
       }
+    },
+    "env": {
+      "AGENT_DIAGNOSIS_MODE": "standard"
     }
   },
   "migration": {
