@@ -11,6 +11,7 @@ spec:
   destinations:
     - {server: {{ .Values.targets.management.endpoint | quote }}, namespace: iris-platform}
     - {server: {{ .Values.targets.management.endpoint | quote }}, namespace: argocd}
+    - {server: {{ .Values.targets.management.endpoint | quote }}, namespace: tailscale}
   clusterResourceWhitelist: []
   namespaceResourceWhitelist:
     - {group: "", kind: ConfigMap}

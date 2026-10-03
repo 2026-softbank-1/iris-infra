@@ -154,6 +154,9 @@ spec:
     - namespaceSelector:
         matchLabels:
           kubernetes.io/metadata.name: tailscale
+      podSelector:
+        matchLabels:
+          iris.dev/proxy: onprem-api
     ports:
     - protocol: TCP
       port: 6443
@@ -330,6 +333,40 @@ spec:
     - namespaceSelector:
         matchLabels:
           kubernetes.io/metadata.name: tailscale
+      podSelector:
+        matchLabels:
+          iris.dev/proxy: onprem-api
+    ports:
+    - protocol: TCP
+      port: 6443
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: iris-onprem-auth-renewal-api
+  namespace: tailscale
+spec:
+  podSelector:
+    matchLabels:
+      iris.dev/proxy: onprem-api
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: iris-platform
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/name: iris-onprem-ecr-renewer-28
+          iris.dev/auth-renewal: ecr
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: argocd
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/name: iris-onprem-argocd-token-renewer
+          iris.dev/auth-renewal: argo
     ports:
     - protocol: TCP
       port: 6443

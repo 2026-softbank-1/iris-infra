@@ -75,7 +75,8 @@ def run(mode, namespace, secret_name, local, remote, *, identity=None, ecr=None,
     if subject(new_token) != expected_subject or timestamp(api_expiry) < now + minimum:
         raise ValueError('Unexpected issued token identity or lifetime; no Secret patch made.')
     annotations = {'iris.dev/last-token-renewal': now.isoformat(),
-                   'iris.dev/api-token-expires-at': api_expiry}
+                   'iris.dev/api-token-expires-at': api_expiry,
+                   'kubectl.kubernetes.io/last-applied-configuration': None}
     if mode == 'ecr':
         update = {'token': encode(new_token), 'expiresAt': encode(api_expiry)}
     else:
@@ -101,7 +102,8 @@ def run(mode, namespace, secret_name, local, remote, *, identity=None, ecr=None,
                headers={'Content-Type': 'application/merge-patch+json'},
                json={'metadata': {'resourceVersion': docker_secret['metadata']['resourceVersion'],
                                   'annotations': {'iris.dev/ecr-token-expires-at': expiry,
-                                                  'iris.dev/last-token-renewal': now.isoformat()}},
+                                                  'iris.dev/last-token-renewal': now.isoformat(),
+                                                  'kubectl.kubernetes.io/last-applied-configuration': None}},
                      'data': {'.dockerconfigjson': encode(json.dumps(docker))}})
         result['ecrTokenExpiresAt'] = expiry
     return result
@@ -132,5 +134,7 @@ if __name__ == '__main__':
         error = {'ok': False, 'errorType': type(exc).__name__}
         if isinstance(exc, httpx.HTTPStatusError):
             error['statusCode'] = exc.response.status_code
+        if isinstance(exc, (httpx.HTTPStatusError, httpx.RequestError)):
+            error['endpoint'] = str(exc.request.url.copy_with(query=None))
         print(json.dumps(error))
         raise SystemExit(1)
