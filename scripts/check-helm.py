@@ -299,7 +299,7 @@ def check_platform(directory, targets, bootstrap):
     command('lint','--strict',chart,'-f',cluster,'-f',only_api,'--kube-version',VERSIONS['kubernetes']+'.0','--namespace','iris-platform')
     docs=[x for x in yaml.safe_load_all(command('template','iris-platform',chart,'-f',cluster,'-f',only_api,'-f',agent,'--kube-version',VERSIONS['kubernetes']+'.0','--namespace','iris-platform')) if x]
     assert {d['metadata']['name'] for d in docs if d['kind'] in {'Deployment','Job','Ingress'}}=={'iris-platform-api','iris-platform-migration','iris-platform-error-agent'}, 'Only components with a digest deploy.'
-    enabled=directory/'gitops-platform.json';enabled.write_text(json.dumps({'revision':'a'*40,'targets':targets,'platform':{'enabled':True},'onpremGateway':{'enabled':False}}))
+    enabled=directory/'gitops-platform.json';enabled.write_text(json.dumps({'revision':'a'*40,'targets':targets,'platform':{'enabled':True},'services':{'onprem':{'enabled':False}},'onpremGateway':{'enabled':False}}))
     docs=render(ROOT/'helm/gitops', enabled, namespace='argocd')
     assert sum(d['kind']=='Application' for d in docs)==13 and sum(d['kind']=='AppProject' for d in docs)==4
     app=next(d for d in docs if d['kind']=='Application' and d['metadata']['name']=='iris-platform')
@@ -329,7 +329,7 @@ def main():
         targets = {p: {'name':f'iris-dev-{p}', 'region':'ap-northeast-2','vpc_id':'vpc-0123456789abcdef0','endpoint':f'https://{p}.eks.amazonaws.com'} for p in ('management','workload')}
         values = directory/'gitops.json'
         # Isolate the existing AWS baseline; check_onprem_gateway exercises both gateway states.
-        values.write_text(json.dumps({'revision':'a'*40,'targets':targets,'onpremGateway':{'enabled':False}}))
+        values.write_text(json.dumps({'revision':'a'*40,'targets':targets,'services':{'onprem':{'enabled':False}},'onpremGateway':{'enabled':False}}))
         gitops = render(ROOT/'helm/gitops', values, namespace='argocd')
         # Platform is opt-in at bootstrap (GITOPS_PLATFORM_ENABLED); check_platform covers it.
         assert sum(d['kind']=='Application' for d in gitops)==12
@@ -393,7 +393,7 @@ def main():
         assert rendered_kinds <= {(w['group'],w['kind']) for w in services['namespaceResourceWhitelist']}, f'iris-svc-project must allow chart kinds: {rendered_kinds}'
         allowed = {p['metadata']['name'].removeprefix('iris-addons-'): {(w['group'],w['kind']) for w in p['spec']['clusterResourceWhitelist']} for p in gitops if p['kind']=='AppProject'}
         tracking = directory/'tracking.json'
-        tracking_values = {'revision':'a'*40,'targets':targets,'platform':{'enabled':True},'albTraffic':{'enabled':True},'onpremGateway':{'enabled':False}}
+        tracking_values = {'revision':'a'*40,'targets':targets,'platform':{'enabled':True},'services':{'onprem':{'enabled':False}},'albTraffic':{'enabled':True},'onpremGateway':{'enabled':False}}
         tracking.write_text(json.dumps(tracking_values))
         pinned_apps = {d['metadata']['name']:d for d in render(ROOT/'helm/gitops', tracking, namespace='argocd') if d['kind']=='Application'}
         tracking_values['revision'] = 'main'
@@ -429,7 +429,7 @@ def main():
         assert 'elbv2.k8s.aws/pod-readiness-gate-inject' not in onprem_set['template']['spec']['syncPolicy']['managedNamespaceMetadata']['labels']
         project = next(d['spec'] for d in docs if d['kind']=='AppProject' and d['metadata']['name']=='iris-svc-project')
         assert {'server':'https://onprem.example:6443','namespace':'svc-*'} in project['destinations']
-        assert 'iris-svc-onprem-appset' not in {d['metadata']['name'] for d in gitops if d['kind']=='ApplicationSet'}, 'on-prem stays off by default.'
+        assert 'iris-svc-onprem-appset' not in {d['metadata']['name'] for d in gitops if d['kind']=='ApplicationSet'}, 'AWS-only fixture disables the on-prem ApplicationSet.'
         check_onprem_gateway(directory, targets, gitops)
         check_platform(directory, targets, bootstrap)
         charts = {}
