@@ -1,0 +1,237 @@
+name: ALB collector image
+
+# Always return collector-ci, including on docs/digest-only PRs. Path filters at
+# workflow level would leave a required check pending on skipped changes.
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      force_rebuild:
+        description: Build even without source changes (initial publication/recovery)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+env:
+  PYTHONDONTWRITEBYTECODE: '1'
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      image_changed: ${{ steps.changes.outputs.image_changed }}
+      test_changed: ${{ steps.changes.outputs.test_changed }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Test change classification and digest updates
+        run: python3 scripts/tests/test-collector-ci.py
+      - name: Classify this event
+        id: changes
+        env:
+          FORCE_REBUILD: ${{ inputs.force_rebuild }}
+        run: python3 scripts/collector-ci-changes.py changes
+      - name: Check automated image PR against its merged runtime inputs
+        if: >-
+          github.event_name == 'pull_request' &&
+          github.event.pull_request.head.ref == 'automation/alb-log-collector-image' &&
+          github.event.pull_request.head.repo.full_name == github.repository
+        run: python3 scripts/collector-ci-changes.py check-provenance
+
+  verify:
+    needs: changes
+    if: needs.changes.outputs.test_changed == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Test collector outbox and parsing
+        run: python3 -m unittest discover -s collectors/alb-access-logs -p test_collector.py
+      - name: Verify actual Loki ruler and Prometheus traffic results
+        shell: bash
+        run: |
+          tool_dir="$RUNNER_TEMP/alb-traffic-tools"
+          mkdir -p "$tool_dir"
+          curl --fail --location --retry 3 \
+            https://github.com/grafana/loki/releases/download/v3.6.12/loki-linux-amd64.zip \
+            --output "$tool_dir/loki.zip"
+          printf '%s  %s\n' \
+            301a56770f8bee5a1634dd40b83b6a8975f8b45706d6b18888d7cc0999e79d86 \
+            "$tool_dir/loki.zip" | sha256sum --check
+          unzip -q "$tool_dir/loki.zip" -d "$tool_dir"
+          curl --fail --location --retry 3 \
+            https://github.com/prometheus/prometheus/releases/download/v3.15.0/prometheus-3.15.0.linux-amd64.tar.gz \
+            --output "$tool_dir/prometheus.tar.gz"
+          printf '%s  %s\n' \
+            2a542df32eac02ee17b9d844fb2aa1de00dafa5476579ba8a3ba862e9d572ea0 \
+            "$tool_dir/prometheus.tar.gz" | sha256sum --check
+          tar --extract --gzip --file "$tool_dir/prometheus.tar.gz" --directory "$tool_dir"
+          chmod +x "$tool_dir/loki-linux-amd64"
+          python3 collectors/alb-access-logs/integration.py \
+            --loki-binary "$tool_dir/loki-linux-amd64" \
+            --prometheus-binary "$tool_dir/prometheus-3.15.0.linux-amd64/prometheus"
+      - uses: docker/setup-buildx-action@v3
+        if: >-
+          needs.changes.outputs.image_changed == 'true' &&
+          (github.event_name == 'pull_request' || github.ref != 'refs/heads/main')
+      - name: Build locally without AWS or publication
+        if: >-
+          needs.changes.outputs.image_changed == 'true' &&
+          (github.event_name == 'pull_request' || github.ref != 'refs/heads/main')
+        env:
+          DOCKER_BUILD_CONTEXT: collectors/alb-access-logs
+          DOCKERFILE: collectors/alb-access-logs/Dockerfile
+          DOCKER_PLATFORM: linux/amd64
+        run: bash examples/github-actions/build-push-ecr.sh build
+
+  preflight:
+    needs: changes
+    if: >-
+      needs.changes.outputs.image_changed == 'true' &&
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # Fixed shell only; no repository code executes with this PAT.
+      - name: Check main publication configuration before building
+        env:
+          PR_TOKEN: ${{ secrets.ALB_COLLECTOR_PR_TOKEN }}
+          AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          PUSH_ROLE: ${{ vars.ALB_COLLECTOR_ECR_PUSH_ROLE_ARN }}
+        shell: bash
+        run: |
+          [[ -n "$PR_TOKEN" ]] || { printf '%s\n' 'Missing ALB_COLLECTOR_PR_TOKEN' >&2; exit 1; }
+          [[ "$AWS_ACCOUNT_ID" =~ ^[0-9]{12}$ && "$AWS_ACCOUNT_ID" != 000000000000 ]] || exit 1
+          [[ "$AWS_REGION" == ap-northeast-2 ]] || exit 1
+          [[ "$PUSH_ROLE" == "arn:aws:iam::$AWS_ACCOUNT_ID:role/iris-dev-github-ecr-alb-log-collector" ]] || exit 1
+
+  publish:
+    needs: [changes, verify, preflight]
+    if: >-
+      !cancelled() && needs.changes.result == 'success' &&
+      needs.verify.result == 'success' && needs.preflight.result == 'success' &&
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      ECR_REPOSITORY: iris/alb-log-collector
+      DOCKER_BUILD_CONTEXT: collectors/alb-access-logs
+      DOCKERFILE: collectors/alb-access-logs/Dockerfile
+      DOCKER_PLATFORM: linux/amd64
+    outputs:
+      digest: ${{ steps.image.outputs.image_digest }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Check configured publication matches deployment repository
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          expected = f'{os.environ["AWS_ACCOUNT_ID"]}.dkr.ecr.{os.environ["AWS_REGION"]}.amazonaws.com/iris/alb-log-collector'
+          text = Path('clusters/aws-dev-management/values/alb-log-collector.yaml').read_text()
+          assert f'  repository: {expected}\n' in text, 'ECR/deployment repository mismatch'
+          PY
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.ALB_COLLECTOR_ECR_PUSH_ROLE_ARN }}
+          role-session-name: iris-alb-collector-${{ github.run_id }}
+          aws-region: ${{ env.AWS_REGION }}
+          allowed-account-ids: ${{ env.AWS_ACCOUNT_ID }}
+      - uses: aws-actions/amazon-ecr-login@v2
+      - uses: docker/setup-buildx-action@v3
+      - name: Build and publish immutable collector image
+        id: image
+        run: bash examples/github-actions/build-push-ecr.sh push
+
+  image-pr:
+    needs: publish
+    if: >-
+      !cancelled() && needs.publish.result == 'success' &&
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    concurrency:
+      group: alb-collector-image-pr
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.ALB_COLLECTOR_PR_TOKEN }}
+          # Private-repository fetches and the PR action need credentials here.
+          persist-credentials: true
+      - name: Prepare digest update against latest main
+        id: update
+        env:
+          COLLECTOR_REPOSITORY: ${{ vars.AWS_ACCOUNT_ID }}.dkr.ecr.ap-northeast-2.amazonaws.com/iris/alb-log-collector
+          COLLECTOR_DIGEST: ${{ needs.publish.outputs.digest }}
+          COLLECTOR_SOURCE_SHA: ${{ github.sha }}
+          COLLECTOR_RUN_ID: ${{ github.run_id }}
+          COLLECTOR_RUN_ATTEMPT: ${{ github.run_attempt }}
+        shell: bash
+        run: |
+          args=()
+          ref=refs/remotes/origin/automation/alb-log-collector-image
+          if git show-ref --verify --quiet "$ref"; then args+=(--existing-ref "$ref"); fi
+          python3 scripts/update-alb-collector-image.py "${args[@]}"
+      - name: Create or update image digest PR
+        if: steps.update.outputs.updated == 'true'
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
+        with:
+          token: ${{ secrets.ALB_COLLECTOR_PR_TOKEN }}
+          branch: automation/alb-log-collector-image
+          base: main
+          delete-branch: false
+          add-paths: |
+            clusters/aws-dev-management/values/alb-log-collector.yaml
+            helm/images.lock.json
+          author: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>
+          commit-message: 'chore: update ALB collector image digest'
+          title: 'chore: update ALB collector image digest'
+          body: |
+            Publishes the collector built from `${{ github.sha }}` and pins its ECR digest.
+
+            Digest: `${{ needs.publish.outputs.digest }}`
+            Build: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }} (attempt ${{ github.run_attempt }})
+
+            Only collector values and the image lock change. Collector activation and Argo revision/sync require separate deployment work. Merging this PR still triggers the existing Terraform main apply workflow.
+
+  collector-ci:
+    name: collector-ci
+    needs: [changes, verify, preflight, publish, image-pr]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require successful or intentionally skipped jobs
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          jobs = json.loads(os.environ['RESULTS'])
+          assert jobs['changes']['result'] == 'success', jobs
+          assert all(job['result'] in ('success', 'skipped') for job in jobs.values()), jobs
+          PY

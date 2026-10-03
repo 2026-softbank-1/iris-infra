@@ -36,6 +36,10 @@ run "restrict_platform_management_and_publishing" {
         oidc_subject_prefix = "repo:example/iris-error-check-agent"
         repository_names    = ["iris/error-check-agent"]
       }
+      alb-log-collector = {
+        oidc_subject_prefix = "repo:example@123/infra@456"
+        repository_names    = ["iris/alb-log-collector"]
+      }
     }
   }
 
@@ -73,6 +77,15 @@ run "restrict_platform_management_and_publishing" {
       jsondecode(role.assume_role_policy).Statement[0].Condition.StringEquals["token.actions.githubusercontent.com:sub"] == "${var.github_ecr_publishers[key].oidc_subject_prefix}:ref:refs/heads/main"
     ])
     error_message = "Only each configured repository's main branch and STS audience may assume its publisher role."
+  }
+
+  assert {
+    condition = (
+      length(aws_iam_role.ecr_publisher) == 4 &&
+      aws_iam_role.ecr_publisher["alb-log-collector"].name == "iris-dev-github-ecr-alb-log-collector" &&
+      jsondecode(aws_iam_role.ecr_publisher["alb-log-collector"].assume_role_policy).Statement[0].Condition.StringEquals["token.actions.githubusercontent.com:sub"] == "repo:example@123/infra@456:ref:refs/heads/main"
+    )
+    error_message = "The infra collector publisher must be separate from the three service publishers and trust only infra main."
   }
 
   assert {

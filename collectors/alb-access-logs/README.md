@@ -45,4 +45,21 @@ docker build --platform linux/amd64 --tag iris-alb-log-collector:local collector
 
 현재 deployment values는 `enabled: false`, `image.digest: ""`입니다. chart fixture의 가상 digest는 렌더링 테스트에만 사용하며 배포 입력으로 쓰지 않습니다. 실제 ECR `iris/alb-log-collector`에 빌드 이미지를 게시한 뒤 digest를 조회하여 cluster values와 `helm/images.lock.json`에 실제 이미지 참조를 추가해야 합니다. 기존 was/build/deploy worker 게시 역할에 collector 게시 권한은 추가하지 않았습니다. 이미지 게시와 인프라·GitOps 배포는 별도 승인 범위입니다.
 
-CI의 Docker build는 로컬 빌드만 수행합니다. 현재 작업 머신은 Docker daemon이 없어 컨테이너 build/run 검증은 실행하지 못했습니다. 실제 네이티브 바이너리 통합 검증은 통과했습니다.
+## 이미지 CI
+
+[ALB collector image workflow](../../.github/workflows/alb-log-collector.yml)는 Terraform CI와 별도로 이미지를 빌드합니다. 코드·Dockerfile·의존성·빌드 helper/workflow 변경은 빌드 대상이며, 테스트·recording rules 변경은 검증만 수행하고 문서·배포 digest 변경은 재빌드하지 않습니다. 일반 PR은 인증 없이 테스트·로컬 빌드만 수행합니다.
+
+main의 빌드 대상 변경은 설정 확인과 단위/실제 Loki·Prometheus 테스트 후 collector 전용 OIDC 역할로 ECR에 게시합니다. 태그는 `sha-<source SHA>-<run ID>-<attempt>`, 배포 참조는 Buildx가 반환한 실제 digest입니다. PAT는 PR 생성에 사용하고 AWS 인증에는 사용하지 않습니다.
+
+게시 성공 후 `automation/alb-log-collector-image` 브랜치의 PR을 생성·갱신합니다. 변경 파일은 cluster collector values의 `image.digest`와 image lock의 태그 없는 repository URL entry 두 개입니다. source SHA/run/attempt는 digest 옆 YAML 주석으로 기록합니다. 최신 main과 빌드 입력이 다르거나 동일 입력의 더 최신 실행이 이미 갱신했다면 이전 결과를 건너뜁니다. 자동화 브랜치의 다른 설정·파일 변경은 덮어쓰지 않고 실패합니다.
+
+digest PR에서는 `collector-ci`가 merge tree와 빌드 source 입력을 대조합니다. 이 검사가 이후 main 변경에도 효력을 가지려면 **필수 검사 + 최신 base 반영 후 merge(strict)** 규칙이 필요합니다. 일반 코드 PR은 이전 배포 이미지 provenance 때문에 막지 않습니다. 자동 merge/collector 활성화/Argo revision 변경은 수행하지 않습니다.
+
+최초 게시·설정·재시도는 [운영 절차](../../docs/runbooks/observability.md#collector-이미지-ci-설정)를 따릅니다. 로컬 검증은 아래처럼 실행하며, 실제 Actions/ECR/PR 실행과는 구분합니다.
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python3 scripts/tests/test-collector-ci.py
+PYTHONDONTWRITEBYTECODE=1 python3 scripts/tests/test-build-push-ecr.py
+```
+
+현재 작업 머신은 Docker daemon에 연결할 수 없어 컨테이너 build/run은 로컬에서 검증하지 못했습니다. 실제 네이티브 Loki/Prometheus 통합 검증은 별도로 수행합니다.
