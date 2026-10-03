@@ -74,12 +74,6 @@ def main():
     registry = authorization['proxyEndpoint'].removeprefix('https://')
     docker_config = {'auths': {registry: {'auth': authorization['authorizationToken']}}}
     namespace = f'svc-{sid}'
-    secret = {
-        'apiVersion': 'v1', 'kind': 'Secret',
-        'metadata': {'name': 'iris-ecr-pull', 'namespace': namespace},
-        'type': 'kubernetes.io/dockerconfigjson',
-        'data': {'.dockerconfigjson': base64.b64encode(json.dumps(docker_config).encode()).decode()},
-    }
     outer = ['ssh', '-o', 'BatchMode=yes', '-o', 'IdentitiesOnly=yes', '-i', args.ssh_key,
              '-p', str(args.ssh_port), f'{args.ssh_user}@{args.ssh_host}']
 
