@@ -29,6 +29,7 @@ Deploy Worker 가 `ROLLING`·`CANARY`·`BLUE_GREEN` 중 하나를 넘깁니다. 
 - 카나리 weight 는 controller(v1.10.0)가 `replicas`·`replicas+1` 중 가장 가까운 Pod 수로 맞추는 규칙에서 새 Pod 가 정확히 1개가 되는 값입니다. `make helm-check` 가 같은 계산으로 replicas 2~10 을 검사합니다.
 - 블루그린은 Service `app` 의 selector 에 `rollouts-pod-template-hash` 를 controller 가 덧붙입니다. Argo CD 는 이 필드를 직접 쓰지 않아 OutOfSync 가 되지 않습니다. 다른 방식으로 바꾸면 controller 가 그 selector 를 지웁니다.
 - 제약: 롤링·카나리에서 블루그린으로 바꾼 뒤 **첫** 블루그린 배포는 Service 에 hash selector 가 없어, 새 Pod 가 Ready 가 되는 대로 트래픽을 받습니다(controller 의 fast-track). 두 번째 배포부터 전환 전까지 이전 묶음만 트래픽을 받습니다. AWS ALB 와의 관계는 [runbook](../../../docs/runbooks/argo-rollouts.md#블루그린과-aws-alb) 을 봅니다.
+- 블루그린으로 렌더링할 때만 Ingress 에 ALB health check 를 빠르게 하는 annotation(interval 5·timeout 4·healthy threshold 2)을 붙입니다. 전환 직후 새 target 이 첫 health check 를 통과하기까지의 공백을 줄이며, 롤링·카나리 TargetGroup 은 바뀌지 않습니다.
 
 Pod 라벨 `iris/release-id` 는 로그·메트릭 수집(OTel → Loki `iris_release_id`)에 씁니다. selector 에는 없습니다.
 

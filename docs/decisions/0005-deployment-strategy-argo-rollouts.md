@@ -25,7 +25,7 @@
 
 - 새 addon(controller 1 replica). controller 가 멈추면 새 배포가 진행하지 않지만 떠 있는 Pod 는 그대로다. controller ClusterRole 은 클러스터 전체 Secret 읽기를 포함한다(upstream 기본, AnalysisTemplate 용).
 - chart 0.7.0 반영 때 모든 서비스가 동시에 Deployment → Rollout 으로 바뀌며 잠시 Pod 가 2배가 된다. 블루그린은 배포마다 최대 2배다.
-- AWS 블루그린은 전환 직후 ALB 가 새 target 의 첫 health check 를 기다리는 동안 짧게 503 을 줄 수 있다. 롤링·카나리는 readiness gate 로 0.6.0 과 같다. 상세와 완화책: [runbook](../runbooks/argo-rollouts.md#블루그린과-aws-alb).
+- AWS 블루그린은 전환 직후 ALB 가 새 target 의 첫 health check 를 기다리는 동안 짧게 503 을 줄 수 있다. 블루그린 서비스의 TargetGroup 만 health check 주기를 5초로 줄여 구간을 줄이고, 없애는 것(ALB traffic routing)은 범위 밖이다. 롤링·카나리는 readiness gate 로 0.6.0 과 같다. 상세와 완화책: [runbook](../runbooks/argo-rollouts.md#블루그린과-aws-alb).
 - 롤링·카나리에서 블루그린으로 바꾼 뒤 첫 블루그린 배포는 Service 에 hash selector 가 없어 롤링처럼 섞여 들어간다(controller fast-track).
 
 ## 검증 사항

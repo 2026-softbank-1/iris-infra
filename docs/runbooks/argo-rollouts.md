@@ -68,6 +68,8 @@ kubectl $K get crd rollouts.argoproj.io
 
 ### 되돌리기
 
+chartRevision 을 0.6.0 으로 되돌리기 **전에** 1·2 를 끝냅니다.
+
 1. iris-was `DEPLOYMENT_STRATEGY_ENABLED=false` 로 바꿉니다.
 2. **`deploymentStrategy` 가 남은 values 파일이 없게 합니다.** values 는 다음 배포 때까지 GitOps 저장소에 남고, 0.6.0 schema 는 그 키를 거절해 해당 서비스 sync 가 실패합니다. 키가 있는 서비스는 플래그를 끈 뒤 다시 배포합니다.
 
@@ -79,10 +81,19 @@ kubectl $K get crd rollouts.argoproj.io
 
 ## 블루그린과 AWS ALB
 
-공유 ALB 는 `target-type: ip` 이고 서비스 namespace 에 readiness gate 주입이 켜져 있습니다. 코드와 AWS 문서로 확인한 동작이며 실제 클러스터에서 재현하지 않았습니다.
+공유 ALB 는 `target-type: ip` 이고 서비스 namespace 에 readiness gate 주입이 켜져 있습니다. 아래는 controller 소스(v1.10.0)와 AWS·LBC 문서로 확인한 동작이며 실제 클러스터에서 재현하지 않았습니다.
 
 - **롤링·카나리**: 새 Pod 가 만들어질 때부터 Service `app` 에 잡히므로 LBC 가 readiness gate 를 넣고, ALB target 이 healthy 가 된 뒤에 Ready 가 됩니다. 이전 Pod 는 그 뒤에 내려가 0.6.0 과 같습니다.
-- **블루그린**: 새 묶음은 Service selector(`rollouts-pod-template-hash` = 이전 묶음) 밖에서 만들어져 readiness gate 를 받지 않고 TargetGroup 에도 없습니다. 전환하면 LBC 가 새 Pod 를 등록하고(`initial`) 이전 Pod 를 해제합니다(`draining`). ALB 는 `initial` target 에 요청을 보내지 않고(첫 health check 통과 필요) `draining` target 에도 새 요청을 보내지 않으므로, 전환 직후 등록 시간 + health check 한 주기(LBC 기본 15초) 정도 새 요청이 503 이 될 수 있습니다. `scaleDownDelaySeconds: 30` 은 이전 Pod 가 진행 중 요청을 끝내게 할 뿐 이 구간을 막지 못합니다.
+- **블루그린**: 새 묶음은 Service selector(`rollouts-pod-template-hash` = 이전 묶음) 밖에서 만들어져 readiness gate 를 받지 않고 TargetGroup 에도 없습니다. 전환하면 LBC 가 새 Pod 를 등록하고(`initial`) 이전 Pod 를 해제합니다(`draining`). 그 사이 새 요청을 받을 target 이 없어 등록 시간 + 첫 health check 까지 503 이 날 수 있습니다. `scaleDownDelaySeconds: 30` 은 이전 Pod 가 진행 중 요청을 끝내게 할 뿐 이 구간을 막지 못합니다.
+- **AWS 문서 근거**
+  - 새 target: "The load balancer starts routing traffic to a newly registered target as soon as the registration process completes and the target passes the first initial health check, irrespective of the configured threshold." ([Target groups – Registered targets](https://docs.aws.amazon.com/elasticloadbalancing/latest/application/load-balancer-target-groups.html#registered-targets)). healthy threshold 와 상관없이 첫 health check 한 번이 기준이므로 구간 길이는 점검 주기가 정합니다.
+  - 해제한 target: "The load balancer stops routing requests to a target as soon as it is deregistered. The target enters the `draining` state until in-flight requests have completed." (같은 문서).
+  - fail-open: "If a target group contains only unhealthy registered targets, the load balancer routes requests to all those targets, regardless of their health status." ([Health checks](https://docs.aws.amazon.com/elasticloadbalancing/latest/application/target-group-health-checks.html)), routing failover 도 "sends traffic to all targets that are available to the load balancer node, including unhealthy targets" 로만 적혀 있습니다([Target group health](https://docs.aws.amazon.com/elasticloadbalancing/latest/application/load-balancer-target-groups.html#target-group-health)). 같은 문서는 "Before a target can receive requests from the load balancer, it must pass the initial health checks." 라고 하고 `initial` 은 `unhealthy` 와 다른 상태입니다. **문서상 fail-open 은 `unhealthy` target 에만 해당하고 `initial` target 을 포함한다는 근거는 없습니다.** 그래서 이 구간을 fail-open 이 덮어 준다고 가정하지 않습니다(실측하지 않았습니다).
+- **완화(적용함)**: chart 는 실제 렌더링 방식이 `BLUE_GREEN`(replicas 2 이상)일 때만 Ingress 에 `alb.ingress.kubernetes.io/healthcheck-interval-seconds: "5"`(최솟값)·`healthcheck-timeout-seconds: "4"`·`healthy-threshold-count: "2"` 를 붙입니다. 공백이 등록 시간 + 최대 약 5초로 줄어듭니다. timeout 은 LBC 기본값(5초)이 interval 과 같아지지 않게 4초로 둡니다. LBC 문서에서 이 annotation 들은 Location `Ingress,Service`, MergeBehavior `N/A` 라 IngressGroup 에서 합쳐지지 않고 그 Ingress 의 TargetGroup 에만 적용됩니다([LBC Ingress annotations](https://kubernetes-sigs.github.io/aws-load-balancer-controller/latest/guide/ingress/annotations/)). 공유 group `iris-service-external` 의 다른 서비스와 롤링·카나리 서비스의 TargetGroup 은 기본값(15초) 그대로입니다. 방식을 바꾸면 LBC 가 그 TargetGroup 의 health check 설정만 고칩니다.
 - controller 의 `awsVerifyTargetGroup` 은 새 Pod IP 가 등록됐는지만 보고 이전 묶음 축소를 늦추며, health 는 보지 않고 controller 에 AWS 권한이 필요해 쓰지 않습니다.
-- 이 PR 은 이 구간을 고치지 않습니다. 줄이려면 서비스 Ingress 에 `alb.ingress.kubernetes.io/healthcheck-interval-seconds: "5"` 를 주어 구간을 몇 초로 줄이거나, 없애려면 TargetGroup 두 개로 가중치를 바꾸는 ALB traffic routing 이 필요합니다(SPEC 범위 밖).
+- **근본 해결(범위 밖)**: 공백을 없애려면 TargetGroup 두 개에 가중치를 주는 ALB traffic routing(Rollouts `trafficRouting.alb`)이 필요합니다. SPEC 이 트래픽 가중치 라우팅을 제외해 이번에는 하지 않습니다.
 - on-prem Traefik 은 Service 엔드포인트를 바로 따라가 이 구간이 없습니다.
+
+## 블루그린의 첫 배포
+
+롤링·카나리에서 블루그린으로 바꾼 뒤(또는 Deployment 에서 Rollout 으로 옮긴 직후) **첫** 블루그린 배포는 롤링처럼 섞입니다. Service `app` 에 아직 `rollouts-pod-template-hash` selector 가 없어 새 Pod 가 Ready 가 되는 대로 이전 Pod 와 함께 트래픽을 받고, controller 는 새 묶음이 다 뜨면 pause 없이 selector 를 새 묶음으로 바꿉니다(`isBlueGreenFastTracked`). 두 번째 블루그린 배포부터 전환 전까지 이전 묶음만 트래픽을 받습니다. 블루그린에서 다른 방식으로 바꾸면 controller 가 그 selector 를 지워 Service 가 다시 모든 앱 Pod 를 고릅니다.

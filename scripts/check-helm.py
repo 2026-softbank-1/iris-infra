@@ -230,6 +230,10 @@ def check_service_strategies(directory):
             # Canary and blue-green need two Pods; below that the chart renders the rolling update.
             effective = strategy if strategy in ('CANARY','BLUE_GREEN') and replicas >= 2 else 'ROLLING'
             assert rollout['metadata']['annotations']['iris/deployment-strategy']==effective
+            # Only blue-green TargetGroups get the faster health check; per-Ingress TG annotations (LBC MergeBehavior N/A).
+            notes = next(d for d in docs if d['kind']=='Ingress')['metadata']['annotations']
+            fast = {k: notes.get(k) for k in ('alb.ingress.kubernetes.io/healthcheck-interval-seconds','alb.ingress.kubernetes.io/healthcheck-timeout-seconds','alb.ingress.kubernetes.io/healthy-threshold-count')}
+            assert fast==({'alb.ingress.kubernetes.io/healthcheck-interval-seconds':'5','alb.ingress.kubernetes.io/healthcheck-timeout-seconds':'4','alb.ingress.kubernetes.io/healthy-threshold-count':'2'} if effective=='BLUE_GREEN' else dict.fromkeys(fast)), f'{strategy}/{replicas}: blue-green-only ALB health check annotations'
             if effective=='ROLLING':
                 assert spec['strategy']==rolling, 'ROLLING keeps the 0.6.0 RollingUpdate (maxSurge 1, maxUnavailable 0).'
             elif effective=='CANARY':

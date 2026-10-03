@@ -19,6 +19,14 @@ metadata:
     # ALB health check 는 Host 헤더를 서비스 도메인으로 보낼 수 없어, Host 를 검사하는 앱은 4xx 를 줍니다.
     # 앱 상태는 Host 를 넣는 readiness probe 가 보고, ALB 는 응답이 오는지(5xx·timeout 아님)만 봅니다.
     alb.ingress.kubernetes.io/success-codes: 200-499
+    {{- if eq (include "iris-service.deploymentStrategy" .) "BLUE_GREEN" }}
+    # 블루그린 전환 때 새 Pod 는 그제서야 TargetGroup 에 등록돼 첫 health check 를 통과해야 요청을 받고,
+    # 이전 Pod 는 바로 draining 됩니다. 이 서비스 TargetGroup 만 점검 주기를 줄여 그 공백을 줄입니다.
+    # timeout 은 interval 보다 작게 둡니다(LBC 기본 timeout 5초).
+    alb.ingress.kubernetes.io/healthcheck-interval-seconds: "5"
+    alb.ingress.kubernetes.io/healthcheck-timeout-seconds: "4"
+    alb.ingress.kubernetes.io/healthy-threshold-count: "2"
+    {{- end }}
   {{- end }}
 spec:
   ingressClassName: {{ .Values.route.className | quote }}
