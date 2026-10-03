@@ -82,6 +82,10 @@
         "cpu": "1000m",
         "memory": "2Gi"
       }
+    },
+    "env": {
+      "AGENT_DIAGNOSIS_MODE": "graph_compact",
+      "OPENAI_SERVICE_TIER": "fast"
     }
   },
   "migration": {

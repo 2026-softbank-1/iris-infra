@@ -440,6 +440,22 @@
               }
             }
           }
+        },
+        "env": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "propertyNames": {
+            "pattern": "^[A-Z_][A-Z0-9_]*$",
+            "not": {
+              "enum": [
+                "LLM_MODEL",
+                "LLM_API_KEY",
+                "AGENT_API_KEY"
+              ]
+            }
+          }
         }
       },
       "allOf": [
