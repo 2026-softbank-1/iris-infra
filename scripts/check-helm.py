@@ -49,6 +49,9 @@ def check_images(docs):
         assert LOCK['images'].get(name) == digest, f'Image differs from lock: {name}'
 
 
+# The last Deployment-based iris-service chart; on-prem services stay on it (no Argo Rollouts there).
+ONPREM_CHART_REVISION = 'iris-service-0.6.0'
+
 # Cluster-scoped kinds Argo must be allowed to create through the addon AppProjects.
 CLUSTER_SCOPED = {'Namespace','StorageClass','ClusterRole','ClusterRoleBinding','MutatingWebhookConfiguration','ValidatingWebhookConfiguration','CustomResourceDefinition','APIService','IngressClass','IngressClassParams','PriorityClass','PersistentVolume','CSIDriver','RuntimeClass'}
 
@@ -407,15 +410,11 @@ def main():
         chart_source, values_source = appset['template']['spec']['sources']
         assert appset['syncPolicy']['applicationsSync']=='sync', 'A removed service directory must delete its Application (Deploy Worker REMOVE).'
         assert appset['template']['metadata']['finalizers']==['resources-finalizer.argocd.argoproj.io'], 'Deleting a service Application must also delete its workload.'
-        revision = json.loads((ROOT/'helm/gitops/values.yaml').read_text())['services']['chartRevision']
+        service_pins = json.loads((ROOT/'helm/gitops/values.yaml').read_text())['services']
         chart_version = yaml.safe_load((ROOT/'helm/charts/iris-service/Chart.yaml').read_text())['version']
-        assert chart_source['targetRevision']==revision, 'ApplicationSet must pin services.chartRevision.'
-        # A new chart version merges first; its tag is cut on the merge commit and chartRevision follows in a
-        # separate PR, so Argo never points at a tag that does not exist yet (docs/runbooks/argo-rollouts.md).
-        semver = lambda v: tuple(map(int, v.split('.')))
-        assert revision.startswith('iris-service-') and semver(revision.removeprefix('iris-service-')) <= semver(chart_version), 'chartRevision must pin the current chart tag or an earlier released one.'
-        if revision != 'iris-service-'+chart_version:
-            print(f'Notice: services still pin {revision}; iris-service {chart_version} reaches services only after its tag and the chartRevision PR.')
+        assert chart_source['targetRevision']==service_pins['chartRevision']=='iris-service-'+chart_version, 'The AWS ApplicationSet must pin the current iris-service chart tag.'
+        # on-prem has no Argo Rollouts controller; it stays on the Deployment-based chart (docs/runbooks/argo-rollouts.md).
+        assert service_pins['onprem']['chartRevision']==ONPREM_CHART_REVISION, 'on-prem must stay on the Deployment-based iris-service 0.6.0 until it runs Argo Rollouts.'
         assert values_source['ref']=='values' and chart_source['helm']['valueFiles']==['$values/{{ .path.path }}/values.yaml']
         assert appset['template']['metadata']['name']=='svc-{{ index .path.segments 1 }}' and appset['template']['spec']['destination']=={'server':targets['workload']['endpoint'],'namespace':'svc-{{ index .path.segments 1 }}'}
         services = next(d for d in gitops if d['kind']=='AppProject' and d['metadata']['name']=='iris-svc-project')['spec']
@@ -495,6 +494,7 @@ def main():
         assert onprem_set['generators'][0]['git']['directories']==[{'path':'services/*/onprem'}]
         assert onprem_set['template']['metadata']['name']=='svc-{{ index .path.segments 1 }}', 'Deploy Worker observes svc-{id} on every target.'
         assert onprem_set['template']['spec']['destination']['server']=='https://onprem.example:6443'
+        assert onprem_set['template']['spec']['sources'][0]['targetRevision']==ONPREM_CHART_REVISION, 'on-prem renders its own chart pin, not services.chartRevision.'
         assert onprem_set['template']['spec']['sources'][0]['helm']['valuesObject']=={'route':{'className':'traefik'},'networkPolicy':{'egressDeniedCidrs':['192.168.0.0/16']}}
         assert 'elbv2.k8s.aws/pod-readiness-gate-inject' not in onprem_set['template']['spec']['syncPolicy']['managedNamespaceMetadata']['labels']
         project = next(d['spec'] for d in docs if d['kind']=='AppProject' and d['metadata']['name']=='iris-svc-project')
@@ -577,8 +577,6 @@ def main():
                     assert {d['spec']['names']['kind'] for d in docs if d['kind']=='CustomResourceDefinition'} >= {'Rollout','AnalysisRun','AnalysisTemplate'}
                     rules = [r for d in docs if d['kind']=='ClusterRole' and d['metadata']['name']=='argo-rollouts' for r in d['rules']]
                     assert not any(g.endswith(('istio.io','elbv2.k8s.aws','traefik.io','gateway.networking.k8s.io')) for r in rules for g in r['apiGroups']), 'No traffic router RBAC: canary is pod-ratio only.'
-                    # The on-prem cluster installs the same pin by hand; it must not drift from the AWS values.
-                    assert (ROOT/'clusters/onprem-workload/values/argo-rollouts.yaml').read_text()==(base/'argo-rollouts.yaml').read_text()
                 elif name=='loki':
                     workloads = [d for d in docs if d['kind'] in ('Deployment','StatefulSet','DaemonSet')]
                     assert [(d['kind'],d['metadata']['name'],d['spec']['replicas']) for d in workloads]==[('StatefulSet','loki',1)], 'SingleBinary only: no gateway, caches or canary.'

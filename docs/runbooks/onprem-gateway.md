@@ -68,7 +68,7 @@ TLS 인증서, Host/path/query, 앱 응답과 WebSocket을 실제 경로에서 �
 
 ## 4. 웹을 통한 온프레미스 배포 활성화
 
-웹의 ONPREM 선택은 기존 타깃 API의 ID 하나를 서비스 생성 요청의 `targetIds`로 전달합니다. 서비스를 만든 뒤 배포 요청이 한 번이라도 있었다면 배포 타깃을 바꿀 수 없으므로 새 서비스를 만듭니다. Deploy Worker는 `services/{id}/onprem`에 값을 쓰며, 아래 준비가 완료되어야 ApplicationSet이 실제 앱을 생성합니다.
+웹의 ONPREM 선택은 기존 타깃 API의 ID 하나를 서비스 생성 요청의 `targetIds`로 전달합니다. 서비스를 만든 뒤 배포 요청이 한 번이라도 있었다면 배포 타깃을 바꿀 수 없으므로 새 서비스를 만듭니다. Deploy Worker는 `services/{id}/onprem`에 값을 쓰며, 아래 준비가 완료되어야 ApplicationSet이 실제 앱을 생성합니다. 온프레미스 ApplicationSet은 `services.onprem.chartRevision`(`iris-service-0.6.0`, Deployment·롤링만)을 쓰며 Argo Rollouts를 설치하지 않습니다([Argo Rollouts runbook](argo-rollouts.md)).
 
 1. Argo에 등록된 서버를 확인합니다. 클러스터 Secret의 `server`, `namespaces`, `clusterResources`만 읽고 `config`나 인증 토큰은 출력하지 않습니다.
 
