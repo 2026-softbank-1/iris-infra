@@ -50,6 +50,27 @@ spec:
             - name: IRIS_GIT_COMMIT_SHA
               value: {{ . | quote }}
             {{- end }}
+            {{- with .Values.iris }}
+            {{- with .serviceName }}
+            - name: IRIS_SERVICE_NAME
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .targetName }}
+            - name: IRIS_TARGET_NAME
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .deploymentId }}
+            - name: IRIS_DEPLOYMENT_ID
+              # JSON 숫자는 float64 라 큰 값이 1e+06 꼴로 찍히지 않게 정수로 바꿉니다.
+              value: {{ . | int64 | quote }}
+            {{- end }}
+            {{- end }}
+          {{- with .Values.variables }}
+          # 사용자 변수(SealedSecret 이 푼 Secret). 위 env 가 우선하므로 PORT·IRIS_* 는 덮어쓸 수 없습니다.
+          envFrom:
+            - secretRef:
+                name: {{ .name }}
+          {{- end }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           readinessProbe:

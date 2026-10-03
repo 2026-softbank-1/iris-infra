@@ -24,6 +24,8 @@ spec:
     - {group: "", kind: Service}
     - {group: networking.k8s.io, kind: Ingress}
     - {group: networking.k8s.io, kind: NetworkPolicy}
+    # 사용자 변수. Sealed Secrets controller 가 같은 namespace 에 Secret 으로 풉니다.
+    - {group: bitnami.com, kind: SealedSecret}
   roles:
     # Deploy Worker reads Application status with this role's token.
     - name: iris-deploy-reader

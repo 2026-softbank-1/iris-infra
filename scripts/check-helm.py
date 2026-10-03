@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Render the pinned stack and check operational contracts without a cluster."""
+import copy
 import json
 import os
 from pathlib import Path
@@ -156,7 +157,7 @@ def check_platform(directory, targets, bootstrap):
     assert {d['metadata']['name'] for d in docs if d['kind'] in {'Deployment','Job','Ingress'}}=={'iris-platform-api','iris-platform-migration','iris-platform-error-agent'}, 'Only components with a digest deploy.'
     enabled=directory/'gitops-platform.json';enabled.write_text(json.dumps({'revision':'a'*40,'targets':targets,'platform':{'enabled':True}}))
     docs=render(ROOT/'helm/gitops', enabled, namespace='argocd')
-    assert sum(d['kind']=='Application' for d in docs)==12 and sum(d['kind']=='AppProject' for d in docs)==4
+    assert sum(d['kind']=='Application' for d in docs)==13 and sum(d['kind']=='AppProject' for d in docs)==4
     app=next(d for d in docs if d['kind']=='Application' and d['metadata']['name']=='iris-platform')
     assert app['metadata']['finalizers']==['resources-finalizer.argocd.argoproj.io'] and app['spec']['syncPolicy']['automated']=={'prune':True,'selfHeal':True}
     assert app['spec']['destination']=={'server':targets['management']['endpoint'],'namespace':'iris-platform'}
@@ -186,7 +187,7 @@ def main():
         values.write_text(json.dumps({'revision':'a'*40,'targets':targets}))
         gitops = render(ROOT/'helm/gitops', values, namespace='argocd')
         # Platform is opt-in at bootstrap (GITOPS_PLATFORM_ENABLED); check_platform covers it.
-        assert sum(d['kind']=='Application' for d in gitops)==11
+        assert sum(d['kind']=='Application' for d in gitops)==12
         for app in (d for d in gitops if d['kind']=='Application' and d['metadata']['name'].endswith('-aws-load-balancer-controller')):
             # Re-sync must not rotate the LBC webhook certificate under running controllers.
             ignored = {(i['kind'],i['name']) for i in app['spec']['ignoreDifferences']}
@@ -207,6 +208,32 @@ def main():
         ingress = next(d for d in service_docs if d['kind']=='Ingress')
         deployment = next(d for d in service_docs if d['kind']=='Deployment')
         assert deployment['spec']['template']['metadata']['labels']['iris/release-id']=='345' and 'iris/release-id' not in deployment['spec']['selector']['matchLabels'], 'Pods carry the release label for logs/metrics; the immutable selector must not.'
+        container = deployment['spec']['template']['spec']['containers'][0]
+        env = {e['name']: e['value'] for e in container['env']}
+        assert (env['IRIS_SERVICE_NAME'],env['IRIS_TARGET_NAME'],env['IRIS_DEPLOYMENT_ID'])==('my-app','aws','6789012'), 'Platform identity reaches the app; large ids must not print as 1e+06.'
+        sealed = next(d for d in service_docs if d['kind']=='SealedSecret')
+        assert sealed['metadata']['name']=='vars-r345' and sealed['spec']['template']['metadata']['name']=='vars-r345'
+        assert set(sealed['spec']['encryptedData'])=={'DATABASE_URL','SESSION_SECRET'} and 'namespace' not in sealed['metadata'], 'Argo applies it into svc-{id}, the scope Deploy Worker sealed for.'
+        assert sealed['metadata']['annotations']['argocd.argoproj.io/sync-wave']=='-1', 'The Secret must exist before the Deployment starts.'
+        assert container['envFrom']==[{'secretRef':{'name':'vars-r345'}}], 'User variables come only through envFrom so the env above wins.'
+        good = json.loads('\n'.join(l for l in (ROOT/'helm/charts/iris-service/ci/aws-values.yaml').read_text().splitlines() if not l.startswith('#')))
+        mutations = {
+            'PORT variable': lambda v: v['variables']['encryptedData'].update(PORT='AAAA'),
+            'IRIS_ variable': lambda v: v['variables']['encryptedData'].update(IRIS_X='AAAA'),
+            'invalid variable name': lambda v: v['variables']['encryptedData'].update({'A-B':'AAAA'}),
+            'empty variables': lambda v: v['variables'].update(encryptedData={}),
+            'plaintext value': lambda v: v['variables']['encryptedData'].update(A='not base64!'),
+            'invalid secret name': lambda v: v['variables'].update(name='Vars_R1'),
+            'missing secret name': lambda v: v['variables'].pop('name'),
+            'plaintext field': lambda v: v['variables'].update(plain={'A':'b'}),
+            'unknown identity field': lambda v: v['iris'].update(x=1),
+            'invalid service name': lambda v: v['iris'].update(serviceName='My_App'),
+        }
+        bad_service = directory/'bad-service.json'
+        for label, change in mutations.items():
+            values = copy.deepcopy(good); change(values); bad_service.write_text(json.dumps(values))
+            result = subprocess.run([HELM,'template','demo',str(ROOT/'helm/charts/iris-service'),'-f',str(bad_service),'--kube-version',VERSIONS['kubernetes']+'.0'],capture_output=True)
+            assert result.returncode, f'Invalid user variables must fail before deployment: {label}'
         egress = next(d for d in service_docs if d['kind']=='NetworkPolicy' and d['metadata']['name']=='restrict-egress')['spec']
         assert egress['podSelector']=={} and egress['policyTypes']==['Egress'] and {'cidr':'0.0.0.0/0','except':['10.40.0.0/16','169.254.0.0/16']} in [t.get('ipBlock') for r in egress['egress'] for t in r['to']], 'User pods must not reach VPC (collector NLB, nodes) or link-local addresses.'
         assert ingress['metadata']['annotations']['alb.ingress.kubernetes.io/group.name']=='iris-service-external', 'All services share the external ALB group.'
@@ -245,7 +272,7 @@ def main():
             for name,chart in charts.items():
                 if name not in enabled: continue
                 params = ('--set','clusterName=iris-dev-'+purpose,'--set','region=ap-northeast-2','--set','vpcId=vpc-0123456789abcdef0') if name=='aws-load-balancer-controller' else ()
-                namespace = 'kube-system' if name in ('aws-load-balancer-controller','metrics-server') else 'observability'
+                namespace = 'kube-system' if name in ('aws-load-balancer-controller','metrics-server','sealed-secrets') else 'observability'
                 docs = render(chart,base/(name+'.yaml'),release='monitoring' if name=='kube-prometheus-stack' else name,namespace=namespace,parameters=params)
                 check_images(docs)
                 rendered += docs
@@ -280,6 +307,14 @@ def main():
                         args=deployment['spec']['template']['spec']['containers'][0]['args']
                         assert '--kubelet-certificate-authority=/var/run/secrets/kubernetes.io/serviceaccount/ca.crt' in args
                         assert '--kubelet-insecure-tls' not in args
+                elif name=='sealed-secrets':
+                    assert purpose=='workload', 'User variables are unsealed only where user services run.'
+                    [controller] = [d for d in docs if d['kind']=='Deployment']
+                    assert controller['metadata']['name']=='sealed-secrets-controller' and controller['spec']['replicas']==1
+                    args = controller['spec']['template']['spec']['containers'][0]['args']
+                    # Deploy Worker seals with one fixed certificate, so the key must never rotate.
+                    assert args[args.index('--key-renew-period')+1]=='0'
+                    assert any(d['kind']=='CustomResourceDefinition' and d['spec']['names']['kind']=='SealedSecret' for d in docs)
                 elif name=='loki':
                     workloads = [d for d in docs if d['kind'] in ('Deployment','StatefulSet','DaemonSet')]
                     assert [(d['kind'],d['metadata']['name'],d['spec']['replicas']) for d in workloads]==[('StatefulSet','loki',1)], 'SingleBinary only: no gateway, caches or canary.'
@@ -301,6 +336,8 @@ def main():
         docs=render(chart,values,release='demo',namespace='iris-check')
         kinds={d['kind'] for d in docs}
         assert {'Deployment','Service','Ingress'} <= kinds
+        has_variables='"variables"' in values.read_text()
+        assert has_variables==('SealedSecret' in kinds)==any('envFrom' in c for d in docs if d['kind']=='Deployment' for c in d['spec']['template']['spec']['containers']), 'SealedSecret and envFrom exist only when variables are set.'
     print('Pinned charts/images, GitOps schema, baseline, platform TLS/migration/credentials, storage and replicas: passed. No runtime deployment tested.')
 
 

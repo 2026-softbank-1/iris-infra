@@ -285,8 +285,8 @@ def bootstrap():
     apply(management,objects)
     addons=('baseline','aws-load-balancer-controller','metrics-server','kube-prometheus-stack')
     addons+=('opentelemetry-collector',)
-    # Loki stores logs in management only (helm/gitops applications.yaml).
-    names=['iris-addons']+[f'iris-{p}-{a}' for p in targets for a in addons+(('loki',) if p=='management' else ())]
+    # Loki stores logs in management only; Sealed Secrets unseals user variables in workload only (helm/gitops applications.yaml).
+    names=['iris-addons']+[f'iris-{p}-{a}' for p in targets for a in addons+(('loki',) if p=='management' else ('sealed-secrets',))]
     def synced():
         apps=json.loads(kubectl(management,'get','applications','-n','argocd','-o','json'))['items']
         statuses={a['metadata']['name']:a.get('status',{}) for a in apps}
