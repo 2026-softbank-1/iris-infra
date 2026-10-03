@@ -42,4 +42,11 @@ run "alb_storage_and_delivery_boundary" {
     condition     = jsondecode(aws_iam_role.alb_log_collector.assume_role_policy).Statement[0].Condition.StringEquals["aws:RequestTag/kubernetes-service-account"] == "alb-log-collector" && alltrue([for s in jsondecode(aws_iam_role_policy.alb_log_collector.policy).Statement : !contains(s.Action, "s3:PutObject") && !contains(s.Action, "s3:DeleteObject")])
     error_message = "Only the management collector service account may consume read-only source logs."
   }
+  assert {
+    condition = jsonencode(one([for s in jsondecode(aws_s3_bucket_policy.alb_access_logs.policy).Statement : s if s.Sid == "ALBLogDeliveryRegionalAccount"])) == jsonencode({
+      Sid    = "ALBLogDeliveryRegionalAccount", Effect = "Allow", Principal = { AWS = "arn:aws:iam::600734575887:root" },
+      Action = "s3:PutObject", Resource = "${aws_s3_bucket.alb_access_logs.arn}/alb/workload/AWSLogs/123456789012/*"
+    })
+    error_message = "ap-northeast-2 delivers ALB logs as the regional ELB account: write-only, limited to this account's workload log prefix."
+  }
 }

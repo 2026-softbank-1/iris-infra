@@ -3,6 +3,20 @@ locals {
   alb_logs_name   = "${var.project}-${var.environment}-alb-access-logs"
   alb_log_prefix  = "alb/workload"
   alb_log_objects = "${local.alb_log_prefix}/AWSLogs/${var.aws_account_id}/elasticloadbalancing/${var.aws_region}/"
+  # Regions launched before August 2022 deliver ALB logs as a regional ELB account, not through the
+  # logdelivery service principal; the service principal alone is rejected with "Access Denied for
+  # bucket". Account IDs are published by AWS per region (ap-northeast-2 verified on 2026-10-03).
+  alb_log_delivery_account_ids = { "ap-northeast-2" = "600734575887" }
+  # Regions without an entry keep only the service principal statement.
+  # Same prefix and write-only action as the service principal; the regional account cannot read or
+  # list the bucket.
+  alb_log_regional_delivery = [for region, account in local.alb_log_delivery_account_ids : {
+    Sid       = "ALBLogDeliveryRegionalAccount"
+    Effect    = "Allow"
+    Principal = { AWS = "arn:aws:iam::${account}:root" }
+    Action    = "s3:PutObject"
+    Resource  = "${aws_s3_bucket.alb_access_logs.arn}/${local.alb_log_prefix}/AWSLogs/${var.aws_account_id}/*"
+  } if region == var.aws_region]
 }
 
 resource "aws_s3_bucket" "alb_access_logs" {
@@ -42,8 +56,8 @@ resource "aws_s3_bucket_policy" "alb_access_logs" {
   bucket = aws_s3_bucket.alb_access_logs.id
   policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [
-      {
+    Statement = concat(
+      [{
         Sid       = "ALBLogDelivery"
         Effect    = "Allow"
         Principal = { Service = "logdelivery.elasticloadbalancing.amazonaws.com" }
@@ -52,16 +66,17 @@ resource "aws_s3_bucket_policy" "alb_access_logs" {
         Condition = { StringEquals = { "aws:SourceAccount" = var.aws_account_id }, ArnLike = {
           "aws:SourceArn" = "arn:aws:elasticloadbalancing:${var.aws_region}:${var.aws_account_id}:loadbalancer/app/iris-service-external/*"
         } }
-      },
-      {
+      }],
+      local.alb_log_regional_delivery,
+      [{
         Sid       = "DenyInsecureTransport"
         Effect    = "Deny"
         Principal = "*"
         Action    = "s3:*"
         Resource  = [aws_s3_bucket.alb_access_logs.arn, "${aws_s3_bucket.alb_access_logs.arn}/*"]
         Condition = { Bool = { "aws:SecureTransport" = "false" } }
-      }
-    ]
+      }]
+    )
   })
   depends_on = [aws_s3_bucket_public_access_block.alb_access_logs]
 }
