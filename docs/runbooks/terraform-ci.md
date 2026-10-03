@@ -1,8 +1,37 @@
 # Terraform CI와 main 자동 apply
 
-이 저장소에서는 **사용자가 main으로 merge하면 인프라 검토와 배포 승인이 끝난 것으로 보고 자동 apply**합니다. `.github/workflows/terraform-check.yml`은 PR의 check가 성공한 뒤 main push에서 동일한 check→deploy를 실행합니다. 별도 EKS 수동 토글은 없으며 agent는 main merge/push를 수행하지 않습니다. workflow_dispatch에서 main을 선택해도 배포되므로 운영자가 같은 배포 판단을 하고 실행합니다.
+이 저장소에서는 **Terraform 배포 입력이 바뀐 PR을 사용자가 main으로 merge하면 인프라 검토와 배포 승인이 끝난 것으로 보고 자동 apply**합니다. `.github/workflows/terraform-check.yml`의 변경 감지 → `check` → 조건부 `deploy` 순서로 실행합니다. Helm·collector·digest·문서만 바뀐 main push는 Terraform apply를 시작하지 않습니다. agent는 main merge/push를 수행하지 않습니다.
 
-PR check는 AWS 인증 없이 scaffold, fake CI/ops/ECR 테스트, actionlint/ShellCheck, scratch Docker build, backend 없는 fmt/init/validate, 격리 Terraform mock, 고정 Helm chart lint/render/schema/digest 검사를 수행합니다. check timeout은30분이며 하나라도 실패하면 deploy를 시작하지 않습니다. OIDC write는 deploy job에만 있습니다.
+PR check는 AWS 인증 없이 관련 검사만 수행합니다. scaffold·CI 조건 테스트·actionlint/ShellCheck는 항상 실행하며, Terraform·collector·platform/ECR·Helm·ops 검사는 변경된 입력에 따라 선택합니다. Terraform 검증이 필요한 변경에서는 기존 전체 검사를 유지합니다. check timeout은30분이며 변경 감지나 검사 하나라도 실패하면 deploy를 시작하지 않습니다. OIDC write는 deploy job에만 있습니다.
+
+## 변경 조건과 수동 실행
+
+변경 분류는 `scripts/terraform-ci-changes.py`가 PR base→merge commit, main push before→after의 전체 Git diff를 사용합니다. 삭제·이름 변경의 양 경로를 포함하며 Git 조회 실패는 검사를 실패시킵니다. required `check`와 `collector-ci`가 경로 필터 때문에 대기 상태에 남지 않도록 workflow 기록과 가벼운 상태 검사는 항상 생성합니다.
+
+main의 검사 concurrency는 run별로 분리해 이후 문서-only push가 배포 입력의 검사를 취소하지 않도록 합니다. PR의 새 commit은 같은 PR의 이전 검사를 취소할 수 있으며 실제 apply의 기존 직렬화·취소 금지 정책은 유지합니다.
+
+| 변경 | 검증 | 자동 Terraform apply |
+| --- | --- | --- |
+| bootstrap/dev 환경/module의 runtime 입력·lock·buildspec·`.scaffold`, `terraform/config` runtime 데이터 | 전체 검사 | main push에서 실행 |
+| `.terraform-version`, `tf-ci.sh`, `common.sh`, foundation plan guard | 전체 검사 | main push에서 실행 |
+| account, Terraform tests·예시, workflow·분류기·검사 helper·Makefile | 전체 검사 | 건너뜀 |
+| collector 코드·빌드 설정·테스트·rules | collector/Helm/ops 및 관련 platform 검사 | 건너뜀 |
+| Helm·cluster values·image digest·contract JSON | Helm/ops 검사 | 건너뜀 |
+| platform 또는 ops helper | 해당 검사 | 건너뜀 |
+| 문서만 | 공통 정적/상태 검사 | 건너뜀 |
+
+runtime 경로 안의 docs/tests/`.example`은 자동 apply에서 제외합니다. 새 `scripts/` helper가 아직 분류되지 않았으면 보수적으로 전체 검증을 수행하되 자동 apply는 하지 않습니다. 새 Terraform `file()`/template 의존이나 helper를 추가할 때 분류기와 경로 테스트를 함께 확인하세요. 실제 account IAM 적용은 기존처럼 관리자 작업입니다.
+
+`workflow_dispatch`는 기본적으로 전체 검증만 수행합니다. 운영자가 배포 판단을 마친 후 **main에서 `force_apply=true`**를 선택해야 apply합니다. main 이외 ref와 PR은 이 옵션으로도 배포하지 않습니다.
+
+```bash
+# 전체 검증만 실행 (인프라 변경 없음)
+gh workflow run terraform-check.yml --ref main
+# 운영자의 배포 승인 후 main을 실제 적용
+gh workflow run terraform-check.yml --ref main -f force_apply=true
+```
+
+이 조건은 실제 Actions/AWS 배포 성공 검증과 별개입니다. 필터 수정의 로컬 검증은 변경 분류/Git diff/workflow gate 테스트와 actionlint로 수행합니다. 조건을 되돌리면 이전의 광범위한 main 자동 apply가 다시 활성화되므로 revert의 main 반영도 배포 영향 검토가 필요합니다.
 
 | 순서 | root | S3 state key | 적용 내용 |
 | --- | --- | --- | --- |
@@ -49,7 +78,7 @@ make tf-apply STACK=account/aws
 운영자 ARN은 EKS Access Entry용이며 기존 CI role과 구분합니다. 필수 입력이 없으면 첫 stack 실행 전에 실패합니다. AWS key/session token·Git token·AWS_PROFILE은 GitHub 변수에 넣지 않습니다.
 
 6. foundation 실제 plan에서 기존 build/ECR/VPC/subnet/NAT0/EIP0 보존을 확인합니다. `per_az` 전환은 NAT1/EIP1 추가와 해당 AZ private route 갱신입니다. 실제 plan에는 SSM bridge와 Argo IAM 추가가 있습니다. EKS 최초 plan은 선행 foundation의 새 output이 실제 적용된 이후에 완전히 생성할 수 있습니다. 전체 `tf-ci.sh plan`이 최초에는 후행 output 부족으로 실패할 수 있습니다.
-7. 종료 시각과 [철거](teardown.md)를 준비하고 사용자가 merge합니다. main merge는 EKS/NAT 비용 발생을 포함한 인프라 배포의 시작입니다. Helm bootstrap은 merge로 실행되지 않습니다.
+7. 종료 시각과 [철거](teardown.md)를 준비하고 사용자가 merge합니다. Terraform 배포 입력의 main merge는 EKS/NAT 비용 발생을 포함한 인프라 배포의 시작입니다. Helm bootstrap은 merge로 실행되지 않습니다.
 
 ## 입력·권한 경계
 

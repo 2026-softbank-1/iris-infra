@@ -260,13 +260,14 @@ class CollectorCITest(unittest.TestCase):
                                         ("workflow_dispatch", "refs/heads/topic", False),
                                         ("push", "refs/heads/main", True),
                                         ("workflow_dispatch", "refs/heads/main", True)):
-                expr = " ".join(guard.split())
-                expr = expr.replace("!cancelled()", "True").replace("&&", " and ").replace("||", " or ")
-                expr = re.sub(r"needs\.[a-z-]+\.outputs\.image_changed", "'true'", expr)
-                expr = re.sub(r"needs\.[a-z-]+\.result", "'success'", expr)
-                expr = expr.replace("github.ref", repr(ref)).replace("github.event_name", repr(event))
-                with self.subTest(job=name, event=event, ref=ref):
-                    self.assertEqual(eval(expr, {"__builtins__": {}}), allowed)
+                for changed in (True, False):
+                    expr = " ".join(guard.split())
+                    expr = expr.replace("!cancelled()", "True").replace("&&", " and ").replace("||", " or ")
+                    expr = re.sub(r"needs\.[a-z-]+\.outputs\.image_changed", repr(str(changed).lower()), expr)
+                    expr = re.sub(r"needs\.[a-z-]+\.result", "'success'", expr)
+                    expr = expr.replace("github.ref", repr(ref)).replace("github.event_name", repr(event))
+                    with self.subTest(job=name, event=event, ref=ref, changed=changed):
+                        self.assertEqual(eval(expr, {"__builtins__": {}}), allowed and changed)
         for name in ("changes", "verify", "collector-ci"):
             self.assertNotIn("secrets.", jobs[name])
             self.assertNotIn("id-token: write", jobs[name])

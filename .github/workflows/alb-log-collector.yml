@@ -121,6 +121,7 @@ jobs:
     needs: [changes, verify, preflight]
     if: >-
       !cancelled() && needs.changes.result == 'success' &&
+      needs.changes.outputs.image_changed == 'true' &&
       needs.verify.result == 'success' && needs.preflight.result == 'success' &&
       github.ref == 'refs/heads/main' &&
       (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
@@ -164,9 +165,10 @@ jobs:
         run: bash examples/github-actions/build-push-ecr.sh push
 
   image-pr:
-    needs: publish
+    needs: [changes, publish]
     if: >-
-      !cancelled() && needs.publish.result == 'success' &&
+      !cancelled() && needs.changes.result == 'success' &&
+      needs.changes.outputs.image_changed == 'true' && needs.publish.result == 'success' &&
       github.ref == 'refs/heads/main' &&
       (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
@@ -216,7 +218,7 @@ jobs:
             Digest: `${{ needs.publish.outputs.digest }}`
             Build: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }} (attempt ${{ github.run_attempt }})
 
-            Only collector values and the image lock change. Collector activation and Argo revision/sync require separate deployment work. Merging this PR still triggers the existing Terraform main apply workflow.
+            Only collector values and the image lock change. Collector activation and Argo revision/sync require separate deployment work. A digest-only merge runs Helm validation and skips Terraform apply.
 
   collector-ci:
     name: collector-ci
