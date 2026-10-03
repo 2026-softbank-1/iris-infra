@@ -6,6 +6,7 @@
 - `buildspec.yml` 은 iris-was Build Worker 가 넘기는 환경변수와 짝을 이룹니다. 바꿀 때 두 저장소를 함께 봅니다. Railpack CLI 는 install 단계에서 고정 버전·체크섬으로 받습니다.
 - 서비스별 ECR 저장소(`iris/services/{service_id}`)는 Build Worker 가 만듭니다.
 - 로그: Loki S3 버킷(SSE-S3, `force_destroy` 없음, 보관은 Loki compactor 7일)과 Loki 역할(`observability/loki` SA만 신뢰, 이 버킷 객체 읽기·쓰기·삭제만). Pod Identity 연결은 management stack 입니다.
+- Control API 역할(`control-api`, 배포 상세 화면의 빌드 로그 조회용): management 클러스터의 `iris-platform/iris-platform-api` SA만 신뢰하고 CodeBuild 로그 그룹의 `logs:GetLogEvents` 만 허용합니다. Pod Identity 연결은 management stack, CI의 관리 권한은 account의 `ci-control-api.tf` 입니다.
 - 플랫폼 ECR은 `iris/was`, `iris/code-analyzer-agent`, `iris/error-check-agent`입니다. 정적 사이트인 `iris-web`은 별도 후속 배포입니다.
 - 네트워크: 공유 VPC, public subnet 2개, 관리용·앱용 private subnet 각 2개, IGW, zonal NAT, routing, 관리→앱 API 접근용 추가 SG 2개.
 - DNS: 기존 Route53 zone `likelion.uk`를 import(`prevent_destroy`, plan guard 보호)하고 ALB용 `*.likelion.uk`+apex ACM 인증서와 DNS 검증 레코드를 둡니다. 선언하지 않은 기존 레코드(apex/app/www)는 건드리지 않습니다. 권한 DNS가 Route53이 아니면 `acm_validation_records` 출력을 현재 DNS에 등록해야 발급됩니다.

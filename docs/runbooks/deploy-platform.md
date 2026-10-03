@@ -73,7 +73,8 @@ argocd app wait iris-platform --sync --health --timeout 900   # 확인용
 
 ## 실제 배포 확인
 
-- API·Worker가 실제 WAS digest로 실행되고 ImagePullBackOff/CrashLoop가 없는지 확인합니다. build/deploy Pod Identity credential은 각 역할이어야 하고 API·Job·Agent에는 Worker 역할이 없어야 합니다. 실제 IAM 권한은 mock 검사와 별도로 확인합니다.
+- API·Worker가 실제 WAS digest로 실행되고 ImagePullBackOff/CrashLoop가 없는지 확인합니다. build/deploy/API Pod Identity credential은 각 역할(`build-worker`·`deploy-worker`·`iris-platform-api`)이어야 합니다. API는 `control-api` 역할(빌드 로그 읽기 전용)만 쓰고 Worker 역할이 없어야 하며, Job·Agent에는 AWS 역할이 없어야 합니다. 실제 IAM 권한은 mock 검사와 별도로 확인합니다.
+- Control API 빌드 로그: Pod Identity association은 이미 떠 있는 Pod에는 적용되지 않으므로 foundation·management apply 뒤 API를 재시작합니다(`api.buildLogGroup` 변경은 ConfigMap checksum으로 자동 재시작). 배포된 사용자 서비스 배포 하나로 `GET /api/v1/services/{id}/deployments/{id}/build-logs` 가 `503 NOT_CONFIGURED`·`502 EXTERNAL_ERROR` 없이 로그를 돌려주는지 확인합니다. 권한이 없으면 CloudWatch가 `AccessDenied`를 돌려 `502` 가 됩니다.
 - migration hook 성공과 RDS Alembic version을 확인합니다. 비밀번호·URL·토큰은 로그에서 제외합니다.
 - API `/healthz` 성공과 DB 연결을 확인하는 `/readyz` **204**, ALB target Healthy와 HTTPS hostname/인증서를 확인합니다. 연결 source subnet, API 8000 SG와 RDS 5432 SG/NetworkPolicy를 함께 점검합니다.
 - Argo Service 443의 실제 target은 server Pod 8080입니다. Deploy Worker URL 인증서 SAN과 완전한 CA bundle을 확인합니다. TLS 검증을 끄지 않습니다.

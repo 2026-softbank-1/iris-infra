@@ -16,6 +16,7 @@
     "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     "replicas": 1,
     "host": "api.example.com",
+    "buildLogGroup": "/aws/codebuild/iris-dev-build",
     "resources": {
       "requests": {
         "cpu": "100m",

@@ -14,6 +14,15 @@ resource "aws_eks_pod_identity_association" "build_worker" {
   depends_on      = [module.eks]
 }
 
+# Control API reads build logs only. The service account is the chart's `{release}-api`.
+resource "aws_eks_pod_identity_association" "control_api" {
+  cluster_name    = module.eks.name
+  namespace       = "iris-platform"
+  service_account = "iris-platform-api"
+  role_arn        = data.terraform_remote_state.foundation.outputs.control_api_role_arn
+  depends_on      = [module.eks]
+}
+
 resource "aws_eks_pod_identity_association" "deploy_worker" {
   cluster_name    = module.eks.name
   namespace       = "iris-platform"

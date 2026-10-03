@@ -29,6 +29,7 @@ override_data {
     alb_access_logs                         = { collector_role_arn = "arn:aws:iam::123456789012:role/alb-log-collector" }
     loki_role_arn                           = "arn:aws:iam::123456789012:role/loki"
     build_worker_role_arn                   = "arn:aws:iam::123456789012:role/build-worker"
+    control_api_role_arn                    = "arn:aws:iam::123456789012:role/control-api"
   } }
 }
 variables {
@@ -53,6 +54,18 @@ run "platform_pod_identity" {
   assert {
     condition     = aws_eks_pod_identity_association.loki.namespace == "observability" && aws_eks_pod_identity_association.loki.service_account == "loki" && aws_eks_pod_identity_association.loki.role_arn == data.terraform_remote_state.foundation.outputs.loki_role_arn
     error_message = "Loki must use the foundation Loki role through observability/loki only."
+  }
+}
+
+run "control_api_identity" {
+  command = plan
+  assert {
+    condition     = aws_eks_pod_identity_association.control_api.namespace == "iris-platform" && aws_eks_pod_identity_association.control_api.service_account == "iris-platform-api" && aws_eks_pod_identity_association.control_api.role_arn == data.terraform_remote_state.foundation.outputs.control_api_role_arn
+    error_message = "Control API must use its own foundation role through iris-platform/iris-platform-api only."
+  }
+  assert {
+    condition     = aws_eks_pod_identity_association.control_api.role_arn != aws_eks_pod_identity_association.build_worker.role_arn && aws_eks_pod_identity_association.control_api.role_arn != aws_eks_pod_identity_association.deploy_worker.role_arn
+    error_message = "Control API must not share a role with the Build or Deploy Worker."
   }
 }
 
