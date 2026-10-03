@@ -3,7 +3,8 @@
 # policy that names only the repositories of the services on that server, then returns an ECR token.
 # The role itself allows pull on every user service repository and nothing else; the session policy narrows it.
 # Control API credentials already come from a role session (Pod Identity), so this is role chaining and a
-# session lasts at most one hour.
+# session lasts at most one hour. Pod Identity session tags are transitive, so the trust policy must also
+# allow sts:TagSession or AssumeRole is denied.
 resource "aws_iam_role" "onprem_ecr_pull" {
   name        = "${var.project}-${var.environment}-onprem-ecr-pull"
   description = "Iris Control API: ECR pull tokens for user-registered on-prem servers, narrowed per server by session policy"
@@ -12,7 +13,7 @@ resource "aws_iam_role" "onprem_ecr_pull" {
     Version = "2012-10-17"
     Statement = [{
       Effect    = "Allow"
-      Action    = ["sts:AssumeRole"]
+      Action    = ["sts:AssumeRole", "sts:TagSession"]
       Principal = { AWS = aws_iam_role.control_api.arn }
     }]
   })
