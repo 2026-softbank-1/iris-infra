@@ -1,0 +1,39 @@
+# Argo cluster registration uses the existing iris-argocd ServiceAccount.
+# AppProject iris-svc-project limits deployment destinations to svc-* namespaces.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: iris-onprem-service-deployer
+rules:
+  # Argo maintains discovery and resource caches for its registered cluster.
+  - apiGroups: ["*"]
+    resources: ["*"]
+    verbs: [get, list, watch]
+  - apiGroups: [""]
+    resources: [namespaces]
+    verbs: [create, update, patch]
+  - apiGroups: [""]
+    resources: [services, configmaps]
+    verbs: [create, update, patch, delete]
+  - apiGroups: [apps]
+    resources: [deployments, replicasets]
+    verbs: [create, update, patch, delete]
+  - apiGroups: [networking.k8s.io]
+    resources: [ingresses, networkpolicies]
+    verbs: [create, update, patch, delete]
+  - apiGroups: [bitnami.com]
+    resources: [sealedsecrets]
+    verbs: [create, update, patch, delete]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: iris-onprem-service-deployer
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: iris-onprem-service-deployer
+subjects:
+  - kind: ServiceAccount
+    name: iris-argocd
+    namespace: iris-onprem-test

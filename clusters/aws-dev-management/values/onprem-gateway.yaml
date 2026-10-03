@@ -1,8 +1,8 @@
 {
   "host": "*.internal.likelion.uk",
-  "publicIngress": {"enabled": false},
+  "publicIngress": {"enabled": true},
   "groupName": "iris-platform-external",
-  "certificateArn": "",
+  "certificateArn": "arn:aws:acm:ap-northeast-2:187069338876:certificate/3bb3f074-f8b5-40b8-ab4c-4a82ebf8788e",
   "albSourceCidrs": ["10.40.240.0/24", "10.40.241.0/24"],
   "upstream": {"tailnetFqdn": "iris-onprem-01.tailb046e8.ts.net", "port": 80},
   "replicas": 2
