@@ -162,6 +162,14 @@ def check_platform(directory, targets, bootstrap):
     command('lint','--strict',chart,'-f',cluster,'-f',only_api,'--kube-version',VERSIONS['kubernetes']+'.0','--namespace','iris-platform')
     docs=[x for x in yaml.safe_load_all(command('template','iris-platform',chart,'-f',cluster,'-f',only_api,'-f',agent,'--kube-version',VERSIONS['kubernetes']+'.0','--namespace','iris-platform')) if x]
     assert {d['metadata']['name'] for d in docs if d['kind'] in {'Deployment','Job','Ingress'}}=={'iris-platform-api','iris-platform-migration','iris-platform-error-agent'}, 'Only components with a digest deploy.'
+    # Steady Pods plus one RollingUpdate surge Pod per Deployment must fit the management quota, or rollouts stall.
+    # ponytail: only this chart is counted; iris-code-fix-runtime (Recreate, no surge) shares the namespace.
+    full=directory/'was-all.yaml'; full.write_text(json.dumps({k:{'digest':digest} for k in ('api','buildWorker','deployWorker')}))
+    milli=lambda c: int(c[:-1]) if c.endswith('m') else int(float(c)*1000)
+    pods=[d['spec'] for d in yaml.safe_load_all(command('template','iris-platform',chart,'-f',cluster,'-f',full,'-f',agent,'--kube-version',VERSIONS['kubernetes']+'.0','--namespace','iris-platform')) if d and d['kind']=='Deployment']
+    need=sum(milli(p['template']['spec']['containers'][0]['resources']['limits']['cpu'])*(p['replicas']+1) for p in pods)
+    quota=yaml.safe_load((ROOT/'clusters/aws-dev-management/values/baseline.yaml').read_text())['quota']['limits.cpu']
+    assert need<=milli(quota), f'Platform limits with rollout surge ({need}m) exceed management quota limits.cpu {quota}.'
     enabled=directory/'gitops-platform.json';enabled.write_text(json.dumps({'revision':'a'*40,'targets':targets,'platform':{'enabled':True}}))
     docs=render(ROOT/'helm/gitops', enabled, namespace='argocd')
     assert sum(d['kind']=='Application' for d in docs)==13 and sum(d['kind']=='AppProject' for d in docs)==4
