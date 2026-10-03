@@ -18,7 +18,8 @@
     "docker.io/otel/opentelemetry-collector-contrib:0.161.0": "sha256:fd328de2552466ad78385e1b1289c3f2402b1c45f265b252aab1955b42845ac1",
     "docker.io/grafana/loki:3.6.12": "sha256:2483b71b28b15dee230f85512cae2b20c4b5f6e98a6eabe686cbccfa5ea3ba4a",
     "public.ecr.aws/aws-cli/aws-cli:2.37.7": "sha256:95f8d1e6d31aaa16997d1406eb532b0ca6a9830fe8a859c37a0fd223f10959e5",
-    "docker.io/library/python:3.12-alpine": "sha256:4c47124a8391cb7a9f571164147d154777cf012a4ece5f86097130d7a4478111"
+    "docker.io/library/python:3.12-alpine": "sha256:4c47124a8391cb7a9f571164147d154777cf012a4ece5f86097130d7a4478111",
+    "docker.io/bitnami/sealed-secrets-controller:0.40.0": "sha256:b1ff382e9300dc9e74991f3177b18cafc06ce43b5c21349c86adbdd1d1c177d3"
   },
   "verification_images": {
     "aws_cli": "public.ecr.aws/aws-cli/aws-cli:2.37.7@sha256:95f8d1e6d31aaa16997d1406eb532b0ca6a9830fe8a859c37a0fd223f10959e5",

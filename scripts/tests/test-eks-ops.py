@@ -87,7 +87,7 @@ class Operations(unittest.TestCase):
         def kubectl(t,*args,**kwargs):
             events.append(('kubectl',args))
             if args[:2]==('get','applications'):
-                names=['iris-addons']+[f'iris-{purpose}-{addon}' for purpose in ('management','workload') for addon in ('baseline','aws-load-balancer-controller','metrics-server','kube-prometheus-stack','opentelemetry-collector')+(('loki',) if purpose=='management' else ())]
+                names=['iris-addons']+[f'iris-{purpose}-{addon}' for purpose in ('management','workload') for addon in ('baseline','aws-load-balancer-controller','metrics-server','kube-prometheus-stack','opentelemetry-collector')+(('loki',) if purpose=='management' else ('sealed-secrets',))]
                 apps=[{'metadata':{'name':name},'status':{'sync':{'status':'Synced'},'health':{'status':root_health if name=='iris-addons' else addon_health}}} for name in names]
                 if platform_exists:apps.append({'metadata':{'name':'iris-platform'},'status':{}})
                 return json.dumps({'items':apps})

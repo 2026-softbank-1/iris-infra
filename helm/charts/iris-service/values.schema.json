@@ -65,6 +65,39 @@
         "groupName": { "type": "string" }
       }
     },
+    "iris": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "serviceName": { "$ref": "#/definitions/dnsLabel" },
+        "targetName": { "$ref": "#/definitions/dnsLabel" },
+        "deploymentId": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "variables": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "encryptedData"],
+      "properties": {
+        "name": { "$ref": "#/definitions/dnsLabel" },
+        "encryptedData": {
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 100,
+          "propertyNames": {
+            "maxLength": 128,
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+            "not": { "pattern": "^(PORT|IRIS_.*)$" }
+          },
+          "additionalProperties": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 98304,
+            "pattern": "^[A-Za-z0-9+/]+={0,2}$"
+          }
+        }
+      }
+    },
     "networkPolicy": {
       "type": "object",
       "additionalProperties": false,
@@ -87,6 +120,11 @@
     }
   },
   "definitions": {
+    "dnsLabel": {
+      "type": "string",
+      "maxLength": 63,
+      "pattern": "^[a-z0-9]([a-z0-9-]*[a-z0-9])?$"
+    },
     "quantities": {
       "type": "object",
       "additionalProperties": false,

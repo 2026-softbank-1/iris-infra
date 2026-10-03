@@ -25,6 +25,10 @@
     "loki": {
       "version": "7.3.0",
       "repo": "https://grafana.github.io/helm-charts"
+    },
+    "sealed-secrets": {
+      "version": "2.20.0",
+      "repo": "https://bitnami.github.io/sealed-secrets"
     }
   }
 }
