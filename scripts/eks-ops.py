@@ -240,9 +240,11 @@ def bootstrap():
     platform_flag=os.environ.get('GITOPS_PLATFORM_ENABLED','0')
     need(platform_flag in ('0','1'),'GITOPS_PLATFORM_ENABLED must be 0 or 1.')
     platform_enabled=platform_flag=='1'
-    sha=os.environ.get('GITOPS_REVISION','')
-    need(re.fullmatch(r'[0-9a-f]{40}([0-9a-f]{24})?',sha),'Set GITOPS_REVISION to the reviewed commit merged into main.')
-    need(run(['git','-C',str(ROOT),'rev-parse','HEAD']).strip()==sha,'Check out GITOPS_REVISION before bootstrap.')
+    # Argo tracks main by default; a reviewed SHA pins the root for rollback.
+    revision=os.environ.get('GITOPS_REVISION','main')
+    need(revision=='main' or re.fullmatch(r'[0-9a-f]{40}([0-9a-f]{24})?',revision),'GITOPS_REVISION must be main or a reviewed commit SHA merged into main.')
+    expected=run(['git','-C',str(ROOT),'rev-parse','origin/main']).strip() if revision=='main' else revision
+    need(run(['git','-C',str(ROOT),'rev-parse','HEAD']).strip()==expected,'Check out GITOPS_REVISION (origin/main for main) before bootstrap.')
     need(not run(['git','-C',str(ROOT),'status','--porcelain','--untracked-files=all','--','helm','scripts','terraform','clusters']).strip(),'Bootstrap source must be a clean reviewed checkout.')
     token_path=os.environ.get('ARGOCD_GIT_TOKEN_FILE')
     key_path=os.environ.get('ARGOCD_GIT_SSH_KEY_FILE')
@@ -279,10 +281,10 @@ def bootstrap():
     for purpose,target in targets.items():
         auth={'awsAuthConfig':{'clusterName':target['name'],'roleARN':target['argocd_role_arn']},'tlsClientConfig':{'insecure':False,'caData':target['ca_data']}}
         objects.append({'apiVersion':'v1','kind':'Secret','metadata':{'name':f'iris-{purpose}-cluster','namespace':'argocd','labels':{'argocd.argoproj.io/secret-type':'cluster'}},'type':'Opaque','stringData':{'name':target['name'],'server':target['endpoint'],'config':json.dumps(auth)}})
-    values={'repoURL':repo_url,'revision':sha,'services':{'repoURL':gitops_url},'platform':{'enabled':platform_enabled},'targets':{p:{k:t[k] for k in ('endpoint','name','region','vpc_id')} for p,t in targets.items()}}
+    values={'repoURL':repo_url,'revision':revision,'services':{'repoURL':gitops_url},'platform':{'enabled':platform_enabled},'targets':{p:{k:t[k] for k in ('endpoint','name','region','vpc_id')} for p,t in targets.items()}}
     objects += [
         {'apiVersion':'argoproj.io/v1alpha1','kind':'AppProject','metadata':{'name':'iris-root','namespace':'argocd'},'spec':{'sourceRepos':[repo_url],'destinations':[{'server':management['endpoint'],'namespace':'argocd'}],'clusterResourceWhitelist':[],'namespaceResourceWhitelist':[{'group':'argoproj.io','kind':'Application'},{'group':'argoproj.io','kind':'AppProject'},{'group':'argoproj.io','kind':'ApplicationSet'}]}},
-        {'apiVersion':'argoproj.io/v1alpha1','kind':'Application','metadata':{'name':'iris-addons','namespace':'argocd'},'spec':{'project':'iris-root','source':{'repoURL':repo_url,'targetRevision':sha,'path':'helm/gitops','helm':{'valuesObject':values}},'destination':{'server':management['endpoint'],'namespace':'argocd'},'syncPolicy':{'automated':{'prune':False,'selfHeal':True},'syncOptions':['ServerSideApply=true']}}}]
+        {'apiVersion':'argoproj.io/v1alpha1','kind':'Application','metadata':{'name':'iris-addons','namespace':'argocd'},'spec':{'project':'iris-root','source':{'repoURL':repo_url,'targetRevision':revision,'path':'helm/gitops','helm':{'valuesObject':values}},'destination':{'server':management['endpoint'],'namespace':'argocd'},'syncPolicy':{'automated':{'prune':False,'selfHeal':True},'syncOptions':['ServerSideApply=true']}}}]
     apply(management,objects)
     addons=('baseline','aws-load-balancer-controller','metrics-server','kube-prometheus-stack')
     addons+=('opentelemetry-collector',)

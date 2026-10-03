@@ -17,7 +17,7 @@ flowchart LR
 ## 첫 적용 순서
 
 1. PR 을 main 에 merge 하고 `iris-service-0.6.0` tag 가 merge commit 에 있는지 확인합니다. tag 가 없으면 `chartRevision` 이 가리키는 chart 를 못 찾아 모든 사용자 서비스가 sync 에 실패합니다. **tag 를 만들기 전에 bootstrap 하지 않습니다.**
-2. [eks-access](eks-access.md) 절차로 두 터널을 열고 merge 된 SHA 를 checkout 한 뒤 `make bootstrap CLUSTER=aws-dev-management` 를 실행합니다. bootstrap 이 `iris-workload-sealed-secrets` Application 의 Synced/Healthy 를 기다립니다.
+2. [eks-access](eks-access.md) 절차로 두 터널을 열고 최신 main 을 checkout 한 뒤 `make bootstrap CLUSTER=aws-dev-management` 를 실행합니다. bootstrap 이 `iris-workload-sealed-secrets` Application 의 Synced/Healthy 를 기다립니다.
 3. controller 를 확인합니다.
 
    ```bash

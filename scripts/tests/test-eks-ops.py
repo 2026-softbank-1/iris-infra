@@ -72,14 +72,16 @@ class Operations(unittest.TestCase):
             return ''
         with patch.dict(os.environ,{'GITOPS_REVISION':sha,'ARGOCD_GIT_TOKEN_FILE':str(token)}),patch.object(ops,'require'),patch.object(ops,'run',side_effect=run),patch.object(ops,'load_target',return_value=self.t),patch.object(ops,'ready',side_effect=[self.t,ValueError('second target unsafe')]),patch.object(ops,'apply') as apply,patch.object(ops,'kubectl') as kubectl,self.assertRaises(ValueError):ops.bootstrap()
         apply.assert_not_called();kubectl.assert_not_called()
-    def bootstrap_fixture(self, flag=None, root_health='Healthy', addon_health='Healthy', platform_exists=True, fail_validation=False):
+    def bootstrap_fixture(self, flag=None, root_health='Healthy', addon_health='Healthy', platform_exists=True, fail_validation=False, revision='a'*40, origin_main='a'*40):
         (self.root/'helm/versions.json').write_text((ROOT/'helm/versions.json').read_text())
         token=self.root/'token';token.write_text('fixture-not-a-real-credential')
         sha='a'*40; events=[]; applied=[]
-        env={'GITOPS_REVISION':sha,'ARGOCD_GIT_TOKEN_FILE':str(token)}
+        env={'ARGOCD_GIT_TOKEN_FILE':str(token)}
+        if revision is not None:env['GITOPS_REVISION']=revision
         if flag is not None:env['GITOPS_PLATFORM_ENABLED']=flag
         def run(args,**kwargs):
             events.append(('run',args))
+            if 'origin/main' in args:return origin_main
             if 'rev-parse' in args:return sha
             if 'version' in args:return 'v3.19.1+fixture'
             if fail_validation and args[:2]==['helm','lint']:raise RuntimeError('invalid platform inputs')
@@ -105,6 +107,17 @@ class Operations(unittest.TestCase):
         app=next(d for d in applied if d['kind']=='Application')
         self.assertEqual(app['spec']['source']['helm']['valuesObject']['platform'],{'enabled':False})
         self.assertFalse(any(e[0]=='run' and e[1][:2]==['helm','lint'] for e in events))
+    def test_bootstrap_tracks_main_by_default(self):
+        for revision in (None,'main'):
+            events,applied,error=self.bootstrap_fixture(revision=revision)
+            self.assertIsNone(error)
+            app=next(d for d in applied if d['kind']=='Application')
+            self.assertEqual(app['spec']['source']['targetRevision'],'main')
+            self.assertEqual(app['spec']['source']['helm']['valuesObject']['revision'],'main')
+    def test_bootstrap_rejects_stale_checkout_or_other_branch(self):
+        for kwargs in ({'revision':'main','origin_main':'b'*40},{'revision':'feature/x'},{'revision':''}):
+            events,applied,error=self.bootstrap_fixture(**kwargs)
+            self.assertIsInstance(error,ValueError);self.assertEqual(applied,[])
     def test_bootstrap_invalid_flag_stops_before_any_write(self):
         for flag in ('true','yes','2',''):
             events,applied,error=self.bootstrap_fixture(flag)

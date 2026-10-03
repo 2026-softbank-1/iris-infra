@@ -29,7 +29,7 @@ flowchart LR
    done
    ```
 
-3. main 머지 후 그 SHA로 bootstrap합니다([EKS 운영 경로](eks-access.md)). management에 `iris-management-loki`, `iris-management-opentelemetry-collector` Application이 생깁니다.
+3. main 머지 후 Argo가 동기화합니다([EKS 운영 경로](eks-access.md)). management에 `iris-management-loki`, `iris-management-opentelemetry-collector` Application이 생깁니다.
 4. gateway NLB DNS를 workload agent values에 넣습니다(`kubectl -n observability get svc opentelemetry-collector`).
 
 ## 검증
