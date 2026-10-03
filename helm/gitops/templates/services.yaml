@@ -47,11 +47,16 @@ spec:
         directories:
           - path: services/*/prod
   syncPolicy:
-    # A removed directory must not delete a running service; deletion is a separate decision.
-    applicationsSync: create-update
+    # Removing services/{id}/prod deletes its Application. Only the Deploy Worker removes directories
+    # (REMOVE job, iris-was ADR 0016); people do not edit services/ by hand.
+    applicationsSync: sync
   template:
     metadata:
       name: 'svc-{{ "{{" }} index .path.segments 1 {{ "}}" }}'
+      # Deleting the Application also deletes its workload resources. Without the finalizer they are
+      # orphaned in the workload cluster.
+      finalizers:
+        - resources-finalizer.argocd.argoproj.io
     spec:
       project: iris-svc-project
       sources:
