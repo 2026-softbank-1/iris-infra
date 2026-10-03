@@ -11,7 +11,7 @@ k3d image import demo:COMMIT_SHA --cluster iris-workload
 ```
 
 로컬 CLI는 로컬 설정에서 Kubernetes Secret을 생성하고 AWS와 같은 iris-service 차트를 사용합니다.
-iris-service 0.7.0부터 앱이 Argo Rollouts `Rollout`이므로 [runbook](../docs/runbooks/argo-rollouts.md#on-prem-설치)의 같은 Helm 명령으로 controller를 먼저 설치합니다.
+iris-service 0.7.0부터 앱이 Argo Rollouts `Rollout`이므로 [runbook](../docs/runbooks/argo-rollouts.md)의 "다른 클러스터에 controller 설치" Helm 명령으로 controller를 먼저 설치합니다.
 image tag는 commit 기반으로 고정하고 이미지 ID도 배포 기록에 보관합니다.
 Traefik과 호스트·8080 포트 접근을 검증한 뒤 필요하면 공개 URL 도구의 설정을 추가합니다.
 CLI 구현과 번들 차트 패키징은 백엔드·CLI 저장소에서 관리합니다.

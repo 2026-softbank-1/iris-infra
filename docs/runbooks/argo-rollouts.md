@@ -2,36 +2,24 @@
 
 `iris-service` chart 0.7.0 은 사용자 앱을 `Deployment` 대신 Argo Rollouts `Rollout` 으로 띄웁니다. 배포 방식(롤링·카나리·블루그린)은 values `deploymentStrategy` 하나로 고릅니다([ADR 0005](../decisions/0005-deployment-strategy-argo-rollouts.md)). 아래 운영 확인 명령은 적용 후 실행하는 절차이며, `make helm-check` 의 렌더 검사는 실제 클러스터 동작을 보장하지 않습니다.
 
-## controller
+## 타깃별 chart
 
-| 클러스터 | 설치 방법 | 위치 |
-|---|---|---|
-| AWS workload | addon Application `iris-workload-argo-rollouts`(wave 1, `kube-system`) | `clusters/aws-dev-workload/values/argo-rollouts.yaml` |
-| on-prem | 운영자가 같은 chart·values 로 직접 Helm 설치 | `clusters/onprem-workload/values/argo-rollouts.yaml` |
+| 타깃 | chart pin (`helm/gitops/values.yaml`) | 앱 리소스 | 배포 방식 |
+|---|---|---|---|
+| AWS workload | `services.chartRevision` = `iris-service-0.7.0` | `Rollout` | 롤링·카나리·블루그린 |
+| on-prem | `services.onprem.chartRevision` = `iris-service-0.6.0` | `Deployment` | 롤링만 |
+
+- on-prem 에는 Argo Rollouts controller 를 설치하지 않습니다. on-prem ApplicationSet 은 자기 chart pin 으로 Deployment 기반 0.6.0 을 계속 씁니다. `make helm-check` 가 AWS pin = 현재 chart tag, on-prem pin = `iris-service-0.6.0` 을 검사합니다.
+- 0.6.0 schema 는 `deploymentStrategy` 키를 거절합니다. **iris-was Deploy Worker 는 on-prem 타깃의 values 에 이 키를 쓰지 않습니다.** 키가 들어가면 그 서비스의 sync 가 실패합니다(떠 있는 Pod 는 그대로).
+- 0.7.0 이후 chart 변경(버그 수정 등)은 on-prem 에 자동으로 가지 않습니다. on-prem 에도 필요하면 0.6.x 를 따로 내거나 아래처럼 on-prem 을 Rollout 으로 옮깁니다.
+
+## controller (AWS)
+
+addon Application `iris-workload-argo-rollouts`(wave 1, `kube-system`, values `clusters/aws-dev-workload/values/argo-rollouts.yaml`).
 
 - 버전: chart `argo-rollouts` 2.43.5 / controller v1.10.0(`helm/versions.json`, 이미지 digest 는 `helm/images.lock.json`).
 - CRD 를 chart 가 함께 설치하고(`installCRDs`), chart 를 지워도 CRD 는 남깁니다(`keepCRDs`). Rollout 이 남아 있는 동안 CRD 를 지우면 앱이 함께 지워집니다.
-- controller 1 replica, dashboard·metrics Service 없음, traffic router RBAC(`providerRBAC`) 없음. 카나리는 Pod 비율 방식이라 ALB·Traefik·Istio 를 건드리지 않습니다.
-- on-prem 은 Argo 의 `iris-argocd` ServiceAccount 에 CRD·ClusterRole 권한을 주지 않으므로(배포 역할은 `svc-*` 앱 리소스만 씁니다) Argo 가 controller 를 설치하지 않습니다. 두 values 파일은 같아야 하며 `make helm-check` 가 검사합니다.
-
-### on-prem 설치
-
-on-prem 클러스터 관리자 kubeconfig 로 실행합니다. 이 저장소의 리뷰된 main 을 checkout 한 상태에서 합니다.
-
-```bash
-export KUBECONFIG=<on-prem 관리자 kubeconfig>
-helm upgrade --install argo-rollouts argo-rollouts \
-  --repo https://argoproj.github.io/argo-helm --version 2.43.5 \
-  --namespace kube-system -f clusters/onprem-workload/values/argo-rollouts.yaml --wait
-kubectl apply -f clusters/onprem-workload/argocd-service-deployer.yaml   # Rollout 쓰기 권한 추가
-kubectl -n kube-system rollout status deploy/argo-rollouts
-kubectl get crd rollouts.argoproj.io
-kubectl auth can-i create rollouts.argoproj.io -n svc-1 --as system:serviceaccount:iris-onprem-test:iris-argocd
-```
-
-노드 아키텍처는 이미지 index 가 amd64·arm64 를 모두 담고 있어 상관없습니다. 버전을 올릴 때는 `helm/versions.json`·`images.lock.json`·두 values 파일을 같은 PR 에서 바꾸고, merge 뒤 위 명령을 다시 실행합니다.
-
-### AWS 확인
+- controller 1 replica, dashboard·metrics Service 없음, traffic router RBAC(`providerRBAC`) 없음. 카나리는 Pod 비율 방식이라 ALB·Istio 를 건드리지 않습니다.
 
 ```bash
 K="--kubeconfig .generated/kubeconfig-aws-dev-workload.json --context iris-dev-workload"
@@ -41,23 +29,43 @@ kubectl $K get crd rollouts.argoproj.io
 
 `make bootstrap` 은 `iris-workload-argo-rollouts` Application 의 Synced/Healthy 도 기다립니다.
 
-## chart 0.7.0 반영 순서
+## 다른 클러스터에 controller 설치 (로컬·나중의 on-prem)
 
-`services.chartRevision` 은 모든 서비스(AWS·on-prem ApplicationSet)가 같이 쓰는 값입니다. tag 가 없는 상태에서 main 에 올라가면 root 가 main 을 추적하므로 모든 서비스 sync 가 실패합니다. 그래서 chart 를 merge 한 PR 에서는 chartRevision 을 올리지 않습니다(`make helm-check` 는 chartRevision 이 현재 chart 또는 그 이전 버전 tag 이면 통과하고 안내를 출력합니다).
+Argo 가 설치하지 않는 클러스터는 관리자 kubeconfig 로 같은 고정 버전을 직접 설치합니다. 이 저장소의 리뷰된 main 을 checkout 한 상태에서 합니다. 이미지 index 는 amd64·arm64 를 모두 담고 있습니다.
 
-1. controller·chart 0.7.0 PR 을 main 에 merge 합니다. 서비스는 계속 `iris-service-0.6.0` 을 씁니다.
-2. AWS: `iris-workload-argo-rollouts` Application 이 Synced/Healthy 인지, `rollouts.argoproj.io` CRD 가 있는지 확인합니다. live root 가 SHA 에 고정돼 있으면 merge SHA 또는 main 으로 `make bootstrap CLUSTER=aws-dev-management` 를 다시 실행합니다.
-3. on-prem: [위 명령](#on-prem-설치)으로 controller 를 설치하고 배포 역할을 다시 적용합니다. 이 단계 전에 chartRevision 을 올리면 on-prem 서비스가 `Rollout` 을 만들지 못해 sync 에 실패합니다(기존 Deployment 는 남아 서비스는 계속됩니다).
-4. merge commit 에 tag 를 만들고 push 합니다. 이전 tag 와 같은 annotated tag 입니다.
+```bash
+export KUBECONFIG=<대상 클러스터 관리자 kubeconfig>
+helm upgrade --install argo-rollouts argo-rollouts \
+  --repo https://argoproj.github.io/argo-helm --version 2.43.5 \
+  --namespace kube-system -f clusters/aws-dev-workload/values/argo-rollouts.yaml --wait
+kubectl -n kube-system rollout status deploy/argo-rollouts
+kubectl get crd rollouts.argoproj.io
+```
+
+### on-prem 지원을 나중에 추가하려면
+
+1. 이 저장소: `clusters/onprem-workload/values/argo-rollouts.yaml` 을 두고(AWS values 와 같게 유지하는 검사를 `check-helm.py` 에 더합니다), [배포 역할](../../clusters/onprem-workload/argocd-service-deployer.yaml)에 `argoproj.io` `rollouts` 의 create·update·patch·delete 를 더합니다. on-prem Argo 계정에는 CRD·ClusterRole 권한을 주지 않으므로 controller 는 위 Helm 명령으로 운영자가 설치합니다.
+2. on-prem 에 controller 를 설치하고 배포 역할을 다시 적용한 뒤 `kubectl auth can-i create rollouts.argoproj.io -n svc-1 --as system:serviceaccount:iris-onprem-test:iris-argocd` 로 확인합니다.
+3. 별도 PR 로 `services.onprem.chartRevision` 을 AWS 와 같은 tag 로 올리고 `check-helm.py` 의 `ONPREM_CHART_REVISION` 규칙을 바꿉니다. 기존 Deployment 는 AWS 와 같이 PruneLast 로 Rollout 이 Healthy 가 된 뒤 지워집니다.
+4. iris-was 가 on-prem 타깃에도 `deploymentStrategy` 를 쓰게 합니다. Traefik 은 Service 엔드포인트를 바로 따라가 블루그린 전환 공백(아래 ALB 절)이 없습니다.
+
+## chart 반영 순서
+
+AWS 와 on-prem 은 chart pin 이 따로입니다. `make helm-check` 는 AWS pin 이 현재 `Chart.yaml` version 의 tag 와 같아야 통과하므로 chart version 과 pin 을 같은 PR 에서 올립니다. root 가 main 을 추적하므로 merge 직후 tag 를 push 하기 전까지 AWS 서비스 Application 이 ComparisonError 가 됩니다(떠 있는 Pod 는 그대로이고, tag 가 생기면 다음 refresh 에 풀릴 것으로 봅니다. 실측하지 않았습니다). merge 하고 바로 tag 를 push 합니다.
+
+0.7.0 은 다음 순서로 반영했습니다.
+
+1. controller·chart 0.7.0 PR(#71)을 merge 하고 merge commit 에 annotated tag `iris-service-0.7.0` 을 push 했습니다. 서비스는 그때까지 0.6.0 이었습니다.
 
    ```bash
-   git fetch origin && git tag -a iris-service-0.7.0 <merge commit SHA> -m "iris-service chart 0.7.0" && git push origin iris-service-0.7.0
+   git fetch origin && git tag -a iris-service-<version> <merge commit SHA> -m "iris-service chart <version>" && git push origin iris-service-<version>
    ```
 
-5. 용량을 확인합니다. 전환 중에는 서비스마다 이전 Deployment Pod 와 새 Rollout Pod 가 함께 떠 Pod 수가 잠시 2배가 되고, 모든 서비스가 동시에 바뀝니다.
-6. 별도 PR 로 `helm/gitops/values.yaml` 의 `services.chartRevision` 을 `iris-service-0.7.0` 으로 올려 merge 합니다.
-7. 확인: 서비스마다 `svc-{id}` Application 이 Synced/Healthy, `kubectl get rollout,deploy -n svc-<id>` 에서 Rollout `app` 만 남고 Deployment 가 없어야 합니다. 전환하는 동안 서비스 URL 이 계속 200 을 응답하는지 반복 요청으로 봅니다.
-8. 그 뒤 iris-was 를 배포하고 `DEPLOYMENT_STRATEGY_ENABLED=true` 를 켭니다. 0.6.0 schema 는 `deploymentStrategy` 키를 거절합니다.
+2. AWS `iris-workload-argo-rollouts` Application 이 Synced/Healthy 이고 `rollouts.argoproj.io` CRD 가 있는지 확인합니다. live root 가 SHA 에 고정돼 있으면 main 으로 `make bootstrap CLUSTER=aws-dev-management` 를 다시 실행합니다.
+3. 용량을 확인합니다. 전환 중에는 AWS 서비스마다 이전 Deployment Pod 와 새 Rollout Pod 가 함께 떠 Pod 수가 잠시 2배가 되고, 모든 AWS 서비스가 동시에 바뀝니다.
+4. AWS `services.chartRevision` 을 `iris-service-0.7.0` 으로 올리고 on-prem 을 `services.onprem.chartRevision: iris-service-0.6.0` 으로 고정하는 PR 을 merge 합니다.
+5. 확인: AWS 서비스마다 `svc-{id}` Application 이 Synced/Healthy, `kubectl get rollout,deploy -n svc-<id>` 에서 Rollout `app` 만 남고 Deployment 가 없어야 합니다. 전환하는 동안 서비스 URL 이 계속 200 을 응답하는지 반복 요청으로 봅니다. on-prem 서비스는 Deployment 그대로입니다.
+6. 그 뒤 iris-was 를 배포하고 `DEPLOYMENT_STRATEGY_ENABLED=true` 를 켭니다(AWS 타깃에만 키를 씁니다).
 
 ### 무중단 전환 (Deployment → Rollout)
 
@@ -68,7 +76,7 @@ kubectl $K get crd rollouts.argoproj.io
 
 ### 되돌리기
 
-chartRevision 을 0.6.0 으로 되돌리기 **전에** 1·2 를 끝냅니다.
+AWS chartRevision 을 0.6.0 으로 되돌리기 **전에** 1·2 를 끝냅니다. on-prem 은 계속 0.6.0 이라 할 일이 없습니다.
 
 1. iris-was `DEPLOYMENT_STRATEGY_ENABLED=false` 로 바꿉니다.
 2. **`deploymentStrategy` 가 남은 values 파일이 없게 합니다.** values 는 다음 배포 때까지 GitOps 저장소에 남고, 0.6.0 schema 는 그 키를 거절해 해당 서비스 sync 가 실패합니다. 키가 있는 서비스는 플래그를 끈 뒤 다시 배포합니다.
@@ -77,7 +85,7 @@ chartRevision 을 0.6.0 으로 되돌리기 **전에** 1·2 를 끝냅니다.
    grep -l deploymentStrategy iris-gitops-environments/services/*/*/values.yaml
    ```
 
-3. chartRevision 을 `iris-service-0.6.0` 으로 되돌리는 PR 을 merge 합니다. Argo 가 Deployment 를 만들고 Rollout 은 PruneLast 로 마지막에 지웁니다. 블루그린이 쓰던 Service 의 hash selector 는 Rollout 이 지워지면 controller 가 걷어 냅니다. controller 는 Rollout 이 모두 사라진 뒤에 지웁니다.
+3. AWS `services.chartRevision` 을 `iris-service-0.6.0` 으로 되돌리는 PR 을 merge 합니다(`make helm-check` 의 pin 규칙도 함께 바꿉니다). Argo 가 Deployment 를 만들고 Rollout 은 PruneLast 로 마지막에 지웁니다. 블루그린이 쓰던 Service 의 hash selector 는 Rollout 이 지워지면 controller 가 걷어 냅니다. controller 는 Rollout 이 모두 사라진 뒤에 지웁니다.
 
 ## 블루그린과 AWS ALB
 
@@ -92,7 +100,7 @@ chartRevision 을 0.6.0 으로 되돌리기 **전에** 1·2 를 끝냅니다.
 - **완화(적용함)**: chart 는 실제 렌더링 방식이 `BLUE_GREEN`(replicas 2 이상)일 때만 Ingress 에 `alb.ingress.kubernetes.io/healthcheck-interval-seconds: "5"`(최솟값)·`healthcheck-timeout-seconds: "4"`·`healthy-threshold-count: "2"` 를 붙입니다. 공백이 등록 시간 + 최대 약 5초로 줄어듭니다. timeout 은 LBC 기본값(5초)이 interval 과 같아지지 않게 4초로 둡니다. LBC 문서에서 이 annotation 들은 Location `Ingress,Service`, MergeBehavior `N/A` 라 IngressGroup 에서 합쳐지지 않고 그 Ingress 의 TargetGroup 에만 적용됩니다([LBC Ingress annotations](https://kubernetes-sigs.github.io/aws-load-balancer-controller/latest/guide/ingress/annotations/)). 공유 group `iris-service-external` 의 다른 서비스와 롤링·카나리 서비스의 TargetGroup 은 기본값(15초) 그대로입니다. 방식을 바꾸면 LBC 가 그 TargetGroup 의 health check 설정만 고칩니다.
 - controller 의 `awsVerifyTargetGroup` 은 새 Pod IP 가 등록됐는지만 보고 이전 묶음 축소를 늦추며, health 는 보지 않고 controller 에 AWS 권한이 필요해 쓰지 않습니다.
 - **근본 해결(범위 밖)**: 공백을 없애려면 TargetGroup 두 개에 가중치를 주는 ALB traffic routing(Rollouts `trafficRouting.alb`)이 필요합니다. SPEC 이 트래픽 가중치 라우팅을 제외해 이번에는 하지 않습니다.
-- on-prem Traefik 은 Service 엔드포인트를 바로 따라가 이 구간이 없습니다.
+- on-prem 은 0.6.0(롤링만)이라 해당하지 않습니다.
 
 ## 블루그린의 첫 배포
 

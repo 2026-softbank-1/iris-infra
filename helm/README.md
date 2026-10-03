@@ -2,7 +2,7 @@
 
 `bootstrap`은 Argo CD 10.9.6 wrapper chart이며 Chart.lock으로 의존성을 고정합니다. `gitops`는 검토한 Git SHA와 실제 두 EKS target을 받아 addon·선택적 플랫폼 AppProject/Application과 사용자 서비스 ApplicationSet을 렌더링합니다. `charts/cluster-baseline`은 Namespace·gp3·Quota·LimitRange·NetworkPolicy를 구현하며 `iris-service`는 사용자 서비스, `iris-platform`은 API·Worker·선택적 Error Agent와 외부 RDS 참조를 구현합니다.
 
-Terraform 소유 managed addon은 Helm으로 중복 설치하지 않습니다. Argo 자체/초기 credential/root는 Helm bootstrap, baseline/LBC/metrics/monitoring과 management의 Loki·OTel gateway는 Argo, 사용자 앱은 Deploy Worker의 GitOps values commit과 별도 Argo ApplicationSet이 소유합니다. 사용자 앱 ApplicationSet은 `iris-gitops-environments/services/*/prod`를 읽습니다. 사용자 앱은 `iris-service` 0.7.0부터 Argo Rollouts `Rollout`이며 controller는 workload addon(AWS)과 운영자 Helm 설치(on-prem)로 둡니다([runbook](../docs/runbooks/argo-rollouts.md)). 클러스터별 외부 ALB는 baseline 앵커 Ingress가 유지합니다.
+Terraform 소유 managed addon은 Helm으로 중복 설치하지 않습니다. Argo 자체/초기 credential/root는 Helm bootstrap, baseline/LBC/metrics/monitoring과 management의 Loki·OTel gateway는 Argo, 사용자 앱은 Deploy Worker의 GitOps values commit과 별도 Argo ApplicationSet이 소유합니다. 사용자 앱 ApplicationSet은 `iris-gitops-environments/services/*/prod`를 읽습니다. 사용자 앱은 `iris-service` 0.7.0부터 Argo Rollouts `Rollout`이며 controller는 AWS workload addon으로 둡니다. on-prem ApplicationSet은 자체 pin `services.onprem.chartRevision`으로 Deployment 기반 0.6.0(롤링만)을 씁니다([runbook](../docs/runbooks/argo-rollouts.md)). 클러스터별 외부 ALB는 baseline 앵커 Ingress가 유지합니다.
 
 `versions.json`은 Helm/Kubernetes/chart 버전을, `images.lock.json`은 실제 공개 registry manifest의 digest와 opt-in 검증 이미지를 고정합니다. upstream chart의 tag/sha 필드 형식이 다르므로 `make helm-check`로 최종 image 문자열까지 검증합니다. 이 검사는 PyYAML6.0.3과 chart 다운로드가 필요하며 AWS/Kubernetes에 쓰지 않습니다.
 

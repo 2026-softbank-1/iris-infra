@@ -16,7 +16,7 @@ GitOps 저장소의 `services/{service_id}/prod/values.yaml`(Deploy Worker 작�
 
 ## 배포 방식 (`deploymentStrategy`)
 
-Deploy Worker 가 `ROLLING`·`CANARY`·`BLUE_GREEN` 중 하나를 넘깁니다. 키가 없으면 `ROLLING` 입니다. 단계와 대기 시간은 chart 가 정하고 values 로 바꿀 수 없습니다.
+AWS 타깃에서 Deploy Worker 가 `ROLLING`·`CANARY`·`BLUE_GREEN` 중 하나를 넘깁니다. on-prem 타깃은 Argo Rollouts 가 없어 0.6.0(Deployment, 롤링만)에 고정돼 있고 이 키를 받지 않습니다. 키가 없으면 `ROLLING` 입니다. 단계와 대기 시간은 chart 가 정하고 values 로 바꿀 수 없습니다.
 `replicas` 가 2 미만이면 어떤 값이든 `ROLLING` 으로 렌더링합니다. 실제로 렌더링한 방식은 Rollout annotation `iris/deployment-strategy` 에 남습니다.
 
 | 방식 | Rollout strategy | 동작 |

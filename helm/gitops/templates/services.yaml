@@ -24,7 +24,7 @@ spec:
   clusterResourceWhitelist:
     - {group: "", kind: Namespace}
   namespaceResourceWhitelist:
-    # Rollout runs the app since chart 0.7.0. Deployment stays so Argo can prune the 0.6.0 Deployment.
+    # Rollout runs the app since chart 0.7.0 (AWS). Deployment stays for the 0.6.0 chart on-prem and so Argo can prune it on AWS.
     - {group: argoproj.io, kind: Rollout}
     - {group: apps, kind: Deployment}
     - {group: apps, kind: ReplicaSet}
@@ -117,9 +117,11 @@ spec:
     spec:
       project: iris-svc-project
       sources:
+        # on-prem has no Argo Rollouts controller, so it keeps its own chart pin on the Deployment-based
+        # 0.6.0 (rolling only). The Deploy Worker never writes deploymentStrategy for on-prem targets.
         - repoURL: {{ $chartRepo | quote }}
           path: helm/charts/iris-service
-          targetRevision: {{ $s.chartRevision | quote }}
+          targetRevision: {{ $o.chartRevision | quote }}
           helm:
             valueFiles:
               - '$values/{{ "{{" }} .path.path {{ "}}" }}/values.yaml'

@@ -24,11 +24,6 @@ rules:
   - apiGroups: [bitnami.com]
     resources: [sealedsecrets]
     verbs: [create, update, patch, delete]
-  # iris-service 0.7.0 runs the app as a Rollout. Install the Argo Rollouts controller first
-  # (docs/runbooks/argo-rollouts.md); Argo still deletes the 0.6.0 Deployment through apps above.
-  - apiGroups: [argoproj.io]
-    resources: [rollouts]
-    verbs: [create, update, patch, delete]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
