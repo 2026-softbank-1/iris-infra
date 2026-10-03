@@ -1,0 +1,11 @@
+{
+  "tagOwners": {
+    "tag:iris-onprem-apps": ["tag:iris-operator"]
+  },
+  "grants": [
+    {"src": ["tag:iris-onprem-apps"], "dst": ["tag:iris-onprem"], "ip": ["tcp:80"]}
+  ],
+  "tests": [
+    {"src": "tag:iris-onprem-apps", "accept": ["tag:iris-onprem:80"], "deny": ["tag:iris-onprem:6443"]}
+  ]
+}

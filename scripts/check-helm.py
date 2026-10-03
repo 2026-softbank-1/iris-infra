@@ -57,6 +57,143 @@ def group_kind(doc):
     return (doc['apiVersion'].rpartition('/')[0], doc['kind'])
 
 
+def check_onprem_gateway(directory, targets, baseline):
+    chart = ROOT/'helm/charts/iris-onprem-gateway'
+    root_values = directory/'gateway-root.json'
+    indexed = lambda docs: {(d['kind'], d['metadata']['name']): d for d in docs}
+    baseline = indexed(baseline)
+    # The gateway can be tested before on-prem workload deployment is enabled.
+    for gateway_enabled in (False, True):
+        for services_enabled in (False, True):
+            values = {'revision':'main', 'targets':targets,
+                      'onpremGateway':{'enabled':gateway_enabled},
+                      'services':{'onprem':{'enabled':services_enabled, 'server':'https://onprem.example:6443',
+                                            'ingressClassName':'traefik', 'egressDeniedCidrs':['192.168.0.0/16']}}}
+            root_values.write_text(json.dumps(values))
+            docs = indexed(render(ROOT/'helm/gitops', root_values, namespace='argocd'))
+            enabled = gateway_enabled or services_enabled
+            assert (('Application', 'iris-onprem-gateway') in docs) == enabled
+            assert (('ApplicationSet', 'iris-svc-onprem-appset') in docs) == services_enabled
+            assert docs['ApplicationSet','iris-svc-appset'] == baseline['ApplicationSet','iris-svc-appset']
+            assert docs['AppProject','iris-addons-workload'] == baseline['AppProject','iris-addons-workload']
+            management = docs['AppProject','iris-addons-management']['spec']
+            for ns in ('onprem-gateway', 'tailscale'):
+                assert ({'server':targets['management']['endpoint'], 'namespace':ns} in management['destinations']) == enabled
+            assert ({'group':'tailscale.com', 'kind':'ProxyClass'} in management['clusterResourceWhitelist']) == enabled
+            for key, doc in docs.items():
+                if doc['kind']=='AppProject' and key[1]!='iris-addons-management':
+                    assert {'group':'tailscale.com','kind':'ProxyClass'} not in doc['spec']['clusterResourceWhitelist']
+            if enabled:
+                spec = docs['Application','iris-onprem-gateway']['spec']
+                assert spec['project']=='iris-addons-management'
+                assert spec['source']['targetRevision']=='main' and spec['source']['helm']['releaseName']=='onprem-gateway'
+                assert spec['destination']=={'server':targets['management']['endpoint'],'namespace':'onprem-gateway'}
+                assert spec['syncPolicy']['automated']=={'prune':False,'selfHeal':True}
+                assert spec['syncPolicy']['managedNamespaceMetadata']['labels']=={'elbv2.k8s.aws/pod-readiness-gate-inject':'enabled'}
+                assert set(spec['syncPolicy']['syncOptions'])=={'CreateNamespace=true','ServerSideApply=true','RespectIgnoreDifferences=true'}
+                assert spec['ignoreDifferences']==[{'group':'','kind':'Service','name':'iris-onprem-apps','jsonPointers':['/spec/externalName']}]
+            if not services_enabled:
+                # Normalize only gateway-owned additions; all existing AWS documents must be identical.
+                expected = copy.deepcopy(docs)
+                expected.pop(('Application','iris-onprem-gateway'), None)
+                project = expected['AppProject','iris-addons-management']['spec']
+                project['destinations'] = [d for d in project['destinations'] if d['namespace'] not in ('tailscale','onprem-gateway')]
+                project['clusterResourceWhitelist'] = [w for w in project['clusterResourceWhitelist'] if w['kind']!='ProxyClass']
+                for doc in expected.values():
+                    sources = doc.get('spec',{}).get('sources') or [doc.get('spec',{}).get('source',{})]
+                    for source in sources:
+                        if source.get('repoURL')==values.get('repoURL', json.loads((ROOT/'helm/gitops/values.yaml').read_text())['repoURL']):
+                            source['targetRevision']='a'*40
+                assert expected==baseline, 'Gateway-only activation must preserve all existing AWS documents.'
+
+    fixtures = [ROOT/'clusters/aws-dev-management/values/onprem-gateway.yaml', *sorted((chart/'ci').glob('*.yaml'))]
+    for fixture in fixtures:
+        values = yaml.safe_load(fixture.read_text())
+        public = values['publicIngress']['enabled']
+        docs = render(chart, fixture, namespace='onprem-gateway')
+        check_images(docs)
+        resources = indexed(docs)
+        assert (('Ingress','onprem-gateway') in resources) == public
+        np = resources['NetworkPolicy','onprem-gateway']['spec']
+        assert np['podSelector']=={'matchLabels':{'app.kubernetes.io/name':'onprem-gateway'}}
+        assert np['policyTypes']==['Ingress','Egress']
+        assert np['egress']==[
+            {'to':[{'namespaceSelector':{'matchLabels':{'kubernetes.io/metadata.name':'kube-system'}},
+                    'podSelector':{'matchLabels':{'k8s-app':'kube-dns'}}}],
+             'ports':[{'protocol':'UDP','port':53},{'protocol':'TCP','port':53}]},
+            {'to':[{'namespaceSelector':{'matchLabels':{'kubernetes.io/metadata.name':'tailscale'}},
+                    'podSelector':{'matchLabels':{'iris.dev/proxy':'onprem-http'}}}],
+             'ports':[{'protocol':'TCP','port':80}]}]
+        if public:
+            ingress = resources['Ingress','onprem-gateway']
+            notes = ingress['metadata']['annotations']
+            assert notes['alb.ingress.kubernetes.io/group.name']=='iris-platform-external'
+            assert notes['alb.ingress.kubernetes.io/group.order']=='1000'
+            assert notes['alb.ingress.kubernetes.io/target-type']=='ip'
+            assert notes['alb.ingress.kubernetes.io/healthcheck-path']=='/healthz'
+            assert notes['alb.ingress.kubernetes.io/ssl-redirect']=='443'
+            assert json.loads(notes['alb.ingress.kubernetes.io/listen-ports'])==[{'HTTP':80},{'HTTPS':443}]
+            assert notes['alb.ingress.kubernetes.io/certificate-arn']==values['certificateArn']
+            assert ingress['spec']['ingressClassName']=='alb' and ingress['spec']['rules'][0]['host']=='*.internal.likelion.uk'
+            assert np['ingress']==[{'from':[{'ipBlock':{'cidr':cidr}} for cidr in ('10.40.240.0/24','10.40.241.0/24')],
+                                   'ports':[{'protocol':'TCP','port':8080}]}]
+        else:
+            assert np['ingress']==[]
+        proxy_np = resources['NetworkPolicy','iris-onprem-http']
+        assert proxy_np['metadata']['namespace']=='tailscale'
+        assert proxy_np['spec']=={'podSelector':{'matchLabels':{'iris.dev/proxy':'onprem-http'}}, 'policyTypes':['Ingress'],
+            'ingress':[{'from':[{'namespaceSelector':{'matchLabels':{'kubernetes.io/metadata.name':'onprem-gateway'}},
+                                'podSelector':{'matchLabels':{'app.kubernetes.io/name':'onprem-gateway'}}}],
+                        'ports':[{'protocol':'TCP','port':80}]}]}
+        proxy = resources['ProxyClass','iris-onprem-http']
+        assert 'namespace' not in proxy['metadata'] and proxy['metadata']['annotations']['argocd.argoproj.io/sync-wave']=='-1'
+        assert proxy['spec']['statefulSet']['pod']=={'labels':{'iris.dev/proxy':'onprem-http'},
+            'tailscaleContainer':{'resources':{'requests':{'cpu':'100m','memory':'128Mi'},'limits':{'cpu':'1','memory':'512Mi'}}}}
+        service = resources['Service','iris-onprem-apps']
+        assert service['spec']=={'type':'ExternalName','externalName':'placeholder','ports':[{'name':'http','port':80,'protocol':'TCP'}]}
+        assert service['metadata']['annotations']=={'tailscale.com/proxy-class':'iris-onprem-http',
+            'tailscale.com/hostname':'iris-mgmt-onprem-http','tailscale.com/tailnet-fqdn':'iris-onprem-01.tailb046e8.ts.net',
+            'tailscale.com/tags':'tag:iris-onprem-apps'}
+        pod = resources['Deployment','onprem-gateway']['spec']['template']
+        spec = pod['spec']; container = spec['containers'][0]
+        assert spec['automountServiceAccountToken'] is False
+        assert spec['securityContext']=={'runAsNonRoot':True,'runAsUser':101,'runAsGroup':101,'fsGroup':101,
+                                        'fsGroupChangePolicy':'OnRootMismatch','seccompProfile':{'type':'RuntimeDefault'}}
+        assert container['securityContext']=={'readOnlyRootFilesystem':True,'allowPrivilegeEscalation':False,'capabilities':{'drop':['ALL']}}
+        assert container['command']==['nginx'] and container['args']==['-c','/etc/nginx/nginx.conf','-g','daemon off;']
+        assert next(v for v in spec['volumes'] if v['name']=='tmp')['emptyDir']=={'sizeLimit':'64Mi'}
+        conf = resources['ConfigMap','onprem-gateway']['data']['nginx.conf']
+        assert 'listen 8080 default_server;' in conf and 'server_name *.internal.likelion.uk;' in conf
+        assert 'proxy_set_header Host $host;' in conf and 'proxy_set_header X-Forwarded-Proto $forwarded_proto;' in conf
+        assert 'set $upstream http://iris-onprem-apps.onprem-gateway.svc.cluster.local:80;' in conf
+        assert 'valid=30s ipv6=off;' in conf and 'proxy_connect_timeout 5s;' in conf
+        assert 'proxy_send_timeout 60s;' in conf and 'proxy_read_timeout 60s;' in conf
+        assert not re.search(r'proxy_pass\s+[^;]*\$(host|http_host)',conf), 'Fixed upstream prevents an open proxy.'
+        changed = indexed(render(chart, fixture, namespace='onprem-gateway', parameters=('--set','host=*.other.test')))
+        assert changed['Deployment','onprem-gateway']['spec']['template']['metadata']['annotations']['checksum/config'] != pod['metadata']['annotations']['checksum/config']
+
+    bad_values = directory/'bad-gateway.json'
+    mutations = [
+        {'publicIngress':{'enabled':True}},
+        {'host':'*.internal.likelion.uk; return 200;'}, {'host':'*.bad..test'}, {'host':'example.test'},
+        {'host':'*.'+'a'*64+'.test'}, {'host':'*.'+'.'.join(['a'*63]*4)},
+        {'upstream':{'port':6443}}, {'upstream':{'tailnetFqdn':'bad;host'}},
+        {'albSourceCidrs':['0.0.0.0/0']}, {'albSourceCidrs':['999.1.1.1/24']},
+        {'albSourceCidrs':['10.0.0.1/33']}, {'publicIngress':{'enabled':'false'}},
+        {'certificateArn':'arn:aws:acm:us-east-1:123456789012:certificate/00000000-0000-0000-0000-000000000000'},
+        {'publicIngress':{'enabled':True},'certificateArn':yaml.safe_load((chart/'ci/public-values.yaml').read_text())['certificateArn'],'albSourceCidrs':[]},
+    ]
+    for override in mutations:
+        bad_values.write_text(json.dumps({'publicIngress':{'enabled':False}, **override}))
+        result = subprocess.run([HELM,'template','check',str(chart),'-f',str(bad_values)],capture_output=True)
+        assert result.returncode, f'Invalid gateway values must fail: {override}'
+    policy = json.loads((ROOT/'clusters/aws-dev-management/onprem/tailnet-policy-additions.json').read_text())
+    assert policy=={'tagOwners':{'tag:iris-onprem-apps':['tag:iris-operator']},
+                    'grants':[{'src':['tag:iris-onprem-apps'],'dst':['tag:iris-onprem'],'ip':['tcp:80']}],
+                    'tests':[{'src':'tag:iris-onprem-apps','accept':['tag:iris-onprem:80'],'deny':['tag:iris-onprem:6443']}]}
+    # These are fragment assertions, not evaluation of the live/merged Tailscale policy.
+
+
 def check_platform(directory, targets, bootstrap):
     chart=ROOT/'helm/charts/iris-platform'
     for fixture in sorted((chart/'ci').glob('*.yaml')):
@@ -162,7 +299,7 @@ def check_platform(directory, targets, bootstrap):
     command('lint','--strict',chart,'-f',cluster,'-f',only_api,'--kube-version',VERSIONS['kubernetes']+'.0','--namespace','iris-platform')
     docs=[x for x in yaml.safe_load_all(command('template','iris-platform',chart,'-f',cluster,'-f',only_api,'-f',agent,'--kube-version',VERSIONS['kubernetes']+'.0','--namespace','iris-platform')) if x]
     assert {d['metadata']['name'] for d in docs if d['kind'] in {'Deployment','Job','Ingress'}}=={'iris-platform-api','iris-platform-migration','iris-platform-error-agent'}, 'Only components with a digest deploy.'
-    enabled=directory/'gitops-platform.json';enabled.write_text(json.dumps({'revision':'a'*40,'targets':targets,'platform':{'enabled':True}}))
+    enabled=directory/'gitops-platform.json';enabled.write_text(json.dumps({'revision':'a'*40,'targets':targets,'platform':{'enabled':True},'onpremGateway':{'enabled':False}}))
     docs=render(ROOT/'helm/gitops', enabled, namespace='argocd')
     assert sum(d['kind']=='Application' for d in docs)==13 and sum(d['kind']=='AppProject' for d in docs)==4
     app=next(d for d in docs if d['kind']=='Application' and d['metadata']['name']=='iris-platform')
@@ -191,7 +328,8 @@ def main():
         directory = Path(temporary)
         targets = {p: {'name':f'iris-dev-{p}', 'region':'ap-northeast-2','vpc_id':'vpc-0123456789abcdef0','endpoint':f'https://{p}.eks.amazonaws.com'} for p in ('management','workload')}
         values = directory/'gitops.json'
-        values.write_text(json.dumps({'revision':'a'*40,'targets':targets}))
+        # Isolate the existing AWS baseline; check_onprem_gateway exercises both gateway states.
+        values.write_text(json.dumps({'revision':'a'*40,'targets':targets,'onpremGateway':{'enabled':False}}))
         gitops = render(ROOT/'helm/gitops', values, namespace='argocd')
         # Platform is opt-in at bootstrap (GITOPS_PLATFORM_ENABLED); check_platform covers it.
         assert sum(d['kind']=='Application' for d in gitops)==12
@@ -255,7 +393,7 @@ def main():
         assert rendered_kinds <= {(w['group'],w['kind']) for w in services['namespaceResourceWhitelist']}, f'iris-svc-project must allow chart kinds: {rendered_kinds}'
         allowed = {p['metadata']['name'].removeprefix('iris-addons-'): {(w['group'],w['kind']) for w in p['spec']['clusterResourceWhitelist']} for p in gitops if p['kind']=='AppProject'}
         tracking = directory/'tracking.json'
-        tracking_values = {'revision':'a'*40,'targets':targets,'platform':{'enabled':True},'albTraffic':{'enabled':True}}
+        tracking_values = {'revision':'a'*40,'targets':targets,'platform':{'enabled':True},'albTraffic':{'enabled':True},'onpremGateway':{'enabled':False}}
         tracking.write_text(json.dumps(tracking_values))
         pinned_apps = {d['metadata']['name']:d for d in render(ROOT/'helm/gitops', tracking, namespace='argocd') if d['kind']=='Application'}
         tracking_values['revision'] = 'main'
@@ -292,30 +430,7 @@ def main():
         project = next(d['spec'] for d in docs if d['kind']=='AppProject' and d['metadata']['name']=='iris-svc-project')
         assert {'server':'https://onprem.example:6443','namespace':'svc-*'} in project['destinations']
         assert 'iris-svc-onprem-appset' not in {d['metadata']['name'] for d in gitops if d['kind']=='ApplicationSet'}, 'on-prem stays off by default.'
-        gw = next(d['spec'] for d in docs if d['kind']=='Application' and d['metadata']['name']=='iris-onprem-gateway')
-        assert gw['project']=='iris-addons-management' and gw['destination']=={'server':targets['management']['endpoint'],'namespace':'onprem-gateway'}
-        assert {'group':'','kind':'Service','name':'iris-onprem-apps','jsonPointers':['/spec/externalName']} in gw['ignoreDifferences'], 'Tailscale operator rewrites externalName; Argo must not fight it.'
-        assert gw['syncPolicy']['managedNamespaceMetadata']['labels']=={'elbv2.k8s.aws/pod-readiness-gate-inject':'enabled'}, 'Pods need the ALB readiness gate.'
-        addons = next(d['spec'] for d in docs if d['kind']=='AppProject' and d['metadata']['name']=='iris-addons-management')
-        assert {'server':targets['management']['endpoint'],'namespace':'onprem-gateway'} in addons['destinations']
-        assert 'iris-onprem-gateway' not in {d['metadata']['name'] for d in gitops if d['kind']=='Application'}, 'gateway stays off by default.'
-        gw_values = directory/'gateway.json'
-        gw_values.write_text(json.dumps({**yaml.safe_load((ROOT/'clusters/aws-dev-management/values/onprem-gateway.yaml').read_text()), 'certificateArn':'arn:aws:acm:ap-northeast-2:123456789012:certificate/test'}))
-        gw_docs = render(ROOT/'helm/charts/iris-onprem-gateway', gw_values, namespace='onprem-gateway')
-        check_images(gw_docs)
-        ing = next(d for d in gw_docs if d['kind']=='Ingress'); notes = ing['metadata']['annotations']
-        assert notes['alb.ingress.kubernetes.io/group.name']=='iris-platform-external' and notes['alb.ingress.kubernetes.io/target-type']=='ip' and notes['alb.ingress.kubernetes.io/healthcheck-path']=='/healthz'
-        assert notes['alb.ingress.kubernetes.io/certificate-arn'].endswith('/test') and ing['spec']['rules'][0]['host']=='*.internal.likelion.uk'
-        assert notes['alb.ingress.kubernetes.io/group.order']=='1000', 'Gateway must not precede the anchor (default cert).'
-        conf = next(d for d in gw_docs if d['kind']=='ConfigMap')['data']['nginx.conf']
-        assert 'server_name *.internal.likelion.uk;' in conf and 'listen 8080 default_server;' in conf, 'Proxy only for the host; default server serves /healthz.'
-        assert 'proxy_set_header Host $host;' in conf and 'set $upstream http://iris-onprem-apps.onprem-gateway.svc.cluster.local:80;' in conf
-        assert not re.search(r'proxy_pass\s+[^;]*\$(host|http_host)', conf), 'Upstream must be fixed (no open proxy).'
-        egress = next(d for d in gw_docs if d['kind']=='Service' and d['metadata']['name']=='iris-onprem-apps')
-        assert egress['spec']['type']=='ExternalName' and egress['metadata']['annotations']['tailscale.com/tailnet-fqdn']=='iris-onprem-01.tailb046e8.ts.net' and egress['metadata']['annotations']['tailscale.com/tags']=='tag:iris-onprem-apps'
-        assert any(d['kind']=='NetworkPolicy' for d in gw_docs)
-        empty = subprocess.run([HELM,'template','gw',str(ROOT/'helm/charts/iris-onprem-gateway'),'-f',str(ROOT/'clusters/aws-dev-management/values/onprem-gateway.yaml')],capture_output=True)
-        assert empty.returncode, 'Set certificateArn (terraform output internal_acm_certificate_arn) before enabling.'
+        check_onprem_gateway(directory, targets, gitops)
         check_platform(directory, targets, bootstrap)
         charts = {}
         for name, pin in VERSIONS['charts'].items():

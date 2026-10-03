@@ -2,30 +2,115 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "type": "object",
   "additionalProperties": false,
-  "required": ["host", "groupName", "certificateArn", "albSourceCidrs", "upstream", "replicas", "image"],
+  "required": [
+    "host",
+    "groupName",
+    "certificateArn",
+    "albSourceCidrs",
+    "upstream",
+    "replicas",
+    "image",
+    "publicIngress"
+  ],
   "properties": {
-    "host": {"type": "string", "minLength": 1},
-    "groupName": {"type": "string", "minLength": 1},
-    "certificateArn": {"type": "string", "pattern": "^$|^arn:aws:acm:"},
-    "albSourceCidrs": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+    "host": {
+      "type": "string",
+      "maxLength": 253,
+      "pattern": "^\\*\\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$"
+    },
+    "groupName": {
+      "type": "string",
+      "minLength": 1
+    },
+    "certificateArn": {
+      "type": "string",
+      "pattern": "^$|^arn:aws:acm:ap-northeast-2:[0-9]{12}:certificate/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "albSourceCidrs": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])(?:\\.(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])){3}/(?:[1-9]|[12][0-9]|3[0-2])$"
+      }
+    },
     "upstream": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["tailnetFqdn", "port"],
+      "required": [
+        "tailnetFqdn",
+        "port"
+      ],
       "properties": {
-        "tailnetFqdn": {"type": "string", "minLength": 1},
-        "port": {"type": "integer", "minimum": 1, "maximum": 65535}
+        "tailnetFqdn": {
+          "type": "string",
+          "maxLength": 253,
+          "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+\\.ts\\.net$"
+        },
+        "port": {
+          "type": "integer",
+          "const": 80
+        }
       }
     },
-    "replicas": {"type": "integer", "minimum": 1},
+    "replicas": {
+      "type": "integer",
+      "minimum": 1
+    },
     "image": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["repository", "digest"],
+      "required": [
+        "repository",
+        "digest"
+      ],
       "properties": {
-        "repository": {"type": "string", "minLength": 1},
-        "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+        "repository": {
+          "type": "string",
+          "minLength": 1
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        }
+      }
+    },
+    "publicIngress": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "enabled"
+      ],
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        }
       }
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "publicIngress": {
+            "properties": {
+              "enabled": {
+                "const": true
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "certificateArn": {
+            "pattern": "^arn:aws:acm:ap-northeast-2:[0-9]{12}:certificate/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+          },
+          "albSourceCidrs": {
+            "minItems": 1
+          }
+        }
+      }
+    }
+  ]
 }

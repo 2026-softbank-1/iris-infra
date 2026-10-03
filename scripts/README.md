@@ -7,7 +7,7 @@
 | `make scaffold-check` | 필수 파일·JSON schema·shell syntax·ECR inventory |
 | `make tf-check` | fmt + 임시 TF_DATA_DIR의 backend 없는 init/validate |
 | `make tf-test` | 실제 state/tfvars/override 제외 임시 복사본의 account/foundation/module/두 EKS mock test |
-| `make helm-check` | 고정 Helm/공식 chart 다운로드·lint/render·Git SHA schema·digest·스토리지/replica 검사(PyYAML6.0.3 필요) |
+| `make helm-check` | 고정 Helm/공식 chart 다운로드·lint/render·revision schema·digest·스토리지/replica·온프레미스 gateway gate/공개·비공개/정책 경계 검사(PyYAML6.0.3 필요) |
 | `make tf-init/tf-plan/tf-apply STACK=...` | 선택한 root의 실제 backend/AWS 작업. apply는 별도 배포 시 실행 |
 | `tf-ci.sh apply` | main CI bootstrap→foundation→management→workload 순차 saved plan apply. account 제외 |
 | `check-foundation-plan.py` | foundation plan JSON을 stdin으로 검사. build/ECR/VPC/subnet/NAT0/EIP0 삭제·교체 차단. raw JSON 기록 없음 |
@@ -25,6 +25,16 @@ local-workload는 scaffold이며 bootstrap/smoke에서 성공으로 처리하지
 `terraform-ci-changes.py`는 Git event diff로 검사와 배포 입력을 구분합니다. `python3 scripts/tests/test-terraform-ci-changes.py`는 임시 Git 이력과 실제 workflow 조건으로 account/tests/Helm/digest 변경의 apply 제외, 삭제·이름 변경·복수 커밋, 수동 force/main 제한과 변경 감지 실패 차단을 검사합니다. Terraform workflow의 수동 실행은 검증만 수행하며 main의 `force_apply=true`가 실제 apply를 선택합니다([CI 조건](../docs/runbooks/terraform-ci.md#변경-조건과-수동-실행)).
 
 도구 자동 설치·main push·workflow dispatch·Paid 전환·시간 기반 철거는 제공하지 않습니다.
+
+## 온프레미스 Nginx 로컬 검증
+
+`make helm-check`는 gateway의 Helm 렌더와 값 거부 조건을 검사합니다. 다음은 별도로 준비한 Nginx **1.30.x** 실행 파일과 고정 Helm, PyYAML을 사용하는 로컬 프로토콜 검사입니다.
+
+```bash
+NGINX=/path/to/nginx-1.30.x HELM=/path/to/helm-3.19.1 python3 scripts/tests/test-onprem-gateway.py
+```
+
+임시 디렉터리와 loopback HTTP/DNS 서버에서 Host/path/query·forwarded headers·알 수 없는 Host·WebSocket·DNS 재조회·upstream 중단 후 복구를 검사합니다. 운영 서버·시스템 설정·클러스터를 변경하지 않습니다. 공식 1.30.x 소스로 만든 로컬 binary의 성공은 고정 OCI 이미지의 실행, CNI·Tailscale·ALB·TLS 경로의 성공을 보장하지 않습니다.
 
 ## EKS CI 권한 검사
 

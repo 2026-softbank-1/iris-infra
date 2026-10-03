@@ -1,4 +1,6 @@
 host: "*.internal.likelion.uk"
+publicIngress:
+  enabled: true
 groupName: iris-platform-external
 certificateArn: ""
 albSourceCidrs: ["10.40.240.0/24", "10.40.241.0/24"]
