@@ -366,7 +366,7 @@ def check_platform(directory, targets, bootstrap):
     assert {d['metadata']['name'] for d in docs if d['kind'] in {'Deployment','Job','Ingress'}}=={'iris-platform-api','iris-platform-migration','iris-platform-error-agent'}, 'Only components with a digest deploy.'
     enabled=directory/'gitops-platform.json';enabled.write_text(json.dumps({'revision':'a'*40,'targets':targets,'platform':{'enabled':True},'services':{'onprem':{'enabled':False}},'onpremGateway':{'enabled':False}}))
     docs=render(ROOT/'helm/gitops', enabled, namespace='argocd')
-    assert sum(d['kind']=='Application' for d in docs)==14 and sum(d['kind']=='AppProject' for d in docs)==4
+    assert sum(d['kind']=='Application' for d in docs)==15 and sum(d['kind']=='AppProject' for d in docs)==4
     app=next(d for d in docs if d['kind']=='Application' and d['metadata']['name']=='iris-platform')
     assert app['metadata']['finalizers']==['resources-finalizer.argocd.argoproj.io'] and app['spec']['syncPolicy']['automated']=={'prune':True,'selfHeal':True}
     assert app['spec']['destination']=={'server':targets['management']['endpoint'],'namespace':'iris-platform'}
@@ -397,7 +397,7 @@ def main():
         values.write_text(json.dumps({'revision':'a'*40,'targets':targets,'services':{'onprem':{'enabled':False}},'onpremGateway':{'enabled':False}}))
         gitops = render(ROOT/'helm/gitops', values, namespace='argocd')
         # Platform is opt-in at bootstrap (GITOPS_PLATFORM_ENABLED); check_platform covers it.
-        assert sum(d['kind']=='Application' for d in gitops)==13
+        assert sum(d['kind']=='Application' for d in gitops)==14
         for app in (d for d in gitops if d['kind']=='Application' and d['metadata']['name'].endswith('-aws-load-balancer-controller')):
             # Re-sync must not rotate the LBC webhook certificate under running controllers.
             ignored = {(i['kind'],i['name']) for i in app['spec']['ignoreDifferences']}
@@ -471,7 +471,7 @@ def main():
         tracking_values['revision'] = 'main'
         tracking.write_text(json.dumps(tracking_values))
         tracking_apps = {d['metadata']['name']:d for d in render(ROOT/'helm/gitops', tracking, namespace='argocd') if d['kind']=='Application'}
-        assert tracking_apps.keys()==pinned_apps.keys() and len(tracking_apps)==15
+        assert tracking_apps.keys()==pinned_apps.keys() and len(tracking_apps)==16
         assert {'iris-platform','iris-management-alb-log-collector'} <= tracking_apps.keys()
         infra_repo = json.loads((ROOT/'helm/gitops/values.yaml').read_text())['repoURL']
         for name, app in tracking_apps.items():
@@ -566,7 +566,9 @@ def main():
                         assert '--kubelet-certificate-authority=/var/run/secrets/kubernetes.io/serviceaccount/ca.crt' in args
                         assert '--kubelet-insecure-tls' not in args
                 elif name=='sealed-secrets':
-                    assert purpose=='workload', 'User variables are unsealed only where user services run.'
+                    # workload: user variables. management: Argo cluster Secrets of user-registered on-prem servers.
+                    # Same pin and settings; each cluster generates its own key.
+                    assert (ROOT/'clusters/aws-dev-management/values/sealed-secrets.yaml').read_text()==(ROOT/'clusters/aws-dev-workload/values/sealed-secrets.yaml').read_text()
                     [controller] = [d for d in docs if d['kind']=='Deployment']
                     assert controller['metadata']['name']=='sealed-secrets-controller' and controller['spec']['replicas']==1
                     args = controller['spec']['template']['spec']['containers'][0]['args']
