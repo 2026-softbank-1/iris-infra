@@ -512,6 +512,10 @@ def main():
                     assert prom.get('enableRemoteWriteReceiver', False)==(purpose=='management')
                     assert prom['storage']['volumeClaimTemplate']['spec']['resources']['requests']['storage']=='20Gi'
                     assert any(d['kind']=='Service' and d['metadata']['name']=='monitoring-prometheus' for d in docs)
+                    # RWO PVC needs Recreate; a chart-generated admin Secret re-randomizes on every render and rolls Grafana.
+                    grafana=next(d for d in docs if d['kind']=='Deployment' and d['metadata']['name']=='monitoring-grafana')
+                    assert grafana['spec']['strategy']=={'type':'Recreate'}
+                    assert not any(d['kind']=='Secret' and d['metadata']['name']=='monitoring-grafana' for d in docs), 'Grafana admin must come from the operator-managed grafana-admin Secret.'
             missing = {group_kind(d) for d in rendered if d['kind'] in CLUSTER_SCOPED} - allowed[purpose]
             assert not missing, f'{purpose} AppProject must allow cluster-scoped kinds: {sorted(missing)}'
     # Preserve latest main's Deploy Worker contract fixtures; legacy examples
