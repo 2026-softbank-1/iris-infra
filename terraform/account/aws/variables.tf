@@ -26,6 +26,12 @@ variable "environment" {
   default     = "dev"
 }
 
+variable "enable_temporary_admin_access" {
+  description = "대회 기간 CI 역할에 AdministratorAccess를 연결합니다. 자동 만료되지 않으며 종료 후 false를 로컬 입력에 저장하고 관리자가 account를 적용해 회수합니다."
+  type        = bool
+  default     = true
+}
+
 variable "github_oidc_subject_prefix" {
   description = "GitHub API actions/oidc/customization/sub의 sub_claim_prefix. main 브랜치만 신뢰합니다."
   type        = string

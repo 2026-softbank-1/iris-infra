@@ -20,18 +20,44 @@ cp backend.hcl.example backend.hcl
 `make tf-apply STACK=account/aws`를 사용합니다. OIDC provider·CI 역할·inline policy 3개에 더해
 네트워크 관리형 정책과 기존 역할에 대한 attachment를 관리합니다.
 이 stack은 배포 인증의 기반이므로 관리자가 로컬에서 적용하고 CI에서는 직접 apply하지 않습니다.
-CI 역할의 권한은 bootstrap 버킷 설정, 배포 root 4개의 state·lock,
+기존 개별 scoped 정책의 권한은 bootstrap 버킷 설정, 배포 root 4개의 state·lock,
 foundation 빌드/ECR/네트워크와 새 EKS·runtime IAM·tagged compute·SSM bridge 관리로 구성됩니다.
-CodeBuild에 전달할 수 있는 역할은 빌드용 CodeBuild 역할 하나입니다.
-state와 state 버킷 삭제, account state 접근과 CI 자기 역할·OIDC 변경은 허용하지 않습니다.
+빌드 정책에서 CodeBuild에 전달할 수 있는 역할은 빌드용 CodeBuild 역할 하나입니다.
+기존 scoped 정책은 state와 state 버킷 삭제, account state 접근과 CI 자기 역할·OIDC 변경을 허용하지 않습니다.
+아래 임시 Admin이 활성화되면 이 제한은 CI 역할 전체의 권한 경계가 아닙니다.
 기존 bootstrap 전용 CI에서는 이 stack의 변경된 정책을 관리자가 먼저 적용한 후 배포 코드를 main에 반영합니다.
 네트워크 코드의 main 반영 전에 아래 관리형 정책을 먼저 적용합니다. EKS 권한과 session 변경도 main merge 전에 먼저 적용합니다.
+
+## 대회 기간 임시 Admin
+
+`ci-admin.tf`는 `enable_temporary_admin_access=true`일 때 기존 Terraform CI 역할에
+AWS 관리형 [`AdministratorAccess`](https://docs.aws.amazon.com/aws-managed-policy/latest/reference/AdministratorAccess.html)
+(`arn:aws:iam::aws:policy/AdministratorAccess`)를 추가합니다. **기본값과 예시 입력은 `true`이며 자동 만료되지 않습니다.**
+기존 세부 정책·주소와 정확한 저장소 main ref/STS audience의 OIDC trust는 유지합니다.
+서비스 이미지 publisher 역할에는 이 attachment를 연결하지 않습니다.
+
+Admin은 모든 AWS action/resource를 허용하므로 기존 scoped 정책의 리전·태그·PassRole·state·자기 역할 제한이
+역할 전체를 제한하지 못합니다. CI는 account state 접근·state 버킷 삭제·자기 IAM/OIDC 변경도 할 수 있습니다.
+SCP·permissions boundary·명시적 Deny 등 별도 제한으로 거부되는 작업까지 해결하는 것은 아닙니다.
+workflow의 account 제외 순서와 foundation plan 보호는 유지되며, attachment 자체는 자원을 생성하거나 교체하지 않습니다.
+
+관리자 적용 전에 GitHub 변수 `TERRAFORM_APPLY_ROLE_ARN`이 account 출력 `terraform_apply_role_arn`과 일치하는지 확인합니다.
+로컬 `terraform.tfvars`에 `enable_temporary_admin_access = true`를 설정하고 위 account init/plan/apply 절차를 사용합니다.
+plan에서 기존 CI 역할에 Admin attachment를 추가하는지, 다른 변경·삭제가 있는지 확인합니다.
+**account는 CI apply 대상이 아니므로 코드/main 반영만으로 실제 IAM 권한이 바뀌지 않습니다.**
+
+대회 종료 후 실제 로컬 `terraform.tfvars`에 `enable_temporary_admin_access = false`를 **지속 저장**하고
+관리자 인증으로 `make tf-plan STACK=account/aws`, 검토 후 `make tf-apply STACK=account/aws`를 실행합니다.
+Admin attachment 제거와 기존 scoped 정책 보존을 확인합니다. 일회성 `-var` override만 사용하면 기본값 `true`로
+다음 account apply에서 다시 연결될 수 있습니다. 회수 후 기존 IAM 검사를 다시 사용합니다.
+mock 검사는 활성화·회수 구성과 OIDC trust 보존을 확인하며 실제 AWS 권한 적용·배포 성공을 보장하지 않습니다.
+실제 account apply·main push·workflow 재실행은 각각 별도 승인된 운영 작업입니다.
 
 ## 플랫폼 ECR과 서비스 publisher
 
 `ecr-platform.tf`의 `platform-ecr-resources` inline 정책은 공통 inventory
 `terraform/config/platform-ecr-repositories.json`의 플랫폼 저장소 3개만 관리합니다.
-기존 state·빌드 정책과 Terraform 주소를 유지하며 이미지 push 권한은 추가하지 않습니다.
+이 scoped 정책은 기존 state·빌드 정책과 Terraform 주소를 유지하며 이미지 push 권한은 추가하지 않습니다.
 ECR 코드의 main 반영 전에 관리자가 이 정책을 적용해야 합니다.
 
 `github_ecr_publishers` 기본값은 `{}`입니다. 실제 서비스 저장소의 OIDC subject prefix와
@@ -57,10 +83,10 @@ ARN은 지정 계정·리전·네트워크 리소스 종류로, 생성은 `Proje
 
 resource-level 권한을 지원하지 않는 네트워크 `Describe` API만 `Resource="*"`와 지정 리전 조건을 사용합니다.
 `DescribeVpcAttribute`는 VPC ARN·소유권 태그로 제한합니다. 이 정책에는 EC2 instance/ENI 생성·변경,
-EKS 생성, S3 state, IAM 변경 권한이 없으며 CI는 자신의 역할·관리형 정책을 수정할 수 없습니다.
+EKS 생성, S3 state, IAM 변경 권한이 없으며 이 정책은 CI 자신의 역할·관리형 정책 수정도 허용하지 않습니다.
 관련 action/resource/condition 조합은 [AWS EC2 권한 참조](https://docs.aws.amazon.com/service-authorization/latest/reference/list_ec2.html)를 기준으로 합니다.
 
-`terraform -chdir=terraform/account/aws test`는 기존 trust/state/build 보호와 새 네트워크 권한·태그 범위를
+`terraform -chdir=terraform/account/aws test`는 OIDC trust와 개별 scoped state/build/네트워크 정책의 권한·태그 범위를
 mock으로 검사하며 실제 AWS IAM 충분성을 보장하지 않습니다. administrator account 적용 → foundation plan 검토 →
 별도 승인된 main 반영/배포 순서를 따릅니다. 네트워크 생성과 비용 발생은 foundation 적용 시 시작합니다.
 
@@ -77,11 +103,16 @@ GitHub Actions 변수와 자동 배포 절차는 [Terraform CI runbook](../../..
 
 `ci-access.tf`는 request/resource owner tags의 SG/LT/compute 변경과 private bridge t3.micro RunInstances를 별도 관리형 정책으로 제공합니다. read-only discovery는 지정 리전에서만 `*`, 새 ENI는 RunInstances 인증의 지역/리소스 예외입니다. AMI는 지정 리전의 Amazon 소유 이미지로 제한하며 IAM의 `ec2:Owner` 조건에는 `amazon` 별칭을 사용합니다. `DescribeImages`의 숫자 `OwnerId`와 이 조건값을 혼동하지 않습니다([AWS 예제](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ExamplePolicies_EC2.html)). IAM 허용 범위는 Amazon 소유 AMI들이며 실제 bridge 선택은 foundation의 고정 AL2023 x86_64 SSM parameter를 유지합니다. instance/volume에는 owner tag가 필요합니다.
 
-`aws_instance`의 burstable instance 조회는 `DescribeInstanceCreditSpecifications`도 호출하므로 지역 discovery 목록에 포함합니다. IAM 수정은 관리자가 account plan을 검토하고 apply해야 실제 CI 역할에 반영됩니다. foundation workflow는 자신의 IAM 정책을 갱신할 수 없습니다. account 적용 후 수정 코드가 반영된 workflow에서 foundation의 새 plan을 확인하여 재시도합니다. mock 테스트는 AMI·subnet/SG·ENI·instance·volume·생성 태그·PassRole의 제한을 검사하지만 실제 EC2 생성 성공은 배포 후 확인합니다.
+`aws_instance`의 burstable instance 조회는 `DescribeInstanceCreditSpecifications`도 호출하므로 지역 discovery 목록에 포함합니다. IAM 수정은 관리자가 account plan을 검토하고 apply해야 실제 CI 역할에 반영됩니다. foundation workflow는 account stack을 적용하지 않습니다. scoped 정책은 자기 IAM 갱신을 허용하지 않지만 임시 Admin 활성화 시 그 권한도 허용됩니다. account 적용 후 수정 코드가 반영된 workflow에서 foundation의 새 plan을 확인하여 재시도합니다. mock 테스트는 개별 정책의 AMI·subnet/SG·ENI·instance·volume·생성 태그·PassRole 제한을 검사하지만 실제 EC2 생성 성공은 배포 후 확인합니다.
 
 네트워크에 더해 EKS/runtime-IAM/runtime-compute/bridge-launch 정책 4개를 붙이며 각각 IAM6144자 한도를 mock으로 검사합니다. CI 역할 `max_session_duration=7200`, workflow STS7200, deploy timeout120분을 함께 적용합니다. `make tf-test`는 실제 로컬 backend/state/tfvars를 사용하지 않습니다. 실제 IAM 충분성은 배포 후 확인합니다.
 
 ## 배포 전 IAM 검사
+
+이 절차는 **임시 Admin이 비활성화된 scoped 권한 모드**에서 사용합니다. Admin 활성화 상태에서는
+`--account-plan-json`이 AWS 관리형 정책을 외부 정책으로 거부하고, live 검사는 Admin이 허용하는 작업과
+negative 거부 기대가 충돌하여 실패합니다. Admin 부여의 성공 기준으로 사용하지 않으며 검사 로직과 negative 보호는 유지합니다.
+Admin 모드에서는 관리자 plan 검토와 적용 후 attachment 조회로 연결을 확인하고 실제 CI 결과는 별도 검증합니다.
 
 [로컬 권한 검사](../../../scripts/README.md)의 `check-eks-ci-permissions.py`는 고정 AWS provider 6.67.0의 현재 bridge·EKS 생성/조회/업데이트/삭제 경로와 IAM 의존 권한을 AWS simulator로 평가합니다. 정책의 Action 목록을 기대값으로 복사하지 않습니다. 로컬 관리자에게 STS caller 조회, IAM 역할/정책 조회와 `SimulatePrincipalPolicy`·`SimulateCustomPolicy`, Access Analyzer `ValidatePolicy` 권한이 필요합니다. 배포 역할의 권한을 추가하거나 assume하지 않습니다.
 
