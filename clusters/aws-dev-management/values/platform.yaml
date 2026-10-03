@@ -25,7 +25,8 @@
         "cpu": "500m",
         "memory": "512Mi"
       }
-    }
+    },
+    "terminationGracePeriodSeconds": 90
   },
   "buildWorker": {
     "replicas": 1,

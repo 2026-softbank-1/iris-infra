@@ -26,7 +26,8 @@
         "cpu": "500m",
         "memory": "512Mi"
       }
-    }
+    },
+    "terminationGracePeriodSeconds": 90
   },
   "buildWorker": {
     "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
