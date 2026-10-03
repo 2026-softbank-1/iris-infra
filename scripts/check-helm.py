@@ -108,6 +108,7 @@ def check_platform(directory, targets, bootstrap):
                 assert container['ports']==[{'name':'http','containerPort':8000}]
                 assert container['readinessProbe']['httpGet']=={'path':'/readyz','port':'http'}
                 assert container['livenessProbe']['httpGet']=={'path':'/healthz','port':'http'}
+                assert pod['terminationGracePeriodSeconds']==values['api'].get('terminationGracePeriodSeconds',30)
             else:
                 assert pod['serviceAccountName']==component and not any(k.endswith('Probe') for k in container), 'Workers have no HTTP health endpoints.'
                 assert container['command']==['python','-m','app.workers.'+component.replace('-','_')]
