@@ -54,6 +54,23 @@ run "private_multi_az" {
     error_message = "Explicit, separate operator and GitOps identities are required."
   }
 }
+run "extra_node_in_one_az" {
+  command = apply
+  variables {
+    node_count_by_az = { "ap-northeast-2a" = 2 }
+  }
+  assert {
+    condition     = aws_eks_node_group.az["ap-northeast-2a"].scaling_config[0].desired_size == 2 && aws_eks_node_group.az["ap-northeast-2a"].scaling_config[0].max_size == 2 && aws_eks_node_group.az["ap-northeast-2c"].scaling_config[0].desired_size == 1
+    error_message = "Only the listed AZ gets the extra fixed node."
+  }
+}
+run "reject_unknown_az_node_count" {
+  command = plan
+  variables {
+    node_count_by_az = { "ap-northeast-2b" = 2 }
+  }
+  expect_failures = [var.node_count_by_az]
+}
 run "additional_operators" {
   command = plan
   variables { additional_operator_principal_arns = ["arn:aws:iam::123456789012:user/second-operator"] }
