@@ -32,7 +32,7 @@
 
 `replicas`, `resources`, `service.port`, `route.className`(`alb`)·`route.groupName`(`iris-service-external`), `networkPolicy.allowedCidrs`·`egressDeniedCidrs`·`egressAllowed`.
 타겟마다 다르면 ApplicationSet 의 Helm 값으로 덮어씁니다.
-chart 버전도 타깃마다 고정합니다: AWS `services.chartRevision`(현재 `iris-service-0.7.0`, Rollout), on-prem `services.onprem.chartRevision`(`iris-service-0.6.0`, Deployment·롤링만).
+chart 버전도 타깃마다 고정합니다: AWS `services.chartRevision`(현재 `iris-service-0.7.1`, Rollout), on-prem `services.onprem.chartRevision`(`iris-service-0.6.0`, Deployment·롤링만).
 
 ## 규칙
 

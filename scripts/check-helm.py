@@ -230,6 +230,9 @@ def check_service_strategies(directory):
             [rollout] = [d for d in docs if d['kind']=='Rollout']
             spec = rollout['spec']
             assert spec['replicas']==replicas and spec['progressDeadlineSeconds']==good['health']['timeoutSeconds'] and spec['progressDeadlineAbort'] is True
+            # Pod 종료 대기: SIGTERM waits for ALB deregistration; the app keeps its default 30s after the sleep.
+            pod = spec['template']['spec']
+            assert pod['containers'][0]['lifecycle']=={'preStop': {'sleep': {'seconds': 15}}} and pod['terminationGracePeriodSeconds']==45, 'Old Pods must outlive ALB deregistration without needing a shell.'
             # Canary and blue-green need two Pods; below that the chart renders the rolling update.
             effective = strategy if strategy in ('CANARY','BLUE_GREEN') and replicas >= 2 else 'ROLLING'
             assert rollout['metadata']['annotations']['iris/deployment-strategy']==effective
@@ -576,6 +579,10 @@ def main():
                     assert controller['spec']['replicas']==1 and not any(d['kind']=='Service' for d in docs), 'Controller only: no dashboard or metrics Service.'
                     assert {d['spec']['names']['kind'] for d in docs if d['kind']=='CustomResourceDefinition'} >= {'Rollout','AnalysisRun','AnalysisTemplate'}
                     rules = [r for d in docs if d['kind']=='ClusterRole' and d['metadata']['name']=='argo-rollouts' for r in d['rules']]
+                    # The Rollout CRD has a structural pod schema (no preserve-unknown-fields), so fields it lacks are pruned.
+                    crd = next(d for d in docs if d['kind']=='CustomResourceDefinition' and d['spec']['names']['kind']=='Rollout')
+                    pod = crd['spec']['versions'][0]['schema']['openAPIV3Schema']['properties']['spec']['properties']['template']['properties']['spec']['properties']
+                    assert 'sleep' in pod['containers']['items']['properties']['lifecycle']['properties']['preStop']['properties'] and 'terminationGracePeriodSeconds' in pod, 'iris-service preStop sleep would be pruned by this Rollout CRD.'
                     assert not any(g.endswith(('istio.io','elbv2.k8s.aws','traefik.io','gateway.networking.k8s.io')) for r in rules for g in r['apiGroups']), 'No traffic router RBAC: canary is pod-ratio only.'
                 elif name=='loki':
                     workloads = [d for d in docs if d['kind'] in ('Deployment','StatefulSet','DaemonSet')]

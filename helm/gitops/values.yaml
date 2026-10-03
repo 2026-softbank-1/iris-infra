@@ -5,7 +5,7 @@
   "services": {
     "repoURL": "https://github.com/2026-softbank-1/iris-gitops-environments.git",
     "revision": "main",
-    "chartRevision": "iris-service-0.7.0",
+    "chartRevision": "iris-service-0.7.1",
     "onprem": {
       "enabled": true,
       "chartRevision": "iris-service-0.6.0",

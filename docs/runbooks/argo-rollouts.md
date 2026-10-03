@@ -6,7 +6,7 @@
 
 | 타깃 | chart pin (`helm/gitops/values.yaml`) | 앱 리소스 | 배포 방식 |
 |---|---|---|---|
-| AWS workload | `services.chartRevision` = `iris-service-0.7.0` | `Rollout` | 롤링·카나리·블루그린 |
+| AWS workload | `services.chartRevision` = `iris-service-0.7.1` | `Rollout` | 롤링·카나리·블루그린 |
 | on-prem | `services.onprem.chartRevision` = `iris-service-0.6.0` | `Deployment` | 롤링만 |
 
 - on-prem 에는 Argo Rollouts controller 를 설치하지 않습니다. on-prem ApplicationSet 은 자기 chart pin 으로 Deployment 기반 0.6.0 을 계속 씁니다. `make helm-check` 가 AWS pin = 현재 chart tag, on-prem pin = `iris-service-0.6.0` 을 검사합니다.
@@ -86,6 +86,10 @@ AWS chartRevision 을 0.6.0 으로 되돌리기 **전에** 1·2 를 끝냅니다
    ```
 
 3. AWS `services.chartRevision` 을 `iris-service-0.6.0` 으로 되돌리는 PR 을 merge 합니다(`make helm-check` 의 pin 규칙도 함께 바꿉니다). Argo 가 Deployment 를 만들고 Rollout 은 PruneLast 로 마지막에 지웁니다. 블루그린이 쓰던 Service 의 hash selector 는 Rollout 이 지워지면 controller 가 걷어 냅니다. controller 는 Rollout 이 모두 사라진 뒤에 지웁니다.
+
+### Pod 종료 대기 (0.7.1)
+
+운영 E2E 에서 Deployment → Rollout 전환과 카나리 배포 때 이전 Pod 의 `Killing` 이벤트 4~5초 뒤 요청이 한 번씩 끊겼습니다(블루그린은 이전 Pod 가 이미 Service 밖이라 없었습니다). Pod 가 Endpoint 에서 빠진 뒤 LBC 가 ALB target 을 해제해 반영되기 전에 앱이 SIGTERM 으로 먼저 내려갔기 때문입니다. 0.7.1 부터 컨테이너에 preStop `sleep: {seconds: 15}`(kubelet sleep action, 이미지에 shell 이 필요 없음)와 `terminationGracePeriodSeconds: 45` 를 둬 SIGTERM 을 15초 늦추고 앱에는 기본 30초를 남깁니다. 그만큼 이전 Pod 가 늦게 사라져 배포가 Pod 마다 15초쯤 길어집니다. Rollout CRD(v1.10.0)의 pod schema 는 `preStop.sleep` 을 포함해 이 필드를 지우지 않으며 `make helm-check` 가 검사합니다. on-prem(0.6.0)에는 적용되지 않습니다.
 
 ## 블루그린과 AWS ALB
 
