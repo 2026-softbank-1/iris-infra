@@ -46,7 +46,7 @@
     "terminationGracePeriodSeconds": 120
   },
   "deployWorker": {
-    "replicas": 1,
+    "replicas": 3,
     "baseDomain": "likelion.uk",
     "gitopsRepository": "2026-softbank-1/iris-gitops-environments",
     "githubSecret": "iris-gitops-github-app",

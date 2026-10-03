@@ -10,7 +10,7 @@ Management EKS의 `iris-platform` namespace에 Iris 플랫폼을 배포하는 Ch
 | Migration | `api.digest`, `alembic upgrade head` | 같은 DB Secret, Worker AWS 권한 없음 |
 | Error Check Agent | `errorAgent.image.digest`, `python -m ai_error_check_agent.api --host 0.0.0.0 --port 8001` | 내부 ClusterIP 8001, LLM·Agent API key |
 
-API와 Worker는 최초 replica 1입니다. Worker에는 존재하지 않는 HTTP health probe를 넣지 않습니다. Build Worker 종료 유예는 최소 120초입니다. API 종료 유예는 기본 30초이고 운영은 90초입니다(롤아웃과 겹친 AI 진단이 끝나도록 iris-was 의 종료 대기 60초보다 길게 둡니다). Error Agent는 기본 비활성화입니다. Code Analyzer는 운영 서버·이미지 준비 후 별도로 설계합니다.
+API와 Build Worker는 replica 1, Deploy Worker는 최대 3입니다(job 선점이 `FOR UPDATE SKIP LOCKED`라 중복 처리하지 않습니다). Worker에는 존재하지 않는 HTTP health probe를 넣지 않습니다. Build Worker 종료 유예는 최소 120초입니다. API 종료 유예는 기본 30초이고 운영은 90초입니다(롤아웃과 겹친 AI 진단이 끝나도록 iris-was 의 종료 대기 60초보다 길게 둡니다). Error Agent는 기본 비활성화입니다. Code Analyzer는 운영 서버·이미지 준비 후 별도로 설계합니다.
 
 **버전(digest)은 이 저장소에 두지 않습니다.** 각 서비스 레포의 수동 배포 workflow가 `iris-gitops-environments/platform/aws-dev-management/<repo>.yaml`에 컴포넌트별 digest만 커밋하고(`was.yaml`: `api`·`buildWorker`·`deployWorker`, `error-check-agent.yaml`: `errorAgent.image`), Argo CD Application `iris-platform`이 이 저장소의 values와 병합해 자동 sync합니다. digest가 없는 컴포넌트는 렌더링하지 않으므로 컴포넌트를 따로 배포할 수 있습니다. Error Agent는 `enabled`와 digest가 모두 있어야 배포됩니다.
 
