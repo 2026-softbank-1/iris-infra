@@ -1,0 +1,38 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: iris-code-fix-runtime
+  namespace: argocd
+spec:
+  sourceRepos: [https://github.com/2026-softbank-1/iris-infra.git]
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: iris-platform
+  clusterResourceWhitelist: []
+  namespaceResourceWhitelist:
+    - {group: apps, kind: Deployment}
+    - {group: '', kind: Service}
+    - {group: '', kind: ConfigMap}
+    - {group: '', kind: ServiceAccount}
+    - {group: '', kind: PersistentVolumeClaim}
+    - {group: networking.k8s.io, kind: NetworkPolicy}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: iris-code-fix-runtime
+  namespace: argocd
+spec:
+  project: iris-code-fix-runtime
+  source:
+    repoURL: https://github.com/2026-softbank-1/iris-infra.git
+    targetRevision: main
+    path: runtime/code-fix
+    directory:
+      include: kubernetes.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: iris-platform
+  syncPolicy:
+    automated: {prune: true, selfHeal: true}
+    syncOptions: [PruneLast=true]
