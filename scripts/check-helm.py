@@ -213,6 +213,7 @@ def main():
         assert values_source['ref']=='values' and chart_source['helm']['valueFiles']==['$values/{{ .path.path }}/values.yaml']
         assert appset['template']['metadata']['name']=='svc-{{ index .path.segments 1 }}' and appset['template']['spec']['destination']=={'server':targets['workload']['endpoint'],'namespace':'svc-{{ index .path.segments 1 }}'}
         services = next(d for d in gitops if d['kind']=='AppProject' and d['metadata']['name']=='iris-svc-project')['spec']
+        assert {('apps', 'ReplicaSet'), ('', 'Pod')} <= {(w['group'], w['kind']) for w in services['namespaceResourceWhitelist']}, 'Argo resource trees need ReplicaSet and Pod permission for workload children and logs.'
         assert services['destinations']==[{'server':targets['workload']['endpoint'],'namespace':'svc-*'}] and services['clusterResourceWhitelist']==[{'group':'','kind':'Namespace'}]
         assert next(d for d in gitops if d['kind']=='ApplicationSet')['metadata']['name']=='iris-svc-appset' and appset['template']['spec']['project']=='iris-svc-project'
         assert [r['name'] for r in services['roles']]==['iris-deploy-reader']
