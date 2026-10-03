@@ -143,7 +143,7 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/config: 5a32eeba75e681e6a7e9af26e6d6c2c7cc645588d33a6f68f0dfa9dfb1c8722b
+        checksum/config: 0b2ce8216804d9702da1d865fcd8cabca6b5c4af713c3197fb0160f7532aa3c4
       labels:
         app.kubernetes.io/name: iris-platform
         app.kubernetes.io/instance: iris-platform
