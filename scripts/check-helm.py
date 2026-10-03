@@ -204,9 +204,21 @@ def check_onprem_gateway(directory, targets, baseline):
         result = subprocess.run([HELM,'template','check',str(chart),'-f',str(bad_values)],capture_output=True)
         assert result.returncode, f'Invalid gateway values must fail: {override}'
     policy = json.loads((ROOT/'clusters/aws-dev-management/onprem/tailnet-policy-additions.json').read_text())
-    assert policy=={'tagOwners':{'tag:iris-onprem-apps':['tag:iris-operator']},
-                    'grants':[{'src':['tag:iris-onprem-apps'],'dst':['tag:iris-onprem'],'ip':['tcp:80']}],
-                    'tests':[{'src':'tag:iris-onprem-apps','accept':['tag:iris-onprem:80'],'deny':['tag:iris-onprem:6443']}]}
+    assert policy['tagOwners']=={'tag:iris-onprem-apps':['tag:iris-operator'],'tag:iris-onprem-api':['tag:iris-operator']}
+    # Each egress proxy reaches only its port; on-prem servers (tag:iris-onprem) are destinations only.
+    assert policy['grants']==[{'src':['tag:iris-onprem-apps'],'dst':['tag:iris-onprem'],'ip':['tcp:80']},
+                              {'src':['tag:iris-onprem-api'],'dst':['tag:iris-onprem'],'ip':['tcp:6443']}]
+    assert not any('tag:iris-onprem' in grant['src'] for grant in policy['grants'])
+    tests = {t['src']: t for t in policy['tests']}
+    assert tests['tag:iris-onprem-apps']=={'src':'tag:iris-onprem-apps','accept':['tag:iris-onprem:80'],'deny':['tag:iris-onprem:6443']}
+    assert tests['tag:iris-onprem-api']['accept']==['tag:iris-onprem:6443'] and 'tag:iris-onprem:80' in tests['tag:iris-onprem-api']['deny']
+    assert 'accept' not in tests['tag:iris-onprem'] and {'tag:iris-onprem:80','tag:iris-onprem:6443','tag:iris-operator:443'} <= set(tests['tag:iris-onprem']['deny'])
+    # The chart's egress Services must use exactly the tags this fragment grants.
+    proxy_tags = set()
+    for chart, fixture in (('iris-onprem-gateway', ROOT/'clusters/aws-dev-management/values/onprem-gateway.yaml'), ('iris-onprem-server', ROOT/'helm/charts/iris-onprem-server/ci/server-values.yaml')):
+        rendered = yaml.safe_load_all(command('template', 'check', ROOT/'helm/charts'/chart, '-f', fixture, '--namespace', 'onprem-gateway'))
+        proxy_tags |= {d['metadata']['annotations']['tailscale.com/tags'] for d in rendered if d and d['kind']=='Service' and 'tailscale.com/tags' in d['metadata'].get('annotations', {})}
+    assert proxy_tags=={src for grant in policy['grants'] for src in grant['src']}
     # These are fragment assertions, not evaluation of the live/merged Tailscale policy.
 
 
