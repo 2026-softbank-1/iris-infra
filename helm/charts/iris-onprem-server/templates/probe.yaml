@@ -23,7 +23,8 @@ spec:
         serverKey: {{ $key }}
   destination:
     name: {{ .Values.server.clusterName }}
-    # install.sh creates iris-system and gives the Argo ServiceAccount full rights there.
+    # install.sh creates iris-system and lets the Argo ServiceAccount write only ConfigMaps there, so the
+    # probe needs no CreateNamespace and cannot read iris-server-secret.
     namespace: iris-system
   syncPolicy:
     automated: {prune: true, selfHeal: true}

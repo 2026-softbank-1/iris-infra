@@ -27,6 +27,7 @@ flowchart LR
 | Tailscale 정책 조각 | `clusters/aws-dev-management/onprem/tailnet-policy-additions.json` |
 | ECR pull 역할 | `terraform/environments/aws/dev/foundation/onprem-ecr-pull.tf`, CI 권한 `terraform/account/aws/ci-control-api.tf` |
 | 서비스 chart | `iris-service` 0.8.0(`imagePullSecrets`), 서버용 pin `onpremServers.chartRevision` |
+| 서버 쪽 버전(install.sh 고정) | k3s v1.33.13+k3s2, Argo Rollouts v1.10.0(chart 2.43.5 와 같음), Sealed Secrets 0.40.0(chart 2.20.0 과 같음) |
 
 ## 적용 순서
 
@@ -78,7 +79,7 @@ operator 의 egress 프록시는 Service 마다 `tailscale.com/tags` 로 `tag:ir
    aws iam get-role-policy --role-name iris-dev-control-api --policy-name assume-onprem-ecr-pull
    ```
 
-Control API 는 Pod Identity 세션에서 다시 AssumeRole 하므로(role chaining) 세션은 최대 1시간입니다. ECR 토큰이 그 세션보다 오래 쓰이는지는 첫 적용 때 확인합니다(서버 CronJob 은 6시간 주기).
+Control API 는 Pod Identity 세션에서 다시 AssumeRole 하므로(role chaining) 세션은 최대 1시간입니다. ECR 토큰이 그 세션보다 오래 쓰이는지는 첫 적용 때 확인합니다(서버 CronJob `iris-system/iris-ecr-refresh` 는 5분 주기라 짧은 토큰이어도 갱신이 따라갑니다).
 
 ### 5. WAS 설정
 
@@ -136,7 +137,7 @@ argocd cluster get onprem-$KEY        # Connection Status: Successful
 | SealedSecret `no key could decrypt secret` | WAS 가 workload 인증서로 봉인했거나 키를 잃었습니다. `PLATFORM_SEALED_SECRETS_CERT` 를 확인하고 서버에서 설치 명령을 다시 실행합니다 |
 | probe `ComparisonError`·`connection refused`·timeout | API 프록시 Pod(`iris.dev/proxy=onprem-api`) 준비, tailnet grant(6443), 서버 K3s `--tls-san` 에 tailnet FQDN, 서버 방화벽 |
 | probe `x509` 오류 | 봉인한 `config` 의 `tlsClientConfig.serverName` 이 tailnet FQDN 인지, `caData` 가 서버 K3s CA 인지 |
-| probe `forbidden` | 서버의 `iris-system` 에서 `iris-argocd` SA 권한(install.sh 5단계) |
+| probe `forbidden` | 서버의 `iris-system` 에서 `iris-argocd` SA 의 ConfigMap 권한(install.sh 5단계). probe 는 ConfigMap 하나만 만들고 Namespace 는 만들지 않습니다 |
 | `iris-onprem-server-*` 렌더 실패 | data 파일의 key·디렉터리·clusterName·FQDN 이 맞지 않습니다(chart 가 거절). Worker 출력 확인 |
 | 서비스 sync 실패 `imagePullSecrets` 거절 | `onpremServers.chartRevision` 이 0.8.0 이상인지 |
 | 게이트웨이 502 | key 의 egress Service·HTTP 프록시가 없거나 서버 Traefik 이 응답하지 않습니다 |

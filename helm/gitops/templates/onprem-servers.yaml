@@ -38,7 +38,7 @@ metadata:
 spec:
   sourceRepos:
     - {{ .Values.repoURL | quote }}
-  # The server's Argo ServiceAccount owns iris-system (install.sh); nothing else on the server is reachable from here.
+  # install.sh lets the server's Argo ServiceAccount write only ConfigMaps in iris-system; the project allows no more.
   destinations:
     - name: onprem-*
       namespace: iris-system

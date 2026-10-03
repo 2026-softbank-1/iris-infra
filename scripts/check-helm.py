@@ -325,6 +325,7 @@ def check_onprem_servers(directory, targets, baseline):
         assert probe['spec']['project']=='iris-onprem-probe' and probe['spec']['destination']=={'name':'onprem-'+key,'namespace':'iris-system'}
         assert probe['spec']['source']['path']=='helm/charts/iris-onprem-probe' and probe['spec']['source']['repoURL'] in project_repos['iris-onprem-probe']
         assert probe['spec']['syncPolicy']['automated']=={'prune':True,'selfHeal':True}
+        assert 'syncOptions' not in probe['spec']['syncPolicy'], 'install.sh creates iris-system and grants only ConfigMaps there; no CreateNamespace.'
     assert probe['spec']['source']['targetRevision']=='a'*40, 'Probe chart follows the same reviewed infra revision.'
     probe_docs = render(ROOT/'helm/charts/iris-onprem-probe', ROOT/'helm/charts/iris-onprem-probe/ci/probe-values.yaml', release='iris-onprem-probe', namespace='iris-system')
     assert [(d['kind'], d['metadata']['name'], d['data']) for d in probe_docs]==[('ConfigMap','iris-onprem-probe',{'serverKey':key})]
