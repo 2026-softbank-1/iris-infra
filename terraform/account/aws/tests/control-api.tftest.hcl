@@ -7,13 +7,17 @@ run "control_api_deployment_boundary" {
   command = plan
   assert {
     condition = length(aws_iam_policy.control_api.policy) <= 6144 && length(jsondecode(aws_iam_policy.control_api.policy).Statement) == 2 && alltrue([
-      for s in jsondecode(aws_iam_policy.control_api.policy).Statement : !contains(s.Action, "iam:*") && !contains(s.Action, "iam:AttachRolePolicy") && s.Resource == "arn:aws:iam::123456789012:role/iris-dev-control-api"
+      for s in jsondecode(aws_iam_policy.control_api.policy).Statement : !contains(s.Action, "iam:*") && !contains(s.Action, "iam:AttachRolePolicy")
     ])
-    error_message = "CI may administer only the named Control API role, with inline policies and without attaching managed policies."
+    error_message = "CI may administer the Control API roles only with inline policies and without attaching managed policies."
   }
   assert {
-    condition     = one([for s in jsondecode(aws_iam_policy.control_api.policy).Statement : s if s.Sid == "PassControlApiRole"]).Action == ["iam:PassRole"] && jsonencode(one([for s in jsondecode(aws_iam_policy.control_api.policy).Statement : s if s.Sid == "PassControlApiRole"]).Condition) == jsonencode({ StringEquals = { "iam:PassedToService" = "pods.eks.amazonaws.com" } })
-    error_message = "The Control API role may be passed only to EKS Pod Identity, never EC2."
+    condition     = one([for s in jsondecode(aws_iam_policy.control_api.policy).Statement : s if s.Sid == "ControlApiRole"]).Resource == ["arn:aws:iam::123456789012:role/iris-dev-control-api", "arn:aws:iam::123456789012:role/iris-dev-onprem-ecr-pull"]
+    error_message = "CI may administer only the Control API role and the on-prem ECR pull role it assumes."
+  }
+  assert {
+    condition     = one([for s in jsondecode(aws_iam_policy.control_api.policy).Statement : s if s.Sid == "PassControlApiRole"]).Resource == "arn:aws:iam::123456789012:role/iris-dev-control-api" && one([for s in jsondecode(aws_iam_policy.control_api.policy).Statement : s if s.Sid == "PassControlApiRole"]).Action == ["iam:PassRole"] && jsonencode(one([for s in jsondecode(aws_iam_policy.control_api.policy).Statement : s if s.Sid == "PassControlApiRole"]).Condition) == jsonencode({ StringEquals = { "iam:PassedToService" = "pods.eks.amazonaws.com" } })
+    error_message = "Only the Control API role may be passed, and only to EKS Pod Identity; the on-prem ECR pull role is never passed."
   }
   assert {
     condition = alltrue([
