@@ -73,6 +73,15 @@ kubectl --kubeconfig .generated/kubeconfig-aws-dev-management.json -n argocd por
 kubectl --kubeconfig .generated/kubeconfig-aws-dev-management.json -n observability port-forward service/monitoring-grafana 3000:80 --address=127.0.0.1
 ```
 
+Grafana admin은 Git 밖의 `observability/grafana-admin` Secret(`admin-user`, `admin-password`)을 사용합니다. 차트가 생성하는 비밀번호는 Argo render마다 바뀌어 Grafana를 재배포시키므로 쓰지 않습니다. 클러스터마다 Grafana Application이 sync되기 전에 한 번 만듭니다. 없으면 Grafana Pod가 시작되지 않습니다.
+
+```bash
+kubectl --kubeconfig .generated/kubeconfig-aws-dev-<management|workload>.json -n observability create secret generic grafana-admin \
+  --from-literal=admin-user=admin --from-literal=admin-password="$(openssl rand -base64 24)"
+```
+
+기존 PVC의 Grafana DB는 최초 기동 때의 비밀번호를 유지하므로, Secret을 바꾼 뒤에는 `kubectl -n observability exec deploy/monitoring-grafana -c grafana -- grafana cli admin reset-admin-password "<Secret 값>"`으로 맞춥니다. Grafana는 RWO PVC 때문에 `Recreate`로 배포되어 재배포 중 잠시 끊깁니다.
+
 Argo initial admin 및 Grafana admin password는 각 Secret에서 운영자가 로컬로 조회하고 화면 공유·CI 로그에 출력하지 않습니다. `https://localhost:8080`의 Argo 서버 자체 인증서는 EKS API CA와 별개입니다. Argo/Grafana 사용자 서비스 인증서와 외부 도메인은 후속 설정입니다.
 
 ## 배포 후 검증
