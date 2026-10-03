@@ -254,9 +254,28 @@ def main():
         rendered_kinds = {(d['apiVersion'].rpartition('/')[0], d['kind']) for d in service_docs}
         assert rendered_kinds <= {(w['group'],w['kind']) for w in services['namespaceResourceWhitelist']}, f'iris-svc-project must allow chart kinds: {rendered_kinds}'
         allowed = {p['metadata']['name'].removeprefix('iris-addons-'): {(w['group'],w['kind']) for w in p['spec']['clusterResourceWhitelist']} for p in gitops if p['kind']=='AppProject'}
-        bad = directory/'bad.json'; bad.write_text(json.dumps({'revision':'main','targets':targets}))
+        tracking = directory/'tracking.json'
+        tracking_values = {'revision':'a'*40,'targets':targets,'platform':{'enabled':True},'albTraffic':{'enabled':True}}
+        tracking.write_text(json.dumps(tracking_values))
+        pinned_apps = {d['metadata']['name']:d for d in render(ROOT/'helm/gitops', tracking, namespace='argocd') if d['kind']=='Application'}
+        tracking_values['revision'] = 'main'
+        tracking.write_text(json.dumps(tracking_values))
+        tracking_apps = {d['metadata']['name']:d for d in render(ROOT/'helm/gitops', tracking, namespace='argocd') if d['kind']=='Application'}
+        assert tracking_apps.keys()==pinned_apps.keys() and len(tracking_apps)==14
+        assert {'iris-platform','iris-management-alb-log-collector'} <= tracking_apps.keys()
+        infra_repo = json.loads((ROOT/'helm/gitops/values.yaml').read_text())['repoURL']
+        for name, app in tracking_apps.items():
+            sources = app['spec'].get('sources') or [app['spec']['source']]
+            infra_sources = [s for s in sources if s['repoURL']==infra_repo]
+            assert infra_sources and all(s['targetRevision']=='main' for s in infra_sources), f'{name} must track main for infrastructure sources.'
+            expected = copy.deepcopy(pinned_apps[name])
+            for source in expected['spec'].get('sources') or [expected['spec']['source']]:
+                if source['repoURL']==infra_repo:
+                    source['targetRevision'] = 'main'
+            assert app==expected, f'{name}: main tracking must preserve other sources and settings.'
+        bad = directory/'bad.json'; bad.write_text(json.dumps({'revision':'feature/unreviewed','targets':targets}))
         failed = subprocess.run([HELM,'template','check',str(ROOT/'helm/gitops'),'-f',str(bad)],capture_output=True)
-        assert failed.returncode, 'Mutable Git revision must fail schema validation.'
+        assert failed.returncode, 'Only main or an immutable Git SHA may pass revision validation.'
         bad.write_text(json.dumps({'revision':'a'*40,'targets':targets,'services':{'repoURL':'https://github.com/other/repo.git'}}))
         failed = subprocess.run([HELM,'template','check',str(ROOT/'helm/gitops'),'-f',str(bad)],capture_output=True)
         assert failed.returncode, 'Only the reviewed GitOps repository may feed user services.'
