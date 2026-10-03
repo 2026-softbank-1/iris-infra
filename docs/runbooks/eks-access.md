@@ -56,14 +56,15 @@ kubectl --kubeconfig .generated/kubeconfig-aws-dev-workload.json --context iris-
 Terraform은 EKS·노드·CNI/CoreDNS/kube-proxy/Pod Identity/EBS CSI를 설치합니다. 운영자가 아래 명령으로 관리 EKS의 Argo CD를 Helm 설치하고, Argo가 두 EKS에 baseline·LBC·metrics-server·kube-prometheus-stack을 동기화합니다. 이 명령은 실제 Kubernetes 변경이므로 인프라 적용과 별도로 배포 시 실행합니다.
 
 ```bash
-# 검토 완료 SHA를 checkout하고 작업 트리가 깨끗해야 합니다.
-export GITOPS_REVISION=<main에-merge된-40자리-SHA>
+# origin/main과 같은 깨끗한 checkout이어야 합니다(git pull 후 실행).
+# 기본값 main: root와 infra 소스가 main을 추적합니다. 롤백 시에만 검토된 40자리 SHA를 지정합니다.
+export GITOPS_REVISION=main
 export ARGOCD_GIT_TOKEN_FILE=/안전한/로컬/읽기전용-token
 # SSH 방식은 위 변수 대신 ARGOCD_GIT_SSH_KEY_FILE 사용
 make bootstrap CLUSTER=aws-dev-management
 ```
 
-두 API의 TLS/RBAC, 모든 AZ에 Ready 노드(management 3대: 2a 2·2c 1, workload 2대), `allocatable.pods=35`, prefix delegation·CNI network policy agent를 모두 확인한 뒤 처음 쓰기를 시작합니다. token/키와 cluster Secret은 메모리/stdin으로만 전달합니다. chart/이미지 고정값은 `helm/versions.json`, `helm/bootstrap/Chart.lock`, `helm/images.lock.json`에 있습니다. root와 8개 addon Application이 Synced/Healthy여야 완료입니다. Git의 mutable main 추적이나 user app 관리는 하지 않습니다. 버전 갱신은 새 검토 SHA로 다시 bootstrap합니다.
+두 API의 TLS/RBAC, 모든 AZ에 Ready 노드(management 3대: 2a 2·2c 1, workload 2대), `allocatable.pods=35`, prefix delegation·CNI network policy agent를 모두 확인한 뒤 처음 쓰기를 시작합니다. token/키와 cluster Secret은 메모리/stdin으로만 전달합니다. chart/이미지 고정값은 `helm/versions.json`, `helm/bootstrap/Chart.lock`, `helm/images.lock.json`에 있습니다. root와 8개 addon Application이 Synced/Healthy여야 완료입니다. root와 iris-infra 소스는 main을 추적하므로 main merge 후 Argo가 자동 동기화합니다. bootstrap 재실행은 최초 설치, `helm/bootstrap`(Argo CD 자체) 변경, credential·target 변경, SHA 고정 롤백·해제 때만 필요합니다. user app 관리는 하지 않습니다.
 
 Argo CD/Grafana는 ClusterIP입니다. 터널을 유지하며 별도 터미널에서 로컬 포워딩합니다.
 

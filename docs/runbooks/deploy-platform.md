@@ -55,9 +55,9 @@ helm template iris-platform helm/charts/iris-platform \
 
 ## Argo Application 활성화와 첫 sync
 
-아래는 **운영자가 별도로 실행 승인을 받은 뒤** 사용하는 절차입니다. 기본 bootstrap은 platform Application을 만들지 않습니다. 이전에 bootstrap한 root의 source revision은 자동으로 최신 main을 따라가지 않으므로 새 immutable SHA로 갱신해야 새 Chart/Application 정의를 읽습니다.
+아래는 **운영자가 별도로 실행 승인을 받은 뒤** 사용하는 절차입니다. 기본 bootstrap은 platform Application을 만들지 않습니다. root가 main을 추적하면 병합된 Chart/Application 정의를 자동으로 읽습니다. root가 SHA에 고정된 상태라면 `GITOPS_REVISION=main`으로 다시 bootstrap해야 합니다.
 
-1. 채운 values와 구현을 검토·병합한 immutable SHA를 준비하고 깨끗한 checkout에서 기존 bootstrap 필수 환경변수/credential/target 조건을 충족합니다.
+1. 채운 values와 구현을 main에 병합하고 origin/main과 같은 깨끗한 checkout에서 기존 bootstrap 필수 환경변수/credential/target 조건을 충족합니다.
 2. `GITOPS_PLATFORM_ENABLED=1`로 bootstrap합니다. 이 플래그는 정확히 `0` 또는 `1`이며 기본은 `0`입니다. 활성화 시 platform Chart를 cluster values로 strict lint/render하고 두 target 선행 검사를 통과한 뒤 첫 클러스터 변경을 수행합니다.
 3. root `iris-addons`는 Synced, 기존 8개 addon은 Synced/Healthy, 새 `iris-platform` Application은 존재하는 상태까지 기다립니다. bootstrap은 platform Healthy를 주장하거나 기다리지 않습니다. GitOps digest가 없으면 SA·ConfigMap·NetworkPolicy만 생깁니다.
 4. 서비스 레포의 **Deploy platform** workflow를 실행합니다(iris-was는 API부터). digest 커밋을 Argo가 감지(약 3분)해 자동 sync합니다. 실패한 hook을 선택적 sync로 우회하지 않습니다.
@@ -83,7 +83,7 @@ argocd app wait iris-platform --sync --health --timeout 900   # 확인용
 
 서비스 삭제는 Deploy Worker의 REMOVE job이 `services/{id}/prod` 디렉터리를 지우는 커밋으로 시작합니다(iris-was ADR 0016). ApplicationSet은 `applicationsSync: sync`라 사라진 디렉터리의 Application `svc-{id}`를 지우고, Application의 `resources-finalizer`가 Deployment·Service·Ingress·NetworkPolicy를 함께 지웁니다. 사람이 운영 GitOps `services/`에서 디렉터리를 지우면 같은 이유로 서비스가 내려가므로 직접 수정하지 않습니다. `CreateNamespace`로 만든 `svc-{id}` namespace는 Application 삭제 때 남을 수 있어 필요하면 별도로 정리합니다. ApplicationSet 자체 삭제/철거는 별도 절차입니다.
 
-이 정책은 root Application이 고정한 revision을 읽어 반영됩니다. 병합 뒤 운영자가 새 immutable SHA로 bootstrap해야 적용됩니다.
+이 정책은 root Application이 추적하는 revision(기본 main)을 읽어 반영됩니다. main 병합 후 Argo가 동기화하면 적용됩니다.
 
 ## RDS 접근과 비밀번호
 

@@ -38,6 +38,6 @@ foundation의 기존 Build Worker/CodeBuild/ECR 경계를 유지합니다. manag
 
 소스 SHA·배포 이력은 플랫폼 DB, 사용자 앱의 desired state는 `iris-gitops-environments`, 이미지는 ECR, Terraform state는 S3에 저장합니다. 사용자 배포마다 이 저장소에 프로젝트 디렉토리나 commit을 만들지 않습니다. 로컬 CLI는 같은 `iris-service` chart 버전으로 k3d에 배포하며 `iris-web` 정적 사이트 배포는 후속 범위입니다.
 
-비밀값과 전체 state는 Git/GitOps values에 넣지 않습니다. 검토한 immutable SHA가 addon values를 고정합니다. [운영 경로](runbooks/eks-access.md), [결정](decisions/0003-private-eks-and-gitops.md), [target 계약](../contracts/target.md)을 참고합니다.
+비밀값과 전체 state는 Git/GitOps values에 넣지 않습니다. Argo는 iris-infra main을 추적해 addon values를 반영하며, 롤백 시 검토한 SHA로 고정합니다. [운영 경로](runbooks/eks-access.md), [결정](decisions/0003-private-eks-and-gitops.md), [target 계약](../contracts/target.md)을 참고합니다.
 
 플랫폼 values는 `clusters/aws-dev-management/values/platform.yaml`에 있으며 비밀값은 외부 Secret 참조로만 전달합니다. RDS verify-full/CA와 분리된 runtime·migration DB 계정을 사용하고 준비 리소스 → migration Sync hook → workload 순서로 동기화합니다. API Ingress는 management ALB group에 가입하고 `/readyz` 204를 health로 사용합니다. Error Agent는 내부 ClusterIP만, Code Analyzer 서비스화는 후속 범위입니다. [플랫폼 배포](runbooks/deploy-platform.md)를 참고합니다.
