@@ -5,6 +5,9 @@
 {{- $management := .Values.targets.management }}
 {{- $s := .Values.services }}
 {{- $o := .Values.onpremServers }}
+{{- if semverCompare "<0.8.0" (trimPrefix "iris-service-" $o.chartRevision) }}
+{{- fail (printf "onpremServers.chartRevision %s is below iris-service-0.8.0: server services set imagePullSecrets, which older chart schemas reject. Tag iris-service-0.8.0 first." $o.chartRevision) }}
+{{- end }}
 apiVersion: argoproj.io/v1alpha1
 kind: AppProject
 metadata:
@@ -39,6 +42,7 @@ spec:
   sourceRepos:
     - {{ .Values.repoURL | quote }}
   # install.sh lets the server's Argo ServiceAccount write only ConfigMaps in iris-system; the project allows no more.
+  # Its reads are cluster-wide (deployer ClusterRole), Secrets included.
   destinations:
     - name: onprem-*
       namespace: iris-system
@@ -85,8 +89,10 @@ spec:
             releaseName: 'onprem-server-{{ "{{" }} .path.basename {{ "}}" }}'
             valueFiles:
               - '$values/{{ "{{" }} .path.path {{ "}}" }}/values.yaml'
+            # Pinned here so the Deploy Worker's data file cannot override them.
             valuesObject:
               directoryKey: '{{ "{{" }} .path.basename {{ "}}" }}'
+              gatewayNamespace: onprem-gateway
               probe:
                 repoURL: {{ .Values.repoURL | quote }}
                 targetRevision: {{ .Values.revision | quote }}

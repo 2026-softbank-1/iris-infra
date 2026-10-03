@@ -222,6 +222,10 @@ def check_onprem_gateway(directory, targets, baseline):
     # These are fragment assertions, not evaluation of the live/merged Tailscale policy.
 
 
+def semver_of(revision):
+    return tuple(map(int, revision.removeprefix('iris-service-').split('.')))
+
+
 def check_onprem_servers(directory, targets, baseline):
     """User-registered on-prem servers: GitOps flag, per-server chart and probe chart (no cluster)."""
     indexed = lambda docs: {(d['kind'], d['metadata']['name']): d for d in docs}
@@ -234,8 +238,15 @@ def check_onprem_servers(directory, targets, baseline):
     for name in ('iris-onprem-servers', 'iris-svc-onprem-servers-appset'):
         assert ('ApplicationSet', name) not in base
     values = directory/'gitops-onprem-servers.json'
+    # Enabling keeps the default pin only if it already supports imagePullSecrets.
     values.write_text(json.dumps({'revision':'a'*40, 'targets':targets, 'services':{'onprem':{'enabled':False}},
                                   'onpremGateway':{'enabled':False}, 'onpremServers':{'enabled':True}}))
+    if semver_of(defaults['onpremServers']['chartRevision']) < (0,8,0):
+        failed = subprocess.run([HELM,'template','check',str(ROOT/'helm/gitops'),'-f',str(values),'--kube-version',VERSIONS['kubernetes']+'.0'],capture_output=True,text=True)
+        assert failed.returncode and 'below iris-service-0.8.0' in failed.stderr, 'Enabling servers with a chart that rejects imagePullSecrets must fail.'
+    server_revision = 'iris-service-0.8.0'
+    values.write_text(json.dumps({'revision':'a'*40, 'targets':targets, 'services':{'onprem':{'enabled':False}},
+                                  'onpremGateway':{'enabled':False}, 'onpremServers':{'enabled':True,'chartRevision':server_revision}}))
     docs = indexed(render(ROOT/'helm/gitops', values, namespace='argocd'))
     # Existing AWS documents stay as they are; only the service project gains the onprem-* destination.
     for key in (('ApplicationSet','iris-svc-appset'), ('AppProject','iris-addons-workload')):
@@ -268,6 +279,7 @@ def check_onprem_servers(directory, targets, baseline):
     chart_source, values_source = spec['sources']
     assert chart_source['path']=='helm/charts/iris-onprem-server' and chart_source['targetRevision']=='a'*40, 'Infra chart follows the reviewed infra revision.'
     assert chart_source['helm']['valueFiles']==['$values/{{ .path.path }}/values.yaml'] and values_source['ref']=='values'
+    assert chart_source['helm']['valuesObject']['gatewayNamespace']=='onprem-gateway', 'valuesObject outranks the data file.'
     assert spec['ignoreDifferences']==[{'group':'','kind':'Service','jsonPointers':['/spec/externalName']}]
     assert spec['syncPolicy']=={'automated':{'prune':True,'selfHeal':True},'syncOptions':['RespectIgnoreDifferences=true']}
     for source in spec['sources']:
@@ -280,11 +292,10 @@ def check_onprem_servers(directory, targets, baseline):
     assert svc['spec']['project']=='iris-svc-project'
     assert svc['spec']['destination']=={'name':'{{ index .path.segments 2 }}','namespace':'svc-{{ index .path.segments 1 }}'}
     svc_chart = svc['spec']['sources'][0]
-    assert svc_chart['targetRevision']==defaults['onpremServers']['chartRevision']
+    assert svc_chart['targetRevision']==server_revision
     assert svc_chart['helm']['valuesObject']=={'route':{'className':'traefik'},'networkPolicy':{'egressDeniedCidrs':defaults['onpremServers']['egressDeniedCidrs']}}
-    semver = lambda v: tuple(map(int, v.removeprefix('iris-service-').split('.')))
     chart_version = yaml.safe_load((ROOT/'helm/charts/iris-service/Chart.yaml').read_text())['version']
-    assert semver(defaults['onpremServers']['chartRevision'])<=semver(chart_version) and semver(defaults['onpremServers']['chartRevision'])>=(0,7,0), 'Servers run Rollouts; pin a released tag of 0.7.0 or later.'
+    assert semver_of(defaults['onpremServers']['chartRevision'])<=semver_of(chart_version), 'Pin the current chart tag or an earlier released one.'
     # Argo directory globs use path.Match: '*' never crosses '/', and 'onprem' and 'onprem-*' do not overlap.
     import fnmatch
     for path, legacy, server in (('services/12/onprem',True,False),('services/12/onprem-k3x9q2ma',False,True),('services/12/prod',False,False)):
@@ -345,6 +356,7 @@ def check_onprem_servers(directory, targets, baseline):
         'other probe project': lambda v: v['probe'].update(project='default'),
         'unreviewed revision': lambda v: v['probe'].update(targetRevision='feature/x'),
         'missing directory key': lambda v: v.pop('directoryKey'),
+        'apps Service moved': lambda v: v.update(gatewayNamespace='argocd'),
     }
     bad = directory/'bad-onprem-server.json'
     for label, change in mutations.items():

@@ -94,7 +94,7 @@ API·Worker 를 다시 시작해 값을 읽게 합니다([deploy-platform](deplo
 
 ### 6. 켜기
 
-1. 별도 PR 로 `helm/gitops/values.yaml` 의 `onpremServers.enabled` 를 `true`, `onpremServers.chartRevision` 을 `iris-service-0.8.0` 으로 바꿔 merge 합니다(tag 가 있어야 합니다). 필요하면 root revision 을 갱신합니다.
+1. 별도 PR 로 `helm/gitops/values.yaml` 의 `onpremServers.enabled` 를 `true`, `onpremServers.chartRevision` 을 `iris-service-0.8.0` 으로 바꿔 merge 합니다(tag 가 있어야 합니다). 켠 상태에서 0.8.0 미만이면 gitops 렌더가 실패합니다. 필요하면 root revision 을 갱신합니다.
 2. 새 AppProject 가 생긴 뒤 probe 조회 token 을 발급해 5단계 Secret 에 `ARGOCD_PROBE_TOKEN` 으로 넣고 Deploy Worker 를 다시 시작합니다. 서버를 등록하기 전에 끝냅니다(없으면 Worker 가 probe 를 못 읽어 15분 뒤 `FAILED`).
 
    ```bash
@@ -141,6 +141,12 @@ argocd cluster get onprem-$KEY        # Connection Status: Successful
 | `iris-onprem-server-*` 렌더 실패 | data 파일의 key·디렉터리·clusterName·FQDN 이 맞지 않습니다(chart 가 거절). Worker 출력 확인 |
 | 서비스 sync 실패 `imagePullSecrets` 거절 | `onpremServers.chartRevision` 이 0.8.0 이상인지 |
 | 게이트웨이 502 | key 의 egress Service·HTTP 프록시가 없거나 서버 Traefik 이 응답하지 않습니다 |
+
+## 알려진 위험
+
+- **management Argo 가 서버의 Secret 을 읽을 수 있습니다.** 배포 역할 ClusterRole(`iris-onprem-service-deployer`)은 Argo 캐시를 위해 클러스터 전체 `*/*` get/list/watch 를 갖습니다. 쓰기만 `svc-*` 앱 리소스와 `iris-system` ConfigMap 으로 좁혀져 있습니다. 그래서 cluster Secret 의 SA 토큰을 가진 쪽(management Argo, 봉인 키)은 서버의 모든 Secret(`iris-system/iris-server-secret`, 사용자 변수가 풀린 Secret 포함)을 읽을 수 있습니다. management Sealed Secrets 키와 Argo 접근은 서버 관리자 권한과 같은 무게로 다룹니다. 읽기를 좁히려면 Secret 을 뺀 규칙 목록과 Argo `resource.exclusions` 를 함께 바꿔야 합니다(별도 작업).
+- 사용자 서버는 기존 VM 과 같은 `tag:iris-onprem` 을 씁니다. 정책에 그 태그에서 나가는 grant 가 있으면 deny 테스트가 실패합니다.
+- 재사용 auth key 를 가진 누구나 `tag:iris-onprem` 장치로 가입할 수 있습니다.
 
 ## 되돌리기
 

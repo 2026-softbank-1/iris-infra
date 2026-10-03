@@ -24,7 +24,8 @@ spec:
   destination:
     name: {{ .Values.server.clusterName }}
     # install.sh creates iris-system and lets the Argo ServiceAccount write only ConfigMaps there, so the
-    # probe needs no CreateNamespace and cannot read iris-server-secret.
+    # probe needs no CreateNamespace. Reads are not limited: the deployer ClusterRole has cluster-wide
+    # get/list/watch on */* (Argo's cache), Secrets included.
     namespace: iris-system
   syncPolicy:
     automated: {prune: true, selfHeal: true}
