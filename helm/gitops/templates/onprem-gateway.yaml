@@ -1,4 +1,4 @@
-{{- if .Values.services.onprem.enabled }}
+{{- if or .Values.services.onprem.enabled .Values.onpremGateway.enabled }}
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:

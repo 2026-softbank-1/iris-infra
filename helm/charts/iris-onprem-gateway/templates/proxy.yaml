@@ -1,0 +1,29 @@
+apiVersion: tailscale.com/v1alpha1
+kind: ProxyClass
+metadata:
+  name: iris-onprem-http
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  statefulSet:
+    pod:
+      labels: {iris.dev/proxy: onprem-http}
+      tailscaleContainer:
+        resources:
+          requests: {cpu: 100m, memory: 128Mi}
+          limits: {cpu: "1", memory: 512Mi}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: iris-onprem-http
+  namespace: tailscale
+spec:
+  podSelector:
+    matchLabels: {iris.dev/proxy: onprem-http}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: onprem-gateway}}
+          podSelector: {matchLabels: {app.kubernetes.io/name: onprem-gateway}}
+      ports: [{protocol: TCP, port: 80}]

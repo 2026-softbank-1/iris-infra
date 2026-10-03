@@ -1,9 +1,10 @@
-{{- $arn := required "Set certificateArn (terraform output internal_acm_certificate_arn)" .Values.certificateArn }}
 apiVersion: v1
 kind: Service
 metadata:
   name: iris-onprem-apps
   annotations:
+    tailscale.com/proxy-class: iris-onprem-http
+    tailscale.com/hostname: iris-mgmt-onprem-http
     tailscale.com/tailnet-fqdn: {{ .Values.upstream.tailnetFqdn | quote }}
     tailscale.com/tags: "tag:iris-onprem-apps"
 spec:
@@ -26,10 +27,12 @@ spec:
         checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
     spec:
       automountServiceAccountToken: false
-      securityContext: {runAsNonRoot: true, runAsUser: 101, runAsGroup: 101, seccompProfile: {type: RuntimeDefault}}
+      securityContext: {runAsNonRoot: true, runAsUser: 101, runAsGroup: 101, fsGroup: 101, fsGroupChangePolicy: OnRootMismatch, seccompProfile: {type: RuntimeDefault}}
       containers:
         - name: nginx
           image: {{ printf "%s@%s" .Values.image.repository .Values.image.digest | quote }}
+          command: [nginx]
+          args: [-c, /etc/nginx/nginx.conf, -g, "daemon off;"]
           securityContext:
             readOnlyRootFilesystem: true
             allowPrivilegeEscalation: false
@@ -47,7 +50,7 @@ spec:
         - name: conf
           configMap: {name: onprem-gateway}
         - name: tmp
-          emptyDir: {}
+          emptyDir: {sizeLimit: 64Mi}
 ---
 apiVersion: v1
 kind: Service
@@ -57,6 +60,8 @@ spec:
   type: ClusterIP
   selector: {app.kubernetes.io/name: onprem-gateway}
   ports: [{name: http, port: 80, targetPort: http}]
+{{- if .Values.publicIngress.enabled }}
+{{- $arn := required "Set certificateArn (terraform output internal_acm_certificate_arn) for publicIngress" .Values.certificateArn }}
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
@@ -81,6 +86,7 @@ spec:
             pathType: Prefix
             backend:
               service: {name: onprem-gateway, port: {name: http}}
+{{- end }}
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -90,12 +96,16 @@ spec:
   podSelector:
     matchLabels: {app.kubernetes.io/name: onprem-gateway}
   policyTypes: [Ingress, Egress]
+  {{- if .Values.publicIngress.enabled }}
   ingress:
     - from:
         {{- range .Values.albSourceCidrs }}
         - ipBlock: {cidr: {{ . | quote }}}
         {{- end }}
       ports: [{protocol: TCP, port: 8080}]
+  {{- else }}
+  ingress: []
+  {{- end }}
   egress:
     - to:
         - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: kube-system}}
@@ -103,4 +113,5 @@ spec:
       ports: [{protocol: UDP, port: 53}, {protocol: TCP, port: 53}]
     - to:
         - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: tailscale}}
+          podSelector: {matchLabels: {iris.dev/proxy: onprem-http}}
       ports: [{protocol: TCP, port: {{ .Values.upstream.port }}}]

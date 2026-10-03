@@ -18,6 +18,9 @@
       "error-check-agent"
     ]
   },
+  "onpremGateway": {
+    "enabled": true
+  },
   "albTraffic": {
     "enabled": false
   }
