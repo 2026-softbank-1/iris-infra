@@ -1,0 +1,224 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: iris-platform-api-code-fix
+  namespace: iris-platform
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/instance: iris-platform
+      app.kubernetes.io/component: api
+  policyTypes:
+  - Egress
+  egress:
+  - to:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/instance: iris-platform
+          app.kubernetes.io/component: code-fix-agent
+    ports:
+    - protocol: TCP
+      port: 8000
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: iris-platform-code-fix
+  namespace: iris-platform
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/instance: iris-platform
+      app.kubernetes.io/component: code-fix-agent
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/instance: iris-platform
+          app.kubernetes.io/component: api
+    ports:
+    - protocol: TCP
+      port: 8000
+  egress:
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+      podSelector:
+        matchLabels:
+          k8s-app: kube-dns
+    ports:
+    - protocol: UDP
+      port: 53
+    - protocol: TCP
+      port: 53
+  - to:
+    - ipBlock:
+        cidr: 0.0.0.0/0
+        except:
+        - 10.0.0.0/8
+        - 172.16.0.0/12
+        - 192.168.0.0/16
+        - 169.254.0.0/16
+    ports:
+    - protocol: TCP
+      port: 443
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: iris-platform-code-fix-agent
+  annotations:
+    argocd.argoproj.io/sync-wave: '-2'
+  namespace: iris-platform
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: iris-platform-code-fix-agent
+  annotations:
+    argocd.argoproj.io/sync-wave: '-2'
+  namespace: iris-platform
+data:
+  FIX_ALLOWED_SOURCE_HOSTS: iris-dev-build-artifacts-187069338876-ap-northeast-2.s3.ap-northeast-2.amazonaws.com,iris-dev-build-artifacts-187069338876-ap-northeast-2.s3.amazonaws.com
+  FIX_CACHED_INPUT_PRICE_PER_MILLION: '0.1'
+  FIX_DATA_DIR: /data
+  FIX_INPUT_PRICE_PER_MILLION: '2'
+  FIX_MAX_COST_USD: '1'
+  FIX_MAX_OUTPUT_TOKENS: '4096'
+  FIX_MODEL: gpt-6.1-sol
+  FIX_MODEL_TIMEOUT_SECONDS: '120'
+  FIX_OUTPUT_PRICE_PER_MILLION: '10'
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: iris-platform-code-fix-agent
+  annotations:
+    argocd.argoproj.io/sync-options: Prune=false
+  namespace: iris-platform
+spec:
+  accessModes:
+  - ReadWriteOnce
+  storageClassName: gp3
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: iris-platform-code-fix-agent
+  namespace: iris-platform
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/instance: iris-platform
+    app.kubernetes.io/component: code-fix-agent
+  ports:
+  - name: http
+    port: 8000
+    targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: iris-platform-code-fix-agent
+  annotations:
+    argocd.argoproj.io/sync-wave: '0'
+  namespace: iris-platform
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: iris-platform
+      app.kubernetes.io/component: code-fix-agent
+  template:
+    metadata:
+      annotations:
+        checksum/config: 5a32eeba75e681e6a7e9af26e6d6c2c7cc645588d33a6f68f0dfa9dfb1c8722b
+      labels:
+        app.kubernetes.io/name: iris-platform
+        app.kubernetes.io/instance: iris-platform
+        app.kubernetes.io/component: code-fix-agent
+    spec:
+      serviceAccountName: iris-platform-code-fix-agent
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 180
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: code-fix-agent
+        image: 187069338876.dkr.ecr.ap-northeast-2.amazonaws.com/iris/code-fix-agent@sha256:56e6c383b667e5ecf9321065e6a9b659516e13d01de92d193cdfec9ec0818d23
+        imagePullPolicy: IfNotPresent
+        command:
+        - iris-code-fix-agent
+        - --host
+        - 0.0.0.0
+        - --port
+        - '8000'
+        ports:
+        - name: http
+          containerPort: 8000
+        startupProbe:
+          httpGet:
+            path: /healthz
+            port: http
+          periodSeconds: 5
+          failureThreshold: 60
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: http
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: http
+        envFrom:
+        - configMapRef:
+            name: iris-platform-code-fix-agent
+        env:
+        - name: OPENAI_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: iris-code-fix-agent
+              key: OPENAI_API_KEY
+        - name: API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: iris-code-fix-agent
+              key: API_KEY
+        volumeMounts:
+        - name: data
+          mountPath: /data
+        - name: tmp
+          mountPath: /tmp
+        resources:
+          limits:
+            cpu: '1'
+            memory: 1Gi
+          requests:
+            cpu: 100m
+            memory: 256Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: iris-platform-code-fix-agent
+      - name: tmp
+        emptyDir: {}
