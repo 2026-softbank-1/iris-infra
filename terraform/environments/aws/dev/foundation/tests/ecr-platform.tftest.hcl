@@ -29,9 +29,9 @@ run "platform_images_and_retention" {
 
   assert {
     condition = toset([for repository in aws_ecr_repository.platform : repository.name]) == toset([
-      "iris/was", "iris/code-analyzer-agent", "iris/error-check-agent",
+      "iris/was", "iris/code-analyzer-agent", "iris/error-check-agent", "iris/alb-log-collector",
     ])
-    error_message = "Create only the three requested platform repositories, without dev or web."
+    error_message = "Create the platform and collector repositories, without dev or web."
   }
 
   assert {

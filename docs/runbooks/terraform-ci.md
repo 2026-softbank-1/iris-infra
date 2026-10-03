@@ -23,7 +23,7 @@ account는 관리자가 로컬에서 적용하고 module은 독립 apply하지 �
 gh api repos/2026-softbank-1/iris-infra/actions/oidc/customization/sub
 ```
 
-4. 관리자 인증으로 account의 새 EKS/runtime IAM/compute/bridge 정책과 CI role session7200을 **먼저 적용**합니다. 로컬 AWS login은 runner에 전달되지 않으며 runner는 GitHub OIDC만 사용합니다.
+4. 관리자 인증으로 account의 정책·CI role session7200과 대회 기간 임시 Admin attachment를 **먼저 적용**합니다. `enable_temporary_admin_access`의 기본값은 `true`입니다. 로컬 AWS login은 runner에 전달되지 않으며 runner는 GitHub OIDC만 사용합니다. `TERRAFORM_APPLY_ROLE_ARN`이 account 출력 역할과 일치하는지 확인하고, 로컬 `terraform.tfvars`의 활성화 여부와 plan의 attachment 변경을 검토합니다.
 
 ```bash
 export AWS_PROFILE=iris-tf
@@ -34,7 +34,7 @@ make tf-plan STACK=account/aws
 make tf-apply STACK=account/aws
 ```
 
-account 변경을 적용하기 전에는 [로컬 IAM 검사](../../scripts/README.md)의 account plan 모드로 예정 정책을 검증하고, 적용 후에는 live 모드로 CI 역할의 실제 정책을 확인합니다. simulator/Access Analyzer 결과는 실제 배포 성공과 구분합니다.
+임시 Admin 비활성화 상태에서는 account 적용 전 [로컬 IAM 검사](../../scripts/README.md)의 plan 모드, 적용 후 live 모드를 사용합니다. Admin 활성화 상태에서는 plan 모드가 외부 AWS 관리형 정책을 거부하고 live 모드의 negative 기대가 Admin 허용과 충돌하므로 통과 기준으로 사용하지 않습니다. 이 경우 관리자 plan 검토와 적용 후 attachment 조회로 `AdministratorAccess` 연결을 확인합니다. 코드/main 반영만으로 account IAM이 적용되지는 않으며 실제 CI 배포 성공은 별도 확인합니다.
 
 5. GitHub Settings → Actions → Variables를 설정합니다.
 
@@ -55,7 +55,11 @@ account 변경을 적용하기 전에는 [로컬 IAM 검사](../../scripts/READM
 
 CI는 `.tfvars.example`을 읽지 않습니다. 기본값은 VPC10.40/16, AZ2a/c, NATper_az, cluster iris-dev-management/workload, projectiris/envdev입니다. 로컬 override를 쓰면 workflow의 대응 `TF_VAR_vpc_cidr`, `TF_VAR_availability_zones`(JSON 배열), `TF_VAR_nat_gateway_mode`, `TF_VAR_management_cluster_name`, `TF_VAR_workload_cluster_name`을 함께 맞추고 account의 cluster ARN scope도 일치시킵니다. 현재 EKS/ops 버전은 승인한 서울2a/c 구성을 전제로 합니다.
 
-기존 state/build/ECR 정책과 주소를 유지합니다. 새 관리형 정책은 named 두 EKS/child ARN·runtime role/policy·attachment allowlist·PassRole service·EKS OIDC issuer, EC2 지역/owner/request tags로 범위를 제한합니다. 런타임 정책은 GitHub OIDC/CI 자신의 IAM을 바꾸지 않습니다. 각 정책6144자 이하·기존 state allowlist·IAM 경계는 mock 검사 대상이며 실제 API 충분성은 별도 확인합니다.
+기존 state/build/ECR 정책과 주소를 유지합니다. 개별 scoped 관리형 정책은 named 두 EKS/child ARN·runtime role/policy·attachment allowlist·PassRole service·EKS OIDC issuer, EC2 지역/owner/request tags로 범위를 제한합니다. 런타임 정책은 GitHub OIDC/CI 자신의 IAM 변경을 허용하지 않습니다. 각 정책6144자 이하·기존 state allowlist·개별 IAM 정책의 범위는 mock 검사 대상이며 실제 API 충분성은 별도 확인합니다.
+
+대회 기간에는 `enable_temporary_admin_access=true`가 기존 Terraform CI 역할에 `AdministratorAccess`를 연결합니다. 정확한 main ref/STS audience OIDC 제한은 유지하지만 **Admin 활성화 시 위 scoped 정책의 제한은 역할 전체를 제한하지 못합니다.** account state 접근·state 삭제·CI 자기 IAM 변경도 허용됩니다. workflow의 account 제외 순서와 foundation plan 보호는 유지됩니다.
+
+자동 만료는 없습니다. 대회 종료 후 로컬 `terraform/account/aws/terraform.tfvars`에 `enable_temporary_admin_access = false`를 지속 저장하고, 관리자 account plan에서 Admin attachment 제거·기존 정책 보존을 확인한 뒤 apply합니다. 일회성 override만 사용하면 이후 기본값 `true`로 다시 연결될 수 있습니다. 회수 후 기존 IAM 검사를 사용합니다. 상세 적용·회수는 [account README](../../terraform/account/aws/README.md#대회-기간-임시-admin)를 참고합니다. account apply·main push·workflow 실행은 별도 승인된 운영 작업입니다.
 
 ## 순차 apply와 plan 보호
 
@@ -82,7 +86,7 @@ terraform -chdir=<root> providers lock -platform=darwin_arm64 -platform=linux_am
 EC2 실행 권한만 허용해도 provider의 생성 후 조회에서 실패할 수 있습니다. 현재 bridge의 burstable 조회는 `DescribeInstanceCreditSpecifications`, EKS는 `CreateCluster`의 wildcard 예외, EBS addon의 Pod Identity 리소스, Build Worker의 pods 서비스 PassRole, nodegroup/addon 업데이트 조회 범위를 필요로 합니다. [AWS EKS 권한 참조](https://docs.aws.amazon.com/service-authorization/latest/reference/list_eks.html)와 고정 provider 호출 경로를 함께 확인합니다.
 
 1. 관리자 account의 최신 plan을 검토하고 권한 변경을 apply합니다. account는 CI가 갱신하지 않습니다.
-2. `python3 scripts/check-eks-ci-permissions.py --role-arn <terraform_apply_role_arn>`을 실행합니다. account 적용 전의 live 거부를 수정 코드의 실패와 혼동하지 않습니다. plan 모드는 관련 ARN/연결이 확정된 account JSON에서 예정 정책만 검사합니다.
+2. 임시 Admin 비활성화 상태에서는 `python3 scripts/check-eks-ci-permissions.py --role-arn <terraform_apply_role_arn>`을 실행합니다. account 적용 전의 live 거부를 수정 코드의 실패와 혼동하지 않습니다. plan 모드는 관련 ARN/연결이 확정된 account JSON에서 예정 정책만 검사합니다. Admin 활성화 상태에서는 해당 검사 대신 적용된 역할의 `AdministratorAccess` attachment를 확인합니다.
 3. foundation의 새 plan을 생성하고 기존 build/ECR/network 보호 결과와 bridge의 교체 여부를 확인합니다. 실패 전에 생성된 EC2는 실행 중이고 SSM Online이어도 Terraform state에서 tainted일 수 있습니다. 이런 경우 재시도 plan에 교체가 나타날 수 있고 SSM 접속 대상 ID가 바뀝니다. 운영 상태만으로 자동 untaint/import/destroy하지 않으며 복구는 별도 검토합니다.
 4. 검토한 코드가 main에 반영된 뒤 운영자가 승인한 CI 재시도를 진행합니다. 이전 실패의 saved plan은 재사용하지 않습니다.
 

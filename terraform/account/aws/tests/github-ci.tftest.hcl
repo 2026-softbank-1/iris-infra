@@ -15,6 +15,15 @@ run "restrict_github_deployment" {
 
   assert {
     condition = (
+      length(aws_iam_role_policy_attachment.temporary_admin) == 1 &&
+      aws_iam_role_policy_attachment.temporary_admin[0].role == aws_iam_role.terraform_apply.name &&
+      aws_iam_role_policy_attachment.temporary_admin[0].policy_arn == "arn:aws:iam::aws:policy/AdministratorAccess"
+    )
+    error_message = "Competition access must attach AdministratorAccess to the Terraform CI role by default."
+  }
+
+  assert {
+    condition = (
       length(jsondecode(aws_iam_role.terraform_apply.assume_role_policy).Statement[0].Condition.StringEquals) == 2 &&
       jsondecode(aws_iam_role.terraform_apply.assume_role_policy).Statement[0].Condition.StringEquals["token.actions.githubusercontent.com:aud"] == "sts.amazonaws.com" &&
       jsondecode(aws_iam_role.terraform_apply.assume_role_policy).Statement[0].Condition.StringEquals["token.actions.githubusercontent.com:sub"] == "repo:example@123/infra@456:ref:refs/heads/main"
@@ -43,7 +52,7 @@ run "restrict_github_deployment" {
       "arn:aws:s3:::iris-tfstate-123456789012-ap-northeast-2/aws/dev/management/terraform.tfstate",
       "arn:aws:s3:::iris-tfstate-123456789012-ap-northeast-2/aws/dev/workload/terraform.tfstate",
     ])
-    error_message = "All four deployment states need Get/Put; account state must remain administrator-only."
+    error_message = "The scoped state policy must grant Get/Put to the four deployment states and exclude account state."
   }
 
   assert {
@@ -56,7 +65,7 @@ run "restrict_github_deployment" {
       "arn:aws:s3:::iris-tfstate-123456789012-ap-northeast-2/aws/dev/management/terraform.tfstate.tflock",
       "arn:aws:s3:::iris-tfstate-123456789012-ap-northeast-2/aws/dev/workload/terraform.tfstate.tflock",
     ])
-    error_message = "Only deployment lock files may be deleted in the state bucket."
+    error_message = "The scoped state policy must grant deletion only for deployment lock files."
   }
 
   assert {
@@ -64,7 +73,7 @@ run "restrict_github_deployment" {
       for statement in jsondecode(aws_iam_role_policy.terraform_apply.policy).Statement :
       !contains(statement.Action, "s3:DeleteBucket") && !contains(statement.Action, "s3:DeleteObjectVersion") && !contains(statement.Action, "s3:*")
     ])
-    error_message = "CI must not receive bucket deletion or unrestricted S3 permissions."
+    error_message = "The scoped state policy must not grant bucket deletion or unrestricted S3 permissions."
   }
 
   assert {
@@ -94,7 +103,7 @@ run "restrict_github_deployment" {
         ], resource)
       ]) if anytrue([for action in statement.Action : startswith(action, "iam:")])
     ])
-    error_message = "CI may manage only the two build roles, never its own role or OIDC provider."
+    error_message = "The scoped foundation policy must allow IAM management only for the two build roles."
   }
 
   assert {
@@ -107,7 +116,7 @@ run "restrict_github_deployment" {
         if contains(statement.Action, "iam:PassRole")
       ])
     )
-    error_message = "PassRole must be limited to the CodeBuild role and CodeBuild service."
+    error_message = "The scoped foundation policy must limit PassRole to the CodeBuild role and service."
   }
 
   assert {
@@ -122,7 +131,7 @@ run "restrict_github_deployment" {
         ], resource)
       ]) if anytrue([for action in statement.Action : startswith(action, "s3:")])
     ])
-    error_message = "Foundation bucket and object deletion must never reach the state bucket."
+    error_message = "The scoped foundation policy must exclude the state bucket from its S3 permissions."
   }
 
   assert {
@@ -132,6 +141,43 @@ run "restrict_github_deployment" {
       !contains(statement.Action, "codebuild:StartBuild")
       if anytrue([for action in statement.Action : startswith(action, "codebuild:")])
     ])
-    error_message = "CI manages the one CodeBuild project; starting user builds belongs to the Build Worker."
+    error_message = "The scoped foundation policy must manage only the one CodeBuild project and exclude StartBuild."
+  }
+}
+
+run "revoke_temporary_admin" {
+  command = apply
+
+  variables {
+    enable_temporary_admin_access = false
+  }
+
+  assert {
+    condition     = length(aws_iam_role_policy_attachment.temporary_admin) == 0
+    error_message = "Disabling competition access must remove the AdministratorAccess attachment."
+  }
+
+  assert {
+    condition = (
+      length(jsondecode(aws_iam_role.terraform_apply.assume_role_policy).Statement[0].Condition.StringEquals) == 2 &&
+      jsondecode(aws_iam_role.terraform_apply.assume_role_policy).Statement[0].Condition.StringEquals["token.actions.githubusercontent.com:aud"] == "sts.amazonaws.com" &&
+      jsondecode(aws_iam_role.terraform_apply.assume_role_policy).Statement[0].Condition.StringEquals["token.actions.githubusercontent.com:sub"] == "repo:example@123/infra@456:ref:refs/heads/main"
+    )
+    error_message = "Revoking temporary Admin must preserve the repository main-branch and STS audience trust restrictions."
+  }
+
+  assert {
+    condition = (
+      aws_iam_role_policy.terraform_apply.role == aws_iam_role.terraform_apply.id &&
+      aws_iam_role_policy.foundation.role == aws_iam_role.terraform_apply.id &&
+      aws_iam_role_policy_attachment.foundation_network.role == aws_iam_role.terraform_apply.name &&
+      aws_iam_role_policy_attachment.runtime_iam.role == aws_iam_role.terraform_apply.name &&
+      aws_iam_role_policy_attachment.runtime_compute.role == aws_iam_role.terraform_apply.name &&
+      aws_iam_role_policy_attachment.bridge_launch.role == aws_iam_role.terraform_apply.name &&
+      aws_iam_role_policy_attachment.eks_deployment.role == aws_iam_role.terraform_apply.name &&
+      aws_iam_role_policy_attachment.alb_access_logs.role == aws_iam_role.terraform_apply.name &&
+      aws_iam_role_policy.platform_ecr.role == aws_iam_role.terraform_apply.id
+    )
+    error_message = "Revoking temporary Admin must preserve all existing scoped CI policy bindings."
   }
 }

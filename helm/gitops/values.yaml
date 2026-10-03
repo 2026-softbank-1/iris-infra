@@ -14,5 +14,8 @@
       "code-analyzer-agent",
       "error-check-agent"
     ]
+  },
+  "albTraffic": {
+    "enabled": false
   }
 }

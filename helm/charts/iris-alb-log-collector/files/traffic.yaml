@@ -1,0 +1,54 @@
+{
+  "groups": [
+    {
+      "name": "iris-service-traffic",
+      "interval": "1m",
+      "rules": [
+        {
+          "record": "iris_service_requests_1m",
+          "expr": "sum by (cluster, k8s_namespace_name) (count_over_time({job=\"iris-alb-access\"}[1m] offset 15m))"
+        },
+        {
+          "record": "iris_service_errors_1m",
+          "labels": {
+            "status_class": "4xx"
+          },
+          "expr": "sum by (cluster, k8s_namespace_name) (count_over_time({job=\"iris-alb-access\"} | json | elb_status_code >= 400 | elb_status_code <= 499 | __error__ = \"\" [1m] offset 15m)) or (sum by (cluster, k8s_namespace_name) (count_over_time({job=\"iris-alb-access\"}[1m] offset 15m)) * 0)"
+        },
+        {
+          "record": "iris_service_errors_1m",
+          "labels": {
+            "status_class": "5xx"
+          },
+          "expr": "sum by (cluster, k8s_namespace_name) (count_over_time({job=\"iris-alb-access\"} | json | elb_status_code >= 500 | elb_status_code <= 599 | __error__ = \"\" [1m] offset 15m)) or (sum by (cluster, k8s_namespace_name) (count_over_time({job=\"iris-alb-access\"}[1m] offset 15m)) * 0)"
+        },
+        {
+          "record": "iris_service_public_network_bytes_1m",
+          "labels": {
+            "direction": "receive"
+          },
+          "expr": "sum by (cluster, k8s_namespace_name) (sum_over_time({job=\"iris-alb-access\"} | json | unwrap received_bytes | __error__ = \"\" [1m] offset 15m))"
+        },
+        {
+          "record": "iris_service_public_network_bytes_1m",
+          "labels": {
+            "direction": "transmit"
+          },
+          "expr": "sum by (cluster, k8s_namespace_name) (sum_over_time({job=\"iris-alb-access\"} | json | unwrap sent_bytes | __error__ = \"\" [1m] offset 15m))"
+        },
+        {
+          "record": "iris_service_response_time_seconds_avg5m",
+          "expr": "avg_over_time({job=\"iris-alb-access\"} | json | target_processing_time >= 0 | __error__ = \"\" | unwrap target_processing_time | __error__ = \"\" [5m] offset 15m) by (cluster, k8s_namespace_name)"
+        },
+        {
+          "record": "iris_service_response_time_seconds_p50_5m",
+          "expr": "quantile_over_time(0.5, {job=\"iris-alb-access\"} | json | target_processing_time >= 0 | __error__ = \"\" | unwrap target_processing_time | __error__ = \"\" [5m] offset 15m) by (cluster, k8s_namespace_name)"
+        },
+        {
+          "record": "iris_service_response_time_seconds_p95_5m",
+          "expr": "quantile_over_time(0.95, {job=\"iris-alb-access\"} | json | target_processing_time >= 0 | __error__ = \"\" | unwrap target_processing_time | __error__ = \"\" [5m] offset 15m) by (cluster, k8s_namespace_name)"
+        }
+      ]
+    }
+  ]
+}

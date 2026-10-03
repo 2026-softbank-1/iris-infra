@@ -1,0 +1,15 @@
+# Staged until AWS storage, verified image digest and separate deployment approval exist.
+enabled: false
+image:
+  repository: 187069338876.dkr.ecr.ap-northeast-2.amazonaws.com/iris/alb-log-collector
+  digest: ""
+aws:
+  accountId: "187069338876"
+  region: ap-northeast-2
+source:
+  bucket: iris-dev-alb-access-logs-187069338876-ap-northeast-2
+  prefix: alb/workload/AWSLogs/187069338876/elasticloadbalancing/ap-northeast-2/
+  queueUrl: https://sqs.ap-northeast-2.amazonaws.com/187069338876/iris-dev-alb-access-logs
+  deadLetterQueueUrl: https://sqs.ap-northeast-2.amazonaws.com/187069338876/iris-dev-alb-access-logs-dlq
+  cluster: iris-dev-workload
+  group: iris-service-external

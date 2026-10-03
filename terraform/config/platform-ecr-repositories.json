@@ -1,5 +1,6 @@
 [
   "was",
   "code-analyzer-agent",
-  "error-check-agent"
+  "error-check-agent",
+  "alb-log-collector"
 ]

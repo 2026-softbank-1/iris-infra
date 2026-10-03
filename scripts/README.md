@@ -26,6 +26,13 @@ local-workload는 scaffold이며 bootstrap/smoke에서 성공으로 처리하지
 
 ## EKS CI 권한 검사
 
+아래 절차는 임시 Admin이 비활성화된 scoped 권한 모드에서 사용합니다. 대회 기간 기본값인
+`enable_temporary_admin_access=true`에서는 plan 모드가 외부 AWS 관리형 정책을 거부하고,
+live 모드는 Admin이 허용하는 작업과 negative 거부 기대가 충돌하므로 통과 기준으로 사용하지 않습니다.
+검사 로직과 negative 보호는 유지합니다. Admin 모드에서는 관리자 account plan과 적용 후 attachment 조회로 연결을 확인합니다.
+대회 종료 후 로컬 입력에 `false`를 지속 저장하고 관리자 account apply로 회수한 뒤 아래 검사를 다시 사용합니다.
+자세한 절차는 [임시 Admin 적용·회수](../terraform/account/aws/README.md#대회-기간-임시-admin)를 참고합니다.
+
 적용된 권한은 로컬 관리자 AWS profile로 다음 명령을 실행합니다. role ARN은 account 출력 `terraform_apply_role_arn`입니다. CI 역할을 assume하거나 trust를 변경하지 않습니다.
 
 ```bash

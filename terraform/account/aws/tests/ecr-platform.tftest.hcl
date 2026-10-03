@@ -46,11 +46,12 @@ run "restrict_platform_management_and_publishing" {
         "arn:aws:ecr:ap-northeast-2:123456789012:repository/iris/was",
         "arn:aws:ecr:ap-northeast-2:123456789012:repository/iris/code-analyzer-agent",
         "arn:aws:ecr:ap-northeast-2:123456789012:repository/iris/error-check-agent",
+        "arn:aws:ecr:ap-northeast-2:123456789012:repository/iris/alb-log-collector",
       ]) &&
       alltrue([for action in jsondecode(aws_iam_role_policy.platform_ecr.policy).Statement[0].Action : startswith(action, "ecr:") && action != "ecr:*"]) &&
       !contains(jsondecode(aws_iam_role_policy.platform_ecr.policy).Statement[0].Action, "ecr:PutImage")
     )
-    error_message = "Terraform ECR management must cover exactly three platform repositories and must not publish images."
+    error_message = "Terraform ECR management must cover the platform and collector repositories and must not publish images."
   }
 
   assert {
