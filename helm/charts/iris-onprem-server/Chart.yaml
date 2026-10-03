@@ -1,0 +1,6 @@
+apiVersion: v2
+name: iris-onprem-server
+description: Management-side resources for one user-registered on-prem server (Argo cluster Secret, Tailscale egress Services, probe Application)
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

@@ -1,0 +1,16 @@
+# Same shape as Deploy Worker's platform/onprem-servers/{serverKey}/values.yaml plus the ApplicationSet values.
+# caData and encryptedConfig are fixtures; they decrypt to nothing.
+server:
+  key: k3x9q2ma
+  clusterName: onprem-k3x9q2ma
+  tailnetFqdn: iris-k3x9q2ma.tailb046e8.ts.net
+  apiPort: 6443
+  appsPort: 80
+cluster:
+  caData: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCg==
+  encryptedConfig: AgBy3i4TQXwNNqdHFlYAXAmLgbmB8wAUkc+L/xlaMkJKs0kYV2m4
+directoryKey: k3x9q2ma
+probe:
+  repoURL: https://github.com/2026-softbank-1/iris-infra.git
+  targetRevision: main
+  project: iris-onprem-probe

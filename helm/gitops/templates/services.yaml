@@ -20,6 +20,11 @@ spec:
     - server: {{ $s.onprem.server | quote }}
       namespace: svc-*
     {{- end }}
+    {{- if $.Values.onpremServers.enabled }}
+    # User-registered servers: Argo cluster names onprem-{serverKey} (templates/onprem-servers.yaml).
+    - name: onprem-*
+      namespace: svc-*
+    {{- end }}
   # Allow chart resources and workload children so Argo can display ReplicaSets and Pods.
   clusterResourceWhitelist:
     - {group: "", kind: Namespace}

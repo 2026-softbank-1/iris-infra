@@ -1,0 +1,39 @@
+{{- $key := include "iris-onprem-server.key" . }}
+# Tailscale egress Services, as the existing VM's (docs/runbooks/onprem-gateway.md). The operator in
+# `tailscale` starts one proxy per Service and replaces spec.externalName (the Application ignores it).
+# ProxyClasses and their NetworkPolicies are shared and live in the iris-onprem-gateway chart.
+apiVersion: v1
+kind: Service
+metadata:
+  name: iris-onprem-api-{{ $key }}
+  namespace: argocd
+  labels:
+    {{- include "iris-onprem-server.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+    tailscale.com/proxy-class: iris-onprem-api
+    tailscale.com/hostname: iris-mgmt-onprem-api-{{ $key }}
+    tailscale.com/tailnet-fqdn: {{ .Values.server.tailnetFqdn | quote }}
+    tailscale.com/tags: "tag:iris-onprem-api"
+spec:
+  type: ExternalName
+  externalName: placeholder
+  ports: [{name: https, port: {{ .Values.server.apiPort }}, protocol: TCP}]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: iris-onprem-apps-{{ $key }}
+  namespace: {{ .Values.gatewayNamespace }}
+  labels:
+    {{- include "iris-onprem-server.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+    tailscale.com/proxy-class: iris-onprem-http
+    tailscale.com/hostname: iris-mgmt-onprem-http-{{ $key }}
+    tailscale.com/tailnet-fqdn: {{ .Values.server.tailnetFqdn | quote }}
+    tailscale.com/tags: "tag:iris-onprem-apps"
+spec:
+  type: ExternalName
+  externalName: placeholder
+  ports: [{name: http, port: {{ .Values.server.appsPort }}, protocol: TCP}]

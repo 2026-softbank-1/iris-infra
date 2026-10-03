@@ -1,0 +1,10 @@
+# `server` and `cluster` come from the Deploy Worker's GitOps file platform/onprem-servers/{serverKey}/values.yaml.
+# The keys below are set by the iris-onprem-servers ApplicationSet (helm/gitops templates/onprem-servers.yaml).
+
+# Directory name of the data file. Must equal server.key, so one directory can only describe its own server.
+directoryKey: ""
+gatewayNamespace: onprem-gateway
+probe:
+  repoURL: https://github.com/2026-softbank-1/iris-infra.git
+  targetRevision: main
+  project: iris-onprem-probe
