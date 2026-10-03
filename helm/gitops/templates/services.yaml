@@ -16,11 +16,13 @@ spec:
   destinations:
     - server: {{ $workload.endpoint | quote }}
       namespace: svc-*
-  # CreateNamespace needs Namespace; everything else is what the iris-service chart renders.
+  # Allow chart resources and workload children so Argo can display ReplicaSets and Pods.
   clusterResourceWhitelist:
     - {group: "", kind: Namespace}
   namespaceResourceWhitelist:
     - {group: apps, kind: Deployment}
+    - {group: apps, kind: ReplicaSet}
+    - {group: "", kind: Pod}
     - {group: "", kind: Service}
     - {group: networking.k8s.io, kind: Ingress}
     - {group: networking.k8s.io, kind: NetworkPolicy}
