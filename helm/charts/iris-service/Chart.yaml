@@ -2,4 +2,4 @@ apiVersion: v2
 name: iris-service
 description: "Iris 사용자 앱 공통 chart: Argo Rollouts Rollout(롤링·카나리·블루그린), Service, ALB Ingress, 선택적인 NetworkPolicy·SealedSecret"
 type: application
-version: 0.7.1
+version: 0.8.0

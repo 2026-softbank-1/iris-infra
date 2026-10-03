@@ -465,12 +465,18 @@ def main():
             'plaintext field': lambda v: v['variables'].update(plain={'A':'b'}),
             'unknown identity field': lambda v: v['iris'].update(x=1),
             'invalid service name': lambda v: v['iris'].update(serviceName='My_App'),
+            'invalid pull secret name': lambda v: v.update(imagePullSecrets=[{'name':'Iris_Ecr'}]),
+            'empty pull secrets': lambda v: v.update(imagePullSecrets=[]),
+            'pull secret extra field': lambda v: v.update(imagePullSecrets=[{'name':'iris-ecr-pull','namespace':'x'}]),
         }
         bad_service = directory/'bad-service.json'
         for label, change in mutations.items():
             values = copy.deepcopy(good); change(values); bad_service.write_text(json.dumps(values))
             result = subprocess.run([HELM,'template','demo',str(ROOT/'helm/charts/iris-service'),'-f',str(bad_service),'--kube-version',VERSIONS['kubernetes']+'.0'],capture_output=True)
             assert result.returncode, f'Invalid user variables must fail before deployment: {label}'
+        assert 'imagePullSecrets' not in rollout['spec']['template']['spec'], 'AWS nodes pull from ECR with their own role.'
+        pulled = render(ROOT/'helm/charts/iris-service', ROOT/'helm/charts/iris-service/ci/onprem-server-values.yaml', namespace='svc-12')
+        assert next(d for d in pulled if d['kind']=='Rollout')['spec']['template']['spec']['imagePullSecrets']==[{'name':'iris-ecr-pull'}], 'User-registered servers pull with the namespace Secret their CronJob refreshes.'
         egress = next(d for d in service_docs if d['kind']=='NetworkPolicy' and d['metadata']['name']=='restrict-egress')['spec']
         assert egress['podSelector']=={} and egress['policyTypes']==['Egress'] and {'cidr':'0.0.0.0/0','except':['10.40.0.0/16','169.254.0.0/16']} in [t.get('ipBlock') for r in egress['egress'] for t in r['to']], 'User pods must not reach VPC (collector NLB, nodes) or link-local addresses.'
         assert ingress['metadata']['annotations']['alb.ingress.kubernetes.io/group.name']=='iris-service-external', 'All services share the external ALB group.'

@@ -55,6 +55,12 @@ spec:
       automountServiceAccountToken: false
       # 아래 preStop 15초 뒤에도 앱이 SIGTERM 을 받고 정리할 30초(Kubernetes 기본값)가 남게 합니다.
       terminationGracePeriodSeconds: 45
+      {{- with .Values.imagePullSecrets }}
+      # 사용자가 등록한 온프레미스 서버는 노드에 ECR 인증이 없어 namespace 의 pull Secret 을 씁니다.
+      # 서버의 갱신 CronJob 이 같은 이름으로 만듭니다. default SA 패치는 그 뒤에 만든 Pod 에만 먹어 Pod 에 직접 넣습니다.
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: app
           image: {{ include "iris-service.image" . | quote }}

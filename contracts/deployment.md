@@ -7,7 +7,7 @@
 
 ## 배포별 values (Deploy Worker 가 씀)
 
-위치: `iris-gitops-environments/services/{service_id}/prod/values.yaml`. Deploy Worker 가 배포마다 파일 전체를 다시 씁니다.
+위치: `iris-gitops-environments/services/{service_id}/{prod|onprem|onprem-{serverKey}}/values.yaml`. Deploy Worker 가 배포마다 파일 전체를 다시 씁니다.
 내용은 JSON(YAML 의 부분집합)입니다.
 
 | 필드 | 필수 | 의미 |
@@ -25,6 +25,7 @@
 | `iris.serviceName` | | env `IRIS_SERVICE_NAME`. 서비스 이름(DNS label) |
 | `iris.targetName` | | env `IRIS_TARGET_NAME`. 배포 타깃 이름(예: `aws`) |
 | `iris.deploymentId` | | env `IRIS_DEPLOYMENT_ID`. 앱을 띄운 배포 요청 id(정수) |
+| `imagePullSecrets` | | `[{name}]`(DNS label, 1~5개). Pod spec `imagePullSecrets`. chart 0.8.0 부터. 사용자가 등록한 온프레미스 서버 타깃(`services/{id}/onprem-{serverKey}`)만 `[{name: iris-ecr-pull}]` 을 씁니다. 이전 chart schema 는 이 키를 거절합니다 |
 | `variables.name` | 변수가 있을 때 | SealedSecret·Secret 이름(DNS label). release 마다 새 이름을 쓴다(예: `vars-r{release_id}`) |
 | `variables.encryptedData` | 변수가 있을 때 | `{변수 이름: 봉인한 값(base64)}`. 이름은 영문·숫자·밑줄, `PORT`·`IRIS_*` 는 거절, 1~100개 |
 
