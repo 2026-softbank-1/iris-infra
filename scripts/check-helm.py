@@ -194,6 +194,11 @@ def main():
             assert ignored=={('Secret','aws-load-balancer-tls'),('MutatingWebhookConfiguration','aws-load-balancer-webhook'),('ValidatingWebhookConfiguration','aws-load-balancer-webhook')}
             assert 'RespectIgnoreDifferences=true' in app['spec']['syncPolicy']['syncOptions']
         assert sum(d['kind']=='AppProject' for d in gitops)==3
+        # Argo refuses an Application whose chart repository its AppProject does not list (InvalidSpecError).
+        project_repos = {d['metadata']['name']: d['spec']['sourceRepos'] for d in gitops if d['kind']=='AppProject'}
+        for app in (d for d in gitops if d['kind']=='Application'):
+            for source in app['spec'].get('sources') or [app['spec']['source']]:
+                assert source['repoURL'] in project_repos[app['spec']['project']], f"{app['metadata']['name']}: {source['repoURL']} is not in AppProject {app['spec']['project']} sourceRepos"
         appset = next(d for d in gitops if d['kind']=='ApplicationSet')['spec']
         chart_source, values_source = appset['template']['spec']['sources']
         assert appset['syncPolicy']['applicationsSync']=='create-update', 'Removed service directories must not delete running services.'
