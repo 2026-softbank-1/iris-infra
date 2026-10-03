@@ -194,6 +194,61 @@ def check_onprem_gateway(directory, targets, baseline):
     # These are fragment assertions, not evaluation of the live/merged Tailscale policy.
 
 
+def canary_replicas(replicas, weight, max_surge=1):
+    """Port of approximateWeightedCanaryStableReplicaCounts (argo-rollouts v1.10.0
+    utils/replicaset/canary.go) for basic canary with maxWeight 100. Returns (canary, stable)."""
+    if replicas == 0: return 0, 0
+    tied = lambda total: (total*weight/100) % 1 == 0.5
+    ceil, floor = -(-replicas*weight//100), replicas*weight//100
+    zero_allowed = weight in (0, 100) or (replicas == 1 and max_surge == 0)
+    options = []
+    if ceil < replicas or zero_allowed: options.append((ceil, replicas))
+    if not tied(replicas) and (floor or zero_allowed): options.append((floor, replicas))
+    if max_surge > 0:
+        options.append((ceil, replicas+1))
+        if not tied(replicas+1) and (floor or zero_allowed): options.append((floor, replicas+1))
+    canary, total = min(options, key=lambda o: abs(o[0]*100/o[1]-weight))  # first minimum wins, as upstream
+    return canary, total-canary
+
+
+def check_service_strategies(directory):
+    chart = ROOT/'helm/charts/iris-service'
+    good = json.loads('\n'.join(l for l in (chart/'ci/aws-values.yaml').read_text().splitlines() if not l.startswith('#')))
+    assert yaml.safe_load((chart/'values.yaml').read_text())['deploymentStrategy']=='ROLLING'
+    rolling = {'canary': {'maxSurge': 1, 'maxUnavailable': 0}}
+    values = directory/'strategy.json'
+    max_replicas = json.loads((chart/'values.schema.json').read_text())['properties']['replicas']['maximum']
+    for strategy in (None, 'ROLLING', 'CANARY', 'BLUE_GREEN'):
+        for replicas in range(0, max_replicas+1):
+            data = copy.deepcopy(good); data['replicas'] = replicas
+            if strategy: data['deploymentStrategy'] = strategy  # None: Worker without the feature flag omits the key
+            values.write_text(json.dumps(data))
+            docs = render(chart, values, release='demo', namespace='svc-12')
+            [rollout] = [d for d in docs if d['kind']=='Rollout']
+            spec = rollout['spec']
+            assert spec['replicas']==replicas and spec['progressDeadlineSeconds']==good['health']['timeoutSeconds'] and spec['progressDeadlineAbort'] is True
+            # Canary and blue-green need two Pods; below that the chart renders the rolling update.
+            effective = strategy if strategy in ('CANARY','BLUE_GREEN') and replicas >= 2 else 'ROLLING'
+            assert rollout['metadata']['annotations']['iris/deployment-strategy']==effective
+            if effective=='ROLLING':
+                assert spec['strategy']==rolling, 'ROLLING keeps the 0.6.0 RollingUpdate (maxSurge 1, maxUnavailable 0).'
+            elif effective=='CANARY':
+                canary = spec['strategy']['canary']
+                assert {k: v for k, v in canary.items() if k!='steps'}==rolling['canary'] and 'trafficRouting' not in canary
+                [weight_step, pause_step] = canary['steps']
+                assert pause_step=={'pause': {'duration': '60s'}}
+                assert canary_replicas(replicas, weight_step['setWeight'])[0]==1, f'Canary must start exactly one new Pod at {replicas} replicas.'
+            else:
+                assert spec['strategy']=={'blueGreen': {'activeService': 'app', 'autoPromotionEnabled': True, 'autoPromotionSeconds': 30, 'scaleDownDelaySeconds': 30}}
+                services = [d['metadata']['name'] for d in docs if d['kind']=='Service']
+                ingress = next(d for d in docs if d['kind']=='Ingress')
+                assert services==['app'] and ingress['spec']['rules'][0]['http']['paths'][0]['backend']['service']['name']=='app', 'activeService is the Service the Ingress routes to; there is no preview Service.'
+    for bad in ('rolling', 'RECREATE', ''):
+        data = copy.deepcopy(good); data['deploymentStrategy'] = bad; values.write_text(json.dumps(data))
+        result = subprocess.run([HELM,'template','demo',str(chart),'-f',str(values),'--kube-version',VERSIONS['kubernetes']+'.0'],capture_output=True)
+        assert result.returncode, f'Unknown deploymentStrategy must fail: {bad!r}'
+
+
 def check_platform(directory, targets, bootstrap):
     chart=ROOT/'helm/charts/iris-platform'
     for fixture in sorted((chart/'ci').glob('*.yaml')):
@@ -348,7 +403,15 @@ def main():
         chart_source, values_source = appset['template']['spec']['sources']
         assert appset['syncPolicy']['applicationsSync']=='sync', 'A removed service directory must delete its Application (Deploy Worker REMOVE).'
         assert appset['template']['metadata']['finalizers']==['resources-finalizer.argocd.argoproj.io'], 'Deleting a service Application must also delete its workload.'
-        assert chart_source['targetRevision']==json.loads((ROOT/'helm/gitops/values.yaml').read_text())['services']['chartRevision']=='iris-service-'+yaml.safe_load((ROOT/'helm/charts/iris-service/Chart.yaml').read_text())['version'], 'ApplicationSet must pin the current iris-service chart tag.'
+        revision = json.loads((ROOT/'helm/gitops/values.yaml').read_text())['services']['chartRevision']
+        chart_version = yaml.safe_load((ROOT/'helm/charts/iris-service/Chart.yaml').read_text())['version']
+        assert chart_source['targetRevision']==revision, 'ApplicationSet must pin services.chartRevision.'
+        # A new chart version merges first; its tag is cut on the merge commit and chartRevision follows in a
+        # separate PR, so Argo never points at a tag that does not exist yet (docs/runbooks/argo-rollouts.md).
+        semver = lambda v: tuple(map(int, v.split('.')))
+        assert revision.startswith('iris-service-') and semver(revision.removeprefix('iris-service-')) <= semver(chart_version), 'chartRevision must pin the current chart tag or an earlier released one.'
+        if revision != 'iris-service-'+chart_version:
+            print(f'Notice: services still pin {revision}; iris-service {chart_version} reaches services only after its tag and the chartRevision PR.')
         assert values_source['ref']=='values' and chart_source['helm']['valueFiles']==['$values/{{ .path.path }}/values.yaml']
         assert appset['template']['metadata']['name']=='svc-{{ index .path.segments 1 }}' and appset['template']['spec']['destination']=={'server':targets['workload']['endpoint'],'namespace':'svc-{{ index .path.segments 1 }}'}
         services = next(d for d in gitops if d['kind']=='AppProject' and d['metadata']['name']=='iris-svc-project')['spec']
@@ -358,9 +421,12 @@ def main():
         assert [r['name'] for r in services['roles']]==['iris-deploy-reader']
         service_docs = render(ROOT/'helm/charts/iris-service', ROOT/'helm/charts/iris-service/ci/aws-values.yaml', namespace='svc-12')
         ingress = next(d for d in service_docs if d['kind']=='Ingress')
-        deployment = next(d for d in service_docs if d['kind']=='Deployment')
-        assert deployment['spec']['template']['metadata']['labels']['iris/release-id']=='345' and 'iris/release-id' not in deployment['spec']['selector']['matchLabels'], 'Pods carry the release label for logs/metrics; the immutable selector must not.'
-        container = deployment['spec']['template']['spec']['containers'][0]
+        assert not any(d['kind']=='Deployment' for d in service_docs), 'Since 0.7.0 the app runs only as a Rollout.'
+        rollout = next(d for d in service_docs if d['kind']=='Rollout')
+        assert rollout['apiVersion']=='argoproj.io/v1alpha1' and rollout['metadata']['name']=='app'
+        assert rollout['spec']['template']['metadata']['labels']['iris/release-id']=='345' and 'iris/release-id' not in rollout['spec']['selector']['matchLabels'], 'Pods carry the release label for logs/metrics; the immutable selector must not.'
+        container = rollout['spec']['template']['spec']['containers'][0]
+        check_service_strategies(directory)
         env = {e['name']: e['value'] for e in container['env']}
         assert (env['IRIS_SERVICE_NAME'],env['IRIS_TARGET_NAME'],env['IRIS_DEPLOYMENT_ID'])==('my-app','aws','6789012'), 'Platform identity reaches the app; large ids must not print as 1e+06.'
         sealed = next(d for d in service_docs if d['kind']=='SealedSecret')
@@ -533,9 +599,9 @@ def main():
     for values in sorted((chart/'ci').glob('*.yaml')):
         docs=render(chart,values,release='demo',namespace='iris-check')
         kinds={d['kind'] for d in docs}
-        assert {'Deployment','Service','Ingress'} <= kinds
+        assert {'Rollout','Service','Ingress'} <= kinds and 'Deployment' not in kinds
         has_variables='"variables"' in values.read_text()
-        assert has_variables==('SealedSecret' in kinds)==any('envFrom' in c for d in docs if d['kind']=='Deployment' for c in d['spec']['template']['spec']['containers']), 'SealedSecret and envFrom exist only when variables are set.'
+        assert has_variables==('SealedSecret' in kinds)==any('envFrom' in c for d in docs if d['kind']=='Rollout' for c in d['spec']['template']['spec']['containers']), 'SealedSecret and envFrom exist only when variables are set.'
     print('Pinned charts/images, GitOps schema, baseline, platform TLS/migration/credentials, storage and replicas: passed. No runtime deployment tested.')
 
 

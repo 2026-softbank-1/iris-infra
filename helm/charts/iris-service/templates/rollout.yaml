@@ -1,28 +1,52 @@
-apiVersion: apps/v1
-kind: Deployment
+{{- $strategy := include "iris-service.deploymentStrategy" . }}
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
 metadata:
   name: app
   labels:
     {{- include "iris-service.labels" . | nindent 4 }}
+  annotations:
+    # Deploy Worker 가 고른 방식과 Pod 수 때문에 실제로 렌더링한 방식입니다.
+    iris/deployment-strategy: {{ $strategy }}
 spec:
   replicas: {{ .Values.replicas }}
-  # 이 시간 안에 rollout 이 끝나지 않으면 Degraded 가 되고 Deploy Worker 가 실패로 판정합니다.
+  # 이 시간 안에 새 Pod 가 진행하지 못하면 abort 해 이전 Pod 로 되돌리고 Degraded 가 됩니다.
+  # Deploy Worker 는 Degraded 를 실패로 판정합니다. pause 중에는 시간을 세지 않습니다.
   progressDeadlineSeconds: {{ .Values.health.timeoutSeconds }}
+  progressDeadlineAbort: true
   revisionHistoryLimit: 3
   selector:
     matchLabels:
       {{- include "iris-service.selectorLabels" . | nindent 6 }}
   strategy:
-    type: RollingUpdate
-    rollingUpdate:
+    {{- if eq $strategy "BLUE_GREEN" }}
+    # 새 묶음을 replicas 만큼 모두 Ready 로 띄우고 30초 뒤 Service 를 새 묶음으로 바꿉니다.
+    # 이전 묶음은 30초 더 두었다가 내립니다. Service·Ingress 는 하나뿐이라 preview Service 는 없습니다.
+    blueGreen:
+      activeService: app
+      autoPromotionEnabled: true
+      autoPromotionSeconds: 30
+      scaleDownDelaySeconds: 30
+    {{- else }}
+    # traffic routing 없는 canary 입니다. steps 가 없으면 Deployment 의 RollingUpdate 와 같습니다.
+    canary:
       maxSurge: 1
       maxUnavailable: 0
+      {{- if eq $strategy "CANARY" }}
+      # 새 Pod 를 정확히 1개 띄우고 60초 본 뒤 나머지를 위 surge 규칙으로 바꿉니다.
+      # controller(v1.10.0)는 weight 를 replicas·replicas+1 중 가장 가까운 Pod 수로 맞춥니다.
+      # floor(100/replicas) 는 2~10 개에서 새 Pod 1개가 됩니다(helm-check 가 같은 계산으로 검사).
+      steps:
+        - setWeight: {{ div 100 (int .Values.replicas) }}
+        - pause: {duration: 60s}
+      {{- end }}
+    {{- end }}
   template:
     metadata:
       labels:
         {{- include "iris-service.selectorLabels" . | nindent 8 }}
         # 로그·메트릭을 release 단위로 묶는 라벨입니다(OTel k8sattributes → Loki iris_release_id).
-        # selector 에는 넣지 않습니다(Deployment selector 는 바꿀 수 없습니다).
+        # selector 에는 넣지 않습니다(Rollout selector 는 바꿀 수 없습니다).
         iris/release-id: {{ .Values.release.id | quote }}
       annotations:
         # digest 가 같아도 release 마다 rollout 되게 합니다.

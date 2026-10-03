@@ -16,3 +16,9 @@ helm.sh/chart: iris-service-{{ .Chart.Version }}
 {{ .Values.image.repository }}:{{ .Values.image.tag }}
 {{- end -}}
 {{- end }}
+
+{{- /* 카나리·블루그린은 Pod 가 2개 이상일 때만 뜻이 있어, 그보다 적으면 롤링으로 렌더링합니다. */ -}}
+{{- define "iris-service.deploymentStrategy" -}}
+{{- $strategy := .Values.deploymentStrategy | default "ROLLING" -}}
+{{- if lt (int .Values.replicas) 2 -}}ROLLING{{- else -}}{{ $strategy }}{{- end -}}
+{{- end }}

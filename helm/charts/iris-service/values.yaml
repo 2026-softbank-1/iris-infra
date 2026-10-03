@@ -2,6 +2,8 @@
 # Deploy Worker 가 GitOps 저장소의 services/{service_id}/prod/values.yaml 로 넘깁니다.
 # 실제 Secret 값은 기록하지 않습니다.
 replicas: 1
+# ROLLING · CANARY · BLUE_GREEN. 단계·대기 시간은 chart 가 정합니다. replicas 가 2 미만이면 ROLLING 으로 렌더링합니다.
+deploymentStrategy: ROLLING
 containerPort: 8080
 health:
   timeoutSeconds: 300
