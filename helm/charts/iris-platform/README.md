@@ -44,7 +44,7 @@ API와 Build Worker는 replica 1, Deploy Worker는 최대 3입니다(job 선점�
 | DB | `DATABASE_URL` (또는 `database.urlKey`) | API·두 Worker·migration Job |
 | Build GitHub App | `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_PUBLIC_INSTALLATION_ID` | Build Worker만 |
 | Deploy GitHub App | `GITOPS_APP_ID`, `GITOPS_APP_PRIVATE_KEY`, `GITOPS_INSTALLATION_ID` | Deploy Worker만 |
-| Argo reader | `ARGOCD_TOKEN` | Deploy Worker만 |
+| Argo reader | `ARGOCD_TOKEN`, 선택 `ARGOCD_PROBE_TOKEN`(`iris-onprem-probe` project 의 `iris-deploy-reader` token, 온프레미스 서버 등록용) | Deploy Worker만 |
 | Error Agent | `LLM_API_KEY`, `AGENT_API_KEY` | Error Agent만 |
 
 GitHub App private key는 PEM 원문이며 ID 값은 정수 문자열입니다. Agent API key는 공백 없는 ASCII 32자 이상이어야 합니다. Secret 전체 `envFrom` 대신 필요한 키만 주입합니다. API·migration·Agent SA에는 Worker Pod Identity 역할을 연결하지 않습니다. WAS는 UID/GID 1001, Agent 이미지는 숫자 non-root USER로 빌드해야 합니다.

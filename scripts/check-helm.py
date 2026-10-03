@@ -479,6 +479,7 @@ def check_platform(directory, targets, bootstrap):
                 else:
                     assert 'GITHUB_APP_PRIVATE_KEY' not in env
                     assert env['ARGOCD_TOKEN']['valueFrom']['secretKeyRef']['name']==values['deployWorker']['argocdSecret']
+                    assert env['ARGOCD_PROBE_TOKEN']['valueFrom']['secretKeyRef']=={'name':values['deployWorker']['argocdSecret'],'key':'ARGOCD_PROBE_TOKEN','optional':True}, 'Probe reader token is optional and Deploy Worker only.'
                     assert all(env[key]['valueFrom']['secretKeyRef']['name']==values['deployWorker']['githubSecret'] for key in ('GITOPS_APP_ID','GITOPS_APP_PRIVATE_KEY','GITOPS_INSTALLATION_ID'))
                     assert next(v for v in pod['volumes'] if v['name']=='argocd-ca')['configMap']['name']==values['deployWorker']['caConfigMap']
         prep=[d for d in docs if d['kind'] in {'ServiceAccount','ConfigMap','NetworkPolicy'}]

@@ -90,6 +90,11 @@ spec:
             - name: ARGOCD_TOKEN
               valueFrom:
                 secretKeyRef: {name: {{ $.Values.deployWorker.argocdSecret | quote }}, key: ARGOCD_TOKEN}
+            # Reads probe Applications of user-registered on-prem servers (AppProject iris-onprem-probe). A project
+            # role token cannot read another project, so it is a second token. Optional until servers are enabled.
+            - name: ARGOCD_PROBE_TOKEN
+              valueFrom:
+                secretKeyRef: {name: {{ $.Values.deployWorker.argocdSecret | quote }}, key: ARGOCD_PROBE_TOKEN, optional: true}
             {{- end }}
           volumeMounts:
             {{- include "iris-platform.database-mount" $ | nindent 12 }}
