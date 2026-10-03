@@ -2,11 +2,11 @@
 
 상태: 빌드 자원(`build.tf`), 공유 VPC 네트워크(`network.tf`), 플랫폼 ECR(`ecr-platform.tf`)을 구현했습니다. 코드 구현 상태이며 실제 AWS 적용 여부는 state와 plan으로 확인합니다.
 
-- 구현: 소스 스냅샷 S3(SSE-S3, 1일 만료), CodeBuild `iris-dev-build`(privileged, MEDIUM, 15분), CodeBuild 서비스 역할(`iris/services/*` ECR push), Build Worker 역할(Pod Identity 용, 실패한 빌드의 CloudWatch 로그를 읽는 `logs:GetLogEvents` 포함).
+- 구현: 빌드 입력 S3(SSE-S3, 1일 만료, `snapshots/` 는 Build Worker 스냅샷·`uploads/` 는 `likelion up` 업로드), CodeBuild `iris-dev-build`(privileged, MEDIUM, 15분), CodeBuild 서비스 역할(`iris/services/*` ECR push), Build Worker 역할(Pod Identity 용, 실패한 빌드의 CloudWatch 로그를 읽는 `logs:GetLogEvents`, 업로드된 소스를 읽는 `uploads/*` 의 `s3:GetObject`(읽기 전용) 포함).
 - `buildspec.yml` 은 iris-was Build Worker 가 넘기는 환경변수와 짝을 이룹니다. 바꿀 때 두 저장소를 함께 봅니다. Railpack CLI 는 install 단계에서 고정 버전·체크섬으로 받습니다.
 - 서비스별 ECR 저장소(`iris/services/{service_id}`)는 Build Worker 가 만듭니다.
 - 로그: Loki S3 버킷(SSE-S3, `force_destroy` 없음, 보관은 Loki compactor 7일)과 Loki 역할(`observability/loki` SA만 신뢰, 이 버킷 객체 읽기·쓰기·삭제만). Pod Identity 연결은 management stack 입니다.
-- Control API 역할(`control-api`, 배포 상세 화면의 빌드 로그 조회용): management 클러스터의 `iris-platform/iris-platform-api` SA만 신뢰하고 CodeBuild 로그 그룹의 `logs:GetLogEvents` 만 허용합니다. Pod Identity 연결은 management stack, CI의 관리 권한은 account의 `ci-control-api.tf` 입니다.
+- Control API 역할(`control-api`, 배포 상세 화면의 빌드 로그 조회와 `likelion up` 소스 업로드용): management 클러스터의 `iris-platform/iris-platform-api` SA만 신뢰합니다. 인라인 정책 `read-build-logs` 는 CodeBuild 로그 그룹의 `logs:GetLogEvents`, `source-uploads` 는 빌드 입력 버킷의 `uploads/*` 쓰기(`s3:PutObject`·`s3:AbortMultipartUpload`)와 `snapshots/*` 읽기(`s3:GetObject`, AI 진단의 소스 전달)만 허용하며 삭제·목록 권한은 없습니다(iris-was ADR 0023). Pod Identity 연결은 management stack, CI의 관리 권한은 account의 `ci-control-api.tf` 입니다.
 - 플랫폼 ECR은 `iris/was`, `iris/code-analyzer-agent`, `iris/error-check-agent`입니다. 정적 사이트인 `iris-web`은 별도 후속 배포입니다.
 - 네트워크: 공유 VPC, public subnet 2개, 관리용·앱용 private subnet 각 2개, IGW, zonal NAT, routing, 관리→앱 API 접근용 추가 SG 2개.
 - DNS: 기존 Route53 zone `likelion.uk`를 import(`prevent_destroy`, plan guard 보호)하고 ALB용 `*.likelion.uk`+apex ACM 인증서와 DNS 검증 레코드를 둡니다. 선언하지 않은 기존 레코드(apex/app/www)는 건드리지 않습니다. 권한 DNS가 Route53이 아니면 `acm_validation_records` 출력을 현재 DNS에 등록해야 발급됩니다.

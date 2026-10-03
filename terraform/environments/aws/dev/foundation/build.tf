@@ -195,6 +195,13 @@ resource "aws_iam_role_policy" "build_worker" {
         Resource = "${aws_s3_bucket.build_artifacts.arn}/snapshots/*"
       },
       {
+        # `likelion up` 으로 Control API 가 올린 소스 아카이브를 읽는다(iris-was ADR 0023). 쓰기는 없다.
+        Sid      = "ReadSourceUploads"
+        Effect   = "Allow"
+        Action   = ["s3:GetObject"]
+        Resource = "${aws_s3_bucket.build_artifacts.arn}/uploads/*"
+      },
+      {
         # 실패한 빌드의 로그 끝부분을 읽어 AI 진단에 쓴다(iris-was `builds.log_tail`).
         # 읽기만 하고 이 빌드 로그 그룹의 스트림으로 한정한다. `:*` 가 로그 스트림까지 덮는다.
         Sid      = "ReadBuildLogs"

@@ -4,7 +4,7 @@ Management EKS의 `iris-platform` namespace에 Iris 플랫폼을 배포하는 Ch
 
 | 구성 요소 | 이미지 / 실행 | 네트워크·자격증명 |
 | --- | --- | --- |
-| API | `api.digest`, `uvicorn app.main:app --host 0.0.0.0 --port 8000` | ALB → ClusterIP 8000, DB Secret, `iris-platform-api` Pod Identity(빌드 로그 읽기 전용) |
+| API | `api.digest`, `uvicorn app.main:app --host 0.0.0.0 --port 8000` | ALB → ClusterIP 8000, DB Secret, `iris-platform-api` Pod Identity(빌드 로그 읽기, 소스 업로드 `uploads/*` 쓰기·`snapshots/*` 읽기) |
 | Build Worker | `buildWorker.digest`, `python -m app.workers.build_worker` | `build-worker` Pod Identity, DB·Build GitHub App |
 | Deploy Worker | `deployWorker.digest`, `python -m app.workers.deploy_worker` | `deploy-worker` Pod Identity, DB·별도 GitOps App·Argo reader token |
 | Migration | `api.digest`, `alembic upgrade head` | 같은 DB Secret, Worker AWS 권한 없음 |

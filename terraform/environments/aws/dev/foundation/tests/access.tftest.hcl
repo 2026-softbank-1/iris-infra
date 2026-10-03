@@ -67,13 +67,51 @@ run "control_api_boundary" {
     error_message = "Only management iris-platform/iris-platform-api may assume the Control API role."
   }
   assert {
-    condition = jsonencode(jsondecode(aws_iam_role_policy.control_api.policy).Statement) == jsonencode([{
+    condition = aws_iam_role_policy.control_api.name == "read-build-logs" && jsonencode(jsondecode(aws_iam_role_policy.control_api.policy).Statement) == jsonencode([{
       Sid = "ReadBuildLogs", Effect = "Allow", Action = ["logs:GetLogEvents"], Resource = "${aws_cloudwatch_log_group.build.arn}:*"
     }]) && output.control_api_role_arn == aws_iam_role.control_api.arn
-    error_message = "Control API may only read build log events of the CodeBuild log group, with no write, CodeBuild, ECR, S3 or Kubernetes access."
+    error_message = "The existing read-build-logs policy must stay unchanged: only build log events of the CodeBuild log group."
+  }
+  assert {
+    condition = aws_iam_role_policy.control_api_source_uploads.name == "source-uploads" && aws_iam_role_policy.control_api_source_uploads.role == aws_iam_role.control_api.id && jsonencode(jsondecode(aws_iam_role_policy.control_api_source_uploads.policy).Statement) == jsonencode([
+      { Sid = "WriteSourceUploads", Effect = "Allow", Action = ["s3:PutObject", "s3:AbortMultipartUpload"], Resource = "${aws_s3_bucket.build_artifacts.arn}/uploads/*" },
+      { Sid = "ReadSnapshotsForDiagnosis", Effect = "Allow", Action = ["s3:GetObject"], Resource = "${aws_s3_bucket.build_artifacts.arn}/snapshots/*" }
+    ])
+    error_message = "Control API may only write uploads/* (PutObject, AbortMultipartUpload) and read snapshots/* (GetObject) in the build artifacts bucket."
+  }
+  assert {
+    condition = toset(flatten([
+      for policy in [aws_iam_role_policy.control_api.policy, aws_iam_role_policy.control_api_source_uploads.policy] : [for statement in jsondecode(policy).Statement : statement.Action]
+      ])) == toset(["logs:GetLogEvents", "s3:PutObject", "s3:AbortMultipartUpload", "s3:GetObject"]) && alltrue([
+      for policy in [aws_iam_role_policy.control_api.policy, aws_iam_role_policy.control_api_source_uploads.policy] : alltrue([for statement in jsondecode(policy).Statement : statement.Effect == "Allow"])
+    ])
+    error_message = "Control API must have no S3 delete/list, other S3, CodeBuild, ECR or Kubernetes permission beyond log read, uploads write and snapshots read."
   }
   assert {
     condition     = aws_iam_role.control_api.name != aws_iam_role.build_worker.name && aws_iam_role.control_api.name != aws_iam_role.deploy_worker.name
     error_message = "Control API must not share a role with the Build or Deploy Worker."
+  }
+}
+
+run "build_worker_source_uploads_boundary" {
+  command = apply
+  assert {
+    condition = jsonencode(one([for statement in jsondecode(aws_iam_role_policy.build_worker.policy).Statement : statement if statement.Sid == "ReadSourceUploads"])) == jsonencode({
+      Sid = "ReadSourceUploads", Effect = "Allow", Action = ["s3:GetObject"], Resource = "${aws_s3_bucket.build_artifacts.arn}/uploads/*"
+    })
+    error_message = "Build Worker may only read uploads/* (s3:GetObject) for user-uploaded sources."
+  }
+  assert {
+    condition = jsonencode(one([for statement in jsondecode(aws_iam_role_policy.build_worker.policy).Statement : statement if statement.Sid == "SourceSnapshots"])) == jsonencode({
+      Sid = "SourceSnapshots", Effect = "Allow", Action = ["s3:PutObject", "s3:GetObject"], Resource = "${aws_s3_bucket.build_artifacts.arn}/snapshots/*"
+    })
+    error_message = "Build Worker snapshot read/write on snapshots/* must stay unchanged."
+  }
+  assert {
+    condition = alltrue([
+      for statement in jsondecode(aws_iam_role_policy.build_worker.policy).Statement :
+      !anytrue([for action in statement.Action : can(regex("^s3:(\\*|Put|Delete|Abort|List)", action))]) || statement.Resource == "${aws_s3_bucket.build_artifacts.arn}/snapshots/*"
+    ])
+    error_message = "Build Worker must never write, delete or list outside snapshots/*, in particular nothing under uploads/*."
   }
 }
