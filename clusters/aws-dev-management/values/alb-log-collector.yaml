@@ -2,7 +2,7 @@
 enabled: false
 image:
   repository: 187069338876.dkr.ecr.ap-northeast-2.amazonaws.com/iris/alb-log-collector
-  digest: "sha256:9f0f05364698ec481dfd4072ff8e7ca8e216e1bf169f27e15c54b3f96d707a85" # source: 8e9e0a4b0accd94b5cb8829100764126a4832a37 run: 37097427772 attempt: 1
+  digest: "sha256:df3be37d27538a6359b3b0a54edbb492b875419304b0e3cf1725f89cc464da3c" # source: db4206af09c0c6f6e9fcce919ff218c840e19660 run: 37099090915 attempt: 1
 aws:
   accountId: "187069338876"
   region: ap-northeast-2
