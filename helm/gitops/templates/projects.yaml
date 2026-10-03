@@ -15,6 +15,7 @@ spec:
     - https://open-telemetry.github.io/opentelemetry-helm-charts
     - https://grafana.github.io/helm-charts
     - https://bitnami.github.io/sealed-secrets
+    - https://argoproj.github.io/argo-helm
   destinations:
     - server: {{ $target.endpoint | quote }}
       namespace: kube-system
