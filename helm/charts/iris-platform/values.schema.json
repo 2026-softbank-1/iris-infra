@@ -267,7 +267,7 @@
         "replicas": {
           "type": "integer",
           "minimum": 1,
-          "maximum": 1
+          "maximum": 3
         },
         "baseDomain": {
           "type": "string",
