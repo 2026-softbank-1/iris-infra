@@ -21,7 +21,8 @@
     "docker.io/library/python:3.12-alpine": "sha256:4c47124a8391cb7a9f571164147d154777cf012a4ece5f86097130d7a4478111",
     "docker.io/bitnami/sealed-secrets-controller:0.40.0": "sha256:b1ff382e9300dc9e74991f3177b18cafc06ce43b5c21349c86adbdd1d1c177d3",
     "docker.io/nginxinc/nginx-unprivileged:1.30-alpine": "sha256:ed04ec1ff34502c339ee5c3ae3f855442398edc1d05591e2b98981dcbbd20b1e",
-    "187069338876.dkr.ecr.ap-northeast-2.amazonaws.com/iris/alb-log-collector": "sha256:df3be37d27538a6359b3b0a54edbb492b875419304b0e3cf1725f89cc464da3c"
+    "187069338876.dkr.ecr.ap-northeast-2.amazonaws.com/iris/alb-log-collector": "sha256:df3be37d27538a6359b3b0a54edbb492b875419304b0e3cf1725f89cc464da3c",
+    "quay.io/argoproj/argo-rollouts:v1.10.0": "sha256:187630ba722846bb8e079630364d3c29c8246a256be95785fd957b088f621c4e"
   },
   "verification_images": {
     "aws_cli": "public.ecr.aws/aws-cli/aws-cli:2.37.7@sha256:95f8d1e6d31aaa16997d1406eb532b0ca6a9830fe8a859c37a0fd223f10959e5",

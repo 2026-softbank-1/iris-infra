@@ -24,6 +24,8 @@ spec:
   clusterResourceWhitelist:
     - {group: "", kind: Namespace}
   namespaceResourceWhitelist:
+    # Rollout runs the app since chart 0.7.0. Deployment stays so Argo can prune the 0.6.0 Deployment.
+    - {group: argoproj.io, kind: Rollout}
     - {group: apps, kind: Deployment}
     - {group: apps, kind: ReplicaSet}
     - {group: "", kind: Pod}
@@ -80,6 +82,8 @@ spec:
         namespace: 'svc-{{ "{{" }} index .path.segments 1 {{ "}}" }}'
       syncPolicy:
         automated: {prune: true, selfHeal: true}
+        # PruneLast deletes removed resources only after the rest of the sync is Healthy: the 0.6.0
+        # Deployment goes away after the 0.7.0 Rollout serves, and old SealedSecrets after new Pods start.
         syncOptions: [CreateNamespace=true, PruneLast=true]
         managedNamespaceMetadata:
           labels:

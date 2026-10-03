@@ -301,7 +301,7 @@ def check_platform(directory, targets, bootstrap):
     assert {d['metadata']['name'] for d in docs if d['kind'] in {'Deployment','Job','Ingress'}}=={'iris-platform-api','iris-platform-migration','iris-platform-error-agent'}, 'Only components with a digest deploy.'
     enabled=directory/'gitops-platform.json';enabled.write_text(json.dumps({'revision':'a'*40,'targets':targets,'platform':{'enabled':True},'services':{'onprem':{'enabled':False}},'onpremGateway':{'enabled':False}}))
     docs=render(ROOT/'helm/gitops', enabled, namespace='argocd')
-    assert sum(d['kind']=='Application' for d in docs)==13 and sum(d['kind']=='AppProject' for d in docs)==4
+    assert sum(d['kind']=='Application' for d in docs)==14 and sum(d['kind']=='AppProject' for d in docs)==4
     app=next(d for d in docs if d['kind']=='Application' and d['metadata']['name']=='iris-platform')
     assert app['metadata']['finalizers']==['resources-finalizer.argocd.argoproj.io'] and app['spec']['syncPolicy']['automated']=={'prune':True,'selfHeal':True}
     assert app['spec']['destination']=={'server':targets['management']['endpoint'],'namespace':'iris-platform'}
@@ -332,7 +332,7 @@ def main():
         values.write_text(json.dumps({'revision':'a'*40,'targets':targets,'services':{'onprem':{'enabled':False}},'onpremGateway':{'enabled':False}}))
         gitops = render(ROOT/'helm/gitops', values, namespace='argocd')
         # Platform is opt-in at bootstrap (GITOPS_PLATFORM_ENABLED); check_platform covers it.
-        assert sum(d['kind']=='Application' for d in gitops)==12
+        assert sum(d['kind']=='Application' for d in gitops)==13
         for app in (d for d in gitops if d['kind']=='Application' and d['metadata']['name'].endswith('-aws-load-balancer-controller')):
             # Re-sync must not rotate the LBC webhook certificate under running controllers.
             ignored = {(i['kind'],i['name']) for i in app['spec']['ignoreDifferences']}
@@ -399,7 +399,7 @@ def main():
         tracking_values['revision'] = 'main'
         tracking.write_text(json.dumps(tracking_values))
         tracking_apps = {d['metadata']['name']:d for d in render(ROOT/'helm/gitops', tracking, namespace='argocd') if d['kind']=='Application'}
-        assert tracking_apps.keys()==pinned_apps.keys() and len(tracking_apps)==14
+        assert tracking_apps.keys()==pinned_apps.keys() and len(tracking_apps)==15
         assert {'iris-platform','iris-management-alb-log-collector'} <= tracking_apps.keys()
         infra_repo = json.loads((ROOT/'helm/gitops/values.yaml').read_text())['repoURL']
         for name, app in tracking_apps.items():
@@ -457,7 +457,7 @@ def main():
             for name,chart in charts.items():
                 if name not in enabled: continue
                 params = ('--set','clusterName=iris-dev-'+purpose,'--set','region=ap-northeast-2','--set','vpcId=vpc-0123456789abcdef0') if name=='aws-load-balancer-controller' else ()
-                namespace = 'kube-system' if name in ('aws-load-balancer-controller','metrics-server','sealed-secrets') else 'observability'
+                namespace = 'kube-system' if name in ('aws-load-balancer-controller','metrics-server','sealed-secrets','argo-rollouts') else 'observability'
                 docs = render(chart,base/(name+'.yaml'),release='monitoring' if name=='kube-prometheus-stack' else name,namespace=namespace,parameters=params)
                 check_images(docs)
                 rendered += docs
@@ -500,6 +500,15 @@ def main():
                     # Deploy Worker seals with one fixed certificate, so the key must never rotate.
                     assert args[args.index('--key-renew-period')+1]=='0'
                     assert any(d['kind']=='CustomResourceDefinition' and d['spec']['names']['kind']=='SealedSecret' for d in docs)
+                elif name=='argo-rollouts':
+                    assert purpose=='workload', 'Rollouts run only where user services run.'
+                    [controller] = [d for d in docs if d['kind']=='Deployment']
+                    assert controller['spec']['replicas']==1 and not any(d['kind']=='Service' for d in docs), 'Controller only: no dashboard or metrics Service.'
+                    assert {d['spec']['names']['kind'] for d in docs if d['kind']=='CustomResourceDefinition'} >= {'Rollout','AnalysisRun','AnalysisTemplate'}
+                    rules = [r for d in docs if d['kind']=='ClusterRole' and d['metadata']['name']=='argo-rollouts' for r in d['rules']]
+                    assert not any(g.endswith(('istio.io','elbv2.k8s.aws','traefik.io','gateway.networking.k8s.io')) for r in rules for g in r['apiGroups']), 'No traffic router RBAC: canary is pod-ratio only.'
+                    # The on-prem cluster installs the same pin by hand; it must not drift from the AWS values.
+                    assert (ROOT/'clusters/onprem-workload/values/argo-rollouts.yaml').read_text()==(base/'argo-rollouts.yaml').read_text()
                 elif name=='loki':
                     workloads = [d for d in docs if d['kind'] in ('Deployment','StatefulSet','DaemonSet')]
                     assert [(d['kind'],d['metadata']['name'],d['spec']['replicas']) for d in workloads]==[('StatefulSet','loki',1)], 'SingleBinary only: no gateway, caches or canary.'
