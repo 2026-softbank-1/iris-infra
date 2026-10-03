@@ -15,6 +15,12 @@ override_resource {
     { domain_name = "likelion.uk", resource_record_name = "_x.likelion.uk.", resource_record_type = "CNAME", resource_record_value = "_y.acm-validations.aws." }
   ] }
 }
+override_resource {
+  target = aws_acm_certificate.internal
+  values = { domain_validation_options = [
+    { domain_name = "*.internal.likelion.uk", resource_record_name = "_z.internal.likelion.uk.", resource_record_type = "CNAME", resource_record_value = "_w.acm-validations.aws." }
+  ] }
+}
 variables { aws_account_id = "123456789012" }
 run "private_bridge_and_argocd" {
   command = apply

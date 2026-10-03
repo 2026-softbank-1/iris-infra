@@ -279,6 +279,43 @@ def main():
         bad.write_text(json.dumps({'revision':'a'*40,'targets':targets,'services':{'repoURL':'https://github.com/other/repo.git'}}))
         failed = subprocess.run([HELM,'template','check',str(ROOT/'helm/gitops'),'-f',str(bad)],capture_output=True)
         assert failed.returncode, 'Only the reviewed GitOps repository may feed user services.'
+        onprem = directory/'onprem.json'
+        onprem.write_text(json.dumps({'revision':'a'*40,'targets':targets,'services':{'onprem':{'enabled':True,'server':'https://onprem.example:6443','ingressClassName':'traefik','egressDeniedCidrs':['192.168.0.0/16']}}}))
+        docs = render(ROOT/'helm/gitops', onprem, namespace='argocd')
+        sets = {d['metadata']['name']: d['spec'] for d in docs if d['kind']=='ApplicationSet'}
+        onprem_set = sets['iris-svc-onprem-appset']
+        assert onprem_set['generators'][0]['git']['directories']==[{'path':'services/*/onprem'}]
+        assert onprem_set['template']['metadata']['name']=='svc-{{ index .path.segments 1 }}', 'Deploy Worker observes svc-{id} on every target.'
+        assert onprem_set['template']['spec']['destination']['server']=='https://onprem.example:6443'
+        assert onprem_set['template']['spec']['sources'][0]['helm']['valuesObject']=={'route':{'className':'traefik'},'networkPolicy':{'egressDeniedCidrs':['192.168.0.0/16']}}
+        assert 'elbv2.k8s.aws/pod-readiness-gate-inject' not in onprem_set['template']['spec']['syncPolicy']['managedNamespaceMetadata']['labels']
+        project = next(d['spec'] for d in docs if d['kind']=='AppProject' and d['metadata']['name']=='iris-svc-project')
+        assert {'server':'https://onprem.example:6443','namespace':'svc-*'} in project['destinations']
+        assert 'iris-svc-onprem-appset' not in {d['metadata']['name'] for d in gitops if d['kind']=='ApplicationSet'}, 'on-prem stays off by default.'
+        gw = next(d['spec'] for d in docs if d['kind']=='Application' and d['metadata']['name']=='iris-onprem-gateway')
+        assert gw['project']=='iris-addons-management' and gw['destination']=={'server':targets['management']['endpoint'],'namespace':'onprem-gateway'}
+        assert {'group':'','kind':'Service','name':'iris-onprem-apps','jsonPointers':['/spec/externalName']} in gw['ignoreDifferences'], 'Tailscale operator rewrites externalName; Argo must not fight it.'
+        assert gw['syncPolicy']['managedNamespaceMetadata']['labels']=={'elbv2.k8s.aws/pod-readiness-gate-inject':'enabled'}, 'Pods need the ALB readiness gate.'
+        addons = next(d['spec'] for d in docs if d['kind']=='AppProject' and d['metadata']['name']=='iris-addons-management')
+        assert {'server':targets['management']['endpoint'],'namespace':'onprem-gateway'} in addons['destinations']
+        assert 'iris-onprem-gateway' not in {d['metadata']['name'] for d in gitops if d['kind']=='Application'}, 'gateway stays off by default.'
+        gw_values = directory/'gateway.json'
+        gw_values.write_text(json.dumps({**yaml.safe_load((ROOT/'clusters/aws-dev-management/values/onprem-gateway.yaml').read_text()), 'certificateArn':'arn:aws:acm:ap-northeast-2:123456789012:certificate/test'}))
+        gw_docs = render(ROOT/'helm/charts/iris-onprem-gateway', gw_values, namespace='onprem-gateway')
+        check_images(gw_docs)
+        ing = next(d for d in gw_docs if d['kind']=='Ingress'); notes = ing['metadata']['annotations']
+        assert notes['alb.ingress.kubernetes.io/group.name']=='iris-platform-external' and notes['alb.ingress.kubernetes.io/target-type']=='ip' and notes['alb.ingress.kubernetes.io/healthcheck-path']=='/healthz'
+        assert notes['alb.ingress.kubernetes.io/certificate-arn'].endswith('/test') and ing['spec']['rules'][0]['host']=='*.internal.likelion.uk'
+        assert notes['alb.ingress.kubernetes.io/group.order']=='1000', 'Gateway must not precede the anchor (default cert).'
+        conf = next(d for d in gw_docs if d['kind']=='ConfigMap')['data']['nginx.conf']
+        assert 'server_name *.internal.likelion.uk;' in conf and 'listen 8080 default_server;' in conf, 'Proxy only for the host; default server serves /healthz.'
+        assert 'proxy_set_header Host $host;' in conf and 'set $upstream http://iris-onprem-apps.onprem-gateway.svc.cluster.local:80;' in conf
+        assert not re.search(r'proxy_pass\s+[^;]*\$(host|http_host)', conf), 'Upstream must be fixed (no open proxy).'
+        egress = next(d for d in gw_docs if d['kind']=='Service' and d['metadata']['name']=='iris-onprem-apps')
+        assert egress['spec']['type']=='ExternalName' and egress['metadata']['annotations']['tailscale.com/tailnet-fqdn']=='iris-onprem-01.tailb046e8.ts.net' and egress['metadata']['annotations']['tailscale.com/tags']=='tag:iris-onprem-apps'
+        assert any(d['kind']=='NetworkPolicy' for d in gw_docs)
+        empty = subprocess.run([HELM,'template','gw',str(ROOT/'helm/charts/iris-onprem-gateway'),'-f',str(ROOT/'clusters/aws-dev-management/values/onprem-gateway.yaml')],capture_output=True)
+        assert empty.returncode, 'Set certificateArn (terraform output internal_acm_certificate_arn) before enabling.'
         check_platform(directory, targets, bootstrap)
         charts = {}
         for name, pin in VERSIONS['charts'].items():

@@ -1,0 +1,6 @@
+apiVersion: v2
+name: iris-onprem-gateway
+description: nginx gateway that forwards internal.likelion.uk traffic from the shared ALB to on-prem through a Tailscale egress Service
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

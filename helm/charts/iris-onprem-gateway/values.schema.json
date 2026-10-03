@@ -1,0 +1,31 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["host", "groupName", "certificateArn", "albSourceCidrs", "upstream", "replicas", "image"],
+  "properties": {
+    "host": {"type": "string", "minLength": 1},
+    "groupName": {"type": "string", "minLength": 1},
+    "certificateArn": {"type": "string", "pattern": "^$|^arn:aws:acm:"},
+    "albSourceCidrs": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+    "upstream": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tailnetFqdn", "port"],
+      "properties": {
+        "tailnetFqdn": {"type": "string", "minLength": 1},
+        "port": {"type": "integer", "minimum": 1, "maximum": 65535}
+      }
+    },
+    "replicas": {"type": "integer", "minimum": 1},
+    "image": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "digest"],
+      "properties": {
+        "repository": {"type": "string", "minLength": 1},
+        "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+      }
+    }
+  }
+}
