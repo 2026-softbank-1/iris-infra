@@ -24,6 +24,9 @@
   "onpremGateway": {
     "enabled": true
   },
+  "onpremAuthRenewal": {
+    "enabled": false
+  },
   "albTraffic": {
     "enabled": false
   }

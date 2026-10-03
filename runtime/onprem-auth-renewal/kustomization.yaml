@@ -1,0 +1,15 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+- kubernetes.yaml
+configMapGenerator:
+- name: iris-onprem-auth-renewal-code
+  namespace: iris-platform
+  files:
+  - refresh.py
+  - server-ca.crt
+- name: iris-onprem-auth-renewal-code
+  namespace: argocd
+  files:
+  - refresh.py
+  - server-ca.crt

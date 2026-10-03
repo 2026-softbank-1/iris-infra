@@ -1,0 +1,40 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata: {name: iris-ecr-renewer, namespace: svc-28}
+automountServiceAccountToken: false
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata: {name: iris-ecr-renewer, namespace: svc-28}
+rules:
+  - apiGroups: [""]
+    resources: [secrets]
+    resourceNames: [iris-ecr-pull]
+    verbs: [get, patch]
+  - apiGroups: [""]
+    resources: [serviceaccounts/token]
+    resourceNames: [iris-ecr-renewer]
+    verbs: [create]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: {name: iris-ecr-renewer, namespace: svc-28}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: iris-ecr-renewer}
+subjects:
+  - {kind: ServiceAccount, name: iris-ecr-renewer, namespace: svc-28}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata: {name: iris-argocd-self-token-renewal, namespace: iris-onprem-test}
+rules:
+  - apiGroups: [""]
+    resources: [serviceaccounts/token]
+    resourceNames: [iris-argocd]
+    verbs: [create]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: {name: iris-argocd-self-token-renewal, namespace: iris-onprem-test}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: iris-argocd-self-token-renewal}
+subjects:
+  - {kind: ServiceAccount, name: iris-argocd, namespace: iris-onprem-test}
