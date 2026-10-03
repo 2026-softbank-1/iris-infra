@@ -100,7 +100,7 @@ agent → gateway·Loki Application 순서로 삭제합니다. PVC와 S3 버킷�
 
 ### Collector 이미지 CI 설정
 
-`.github/workflows/alb-log-collector.yml`은 이미지 게시와 digest 변경 PR 생성까지 담당합니다. main PR 머지는 기존 Terraform CI의 자동 apply도 유발합니다. 이미지 PR만 머지해도 collector가 활성화되지는 않으며, 아래 적용 절차의 ALB logging/root `albTraffic.enabled`/Argo revision·sync 작업은 별도로 수행합니다.
+`.github/workflows/alb-log-collector.yml`은 이미지 게시와 digest 변경 PR 생성까지 담당합니다. collector 빌드 입력이 바뀔 때만 자동 게시·PR 갱신을 수행합니다. digest-only PR 머지는 Helm 검증만 수행하고 Terraform apply와 collector 재빌드를 건너뜁니다. 이미지 PR만 머지해도 collector가 활성화되지는 않으며, 아래 적용 절차의 ALB logging/root `albTraffic.enabled`/Argo revision·sync 작업은 별도로 수행합니다.
 
 운영 설정과 실제 실행은 해당 승인 후 진행합니다.
 
@@ -132,7 +132,7 @@ flowchart LR
 
 ### 적용 전 조건·순서
 
-코드 구현 승인은 이미지 게시·Terraform apply·GitOps 배포·main push·workflow 실행을 포함하지 않습니다. main push는 기존 CI apply를 유발합니다. 아래 작업은 해당 배포 승인 후 수행합니다.
+코드 구현 승인은 이미지 게시·Terraform apply·GitOps 배포·main push·workflow 실행을 포함하지 않습니다. Terraform 배포 입력이 바뀐 main push는 CI apply를 유발하며, 수동 실행은 main에서 `force_apply=true`를 선택해야 apply합니다. 아래 작업은 해당 배포 승인 후 수행합니다.
 
 1. account → foundation → management 순서로 plan을 검토하고 apply합니다. account에 전용 CI IAM policy 1개를 추가하므로 기존 IAM policy 크기 제한을 유지합니다. foundation의 `alb_access_logs` output으로 실제 bucket/prefix/queue/DLQ/role을 확인하고 cluster values와 일치시키세요. management의 `observability/alb-log-collector` Pod Identity association과 agent가 필요합니다. 버킷은 ALB와 같은 리전의 SSE-S3 전용 버킷이며 LBC가 ALB를 소유합니다.
 2. workload ALB 이름·ARN과 TargetGroup 태그를 확인합니다. ELB `describe-target-groups --load-balancer-arn <ARN>`, `describe-tags --resource-arns <TG_ARN>` 결과에 `elbv2.k8s.aws/cluster=iris-dev-workload`, `ingress.k8s.aws/stack=iris-service-external`, `ingress.k8s.aws/resource=svc-<ID>/...:...`가 있어야 합니다. 이름의 축약 문자열로 서비스 ID를 추정하지 않습니다. 조회와 SQLite 저장이 모두 성공해야 ALB 식별자·TG 매핑·조회 시각이 함께 갱신됩니다. 확인한 ALB 식별자와 삭제·교체된 TG의 마지막 정상 매핑은 7일 캐시하여 이전 ALB의 지연 로그를 처리합니다. 기존 PVC에는 account·region·cluster·group이 같아야 하며 재시작 후 첫 정상 조회 전에 큐를 소비하지 않습니다.

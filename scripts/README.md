@@ -22,6 +22,8 @@ local-workload는 scaffold이며 bootstrap/smoke에서 성공으로 처리하지
 
 `python3 scripts/tests/test-tf-ci.py`는 fake AWS/Terraform으로 순서/state key/실패 처리/guard를 검사하고, `test-eks-ops.py`는 wrong account/caller/endpoint·TLS보존·포트충돌·cleanup을 검사합니다. `test-platform-ecr.py`, `test-build-push-ecr.py`는 기존 ECR inventory/빌드 경계를 검사합니다. `IRIS_ECR_DOCKER_TEST=1`은 로컬 scratch 이미지 실제 빌드입니다. 실제 API 허용·통신·Pod Identity·image pull 성공은 mock으로 보장하지 않습니다.
 
+`terraform-ci-changes.py`는 Git event diff로 검사와 배포 입력을 구분합니다. `python3 scripts/tests/test-terraform-ci-changes.py`는 임시 Git 이력과 실제 workflow 조건으로 account/tests/Helm/digest 변경의 apply 제외, 삭제·이름 변경·복수 커밋, 수동 force/main 제한과 변경 감지 실패 차단을 검사합니다. Terraform workflow의 수동 실행은 검증만 수행하며 main의 `force_apply=true`가 실제 apply를 선택합니다([CI 조건](../docs/runbooks/terraform-ci.md#변경-조건과-수동-실행)).
+
 도구 자동 설치·main push·workflow dispatch·Paid 전환·시간 기반 철거는 제공하지 않습니다.
 
 ## EKS CI 권한 검사

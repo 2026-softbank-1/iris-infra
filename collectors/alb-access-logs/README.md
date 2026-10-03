@@ -55,6 +55,8 @@ main의 빌드 대상 변경은 설정 확인과 단위/실제 Loki·Prometheus 
 
 digest PR에서는 `collector-ci`가 merge tree와 빌드 source 입력을 대조합니다. 이 검사가 이후 main 변경에도 효력을 가지려면 **필수 검사 + 최신 base 반영 후 merge(strict)** 규칙이 필요합니다. 일반 코드 PR은 이전 배포 이미지 provenance 때문에 막지 않습니다. 자동 merge/collector 활성화/Argo revision 변경은 수행하지 않습니다.
 
+관련 변경이 없으면 빌드·ECR 게시·PR 갱신을 건너뛰며 가벼운 변경 감지/필수 상태 검사만 남습니다. digest-only PR은 Helm 검증을 수행하고 Terraform apply와 이미지 재빌드는 하지 않습니다. Terraform 배포 입력과 collector 코드를 함께 바꾸면 각각의 변경 조건에 따라 두 경로가 실행됩니다.
+
 최초 게시·설정·재시도는 [운영 절차](../../docs/runbooks/observability.md#collector-이미지-ci-설정)를 따릅니다. 로컬 검증은 아래처럼 실행하며, 실제 Actions/ECR/PR 실행과는 구분합니다.
 
 ```bash
