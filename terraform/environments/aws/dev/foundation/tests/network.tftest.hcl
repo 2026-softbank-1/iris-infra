@@ -11,6 +11,12 @@ override_resource {
     { domain_name = "likelion.uk", resource_record_name = "_x.likelion.uk.", resource_record_type = "CNAME", resource_record_value = "_y.acm-validations.aws." }
   ] }
 }
+override_resource {
+  target = aws_acm_certificate.internal
+  values = { domain_validation_options = [
+    { domain_name = "*.internal.likelion.uk", resource_record_name = "_z.internal.likelion.uk.", resource_record_type = "CNAME", resource_record_value = "_w.acm-validations.aws." }
+  ] }
+}
 # Mock apply resolves computed IDs without credentials or AWS API calls.
 mock_provider "aws" {
   mock_data "aws_ssm_parameter" { defaults = { value = "ami-0123456789abcdef0" } }

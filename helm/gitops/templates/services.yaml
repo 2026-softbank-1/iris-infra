@@ -16,6 +16,10 @@ spec:
   destinations:
     - server: {{ $workload.endpoint | quote }}
       namespace: svc-*
+    {{- if $s.onprem.enabled }}
+    - server: {{ $s.onprem.server | quote }}
+      namespace: svc-*
+    {{- end }}
   # Allow chart resources and workload children so Argo can display ReplicaSets and Pods.
   clusterResourceWhitelist:
     - {group: "", kind: Namespace}
@@ -82,3 +86,52 @@ spec:
             pod-security.kubernetes.io/enforce: baseline
             # Rollouts wait for ALB target health.
             elbv2.k8s.aws/pod-readiness-gate-inject: enabled
+{{- if $s.onprem.enabled }}
+{{- $o := $s.onprem }}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: iris-svc-onprem-appset
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - git:
+        repoURL: {{ $s.repoURL | quote }}
+        revision: {{ $s.revision | quote }}
+        directories:
+          - path: services/*/onprem
+  syncPolicy:
+    applicationsSync: sync
+  template:
+    metadata:
+      name: 'svc-{{ "{{" }} index .path.segments 1 {{ "}}" }}'
+      finalizers:
+        - resources-finalizer.argocd.argoproj.io
+    spec:
+      project: iris-svc-project
+      sources:
+        - repoURL: {{ $chartRepo | quote }}
+          path: helm/charts/iris-service
+          targetRevision: {{ $s.chartRevision | quote }}
+          helm:
+            valueFiles:
+              - '$values/{{ "{{" }} .path.path {{ "}}" }}/values.yaml'
+            valuesObject:
+              route: {className: {{ $o.ingressClassName | quote }}}
+              networkPolicy: {egressDeniedCidrs: {{ toJson $o.egressDeniedCidrs }}}
+        - repoURL: {{ $s.repoURL | quote }}
+          targetRevision: {{ $s.revision | quote }}
+          ref: values
+      destination:
+        server: {{ $o.server | quote }}
+        namespace: 'svc-{{ "{{" }} index .path.segments 1 {{ "}}" }}'
+      syncPolicy:
+        automated: {prune: true, selfHeal: true}
+        syncOptions: [CreateNamespace=true, PruneLast=true]
+        managedNamespaceMetadata:
+          labels:
+            pod-security.kubernetes.io/enforce: baseline
+{{- end }}

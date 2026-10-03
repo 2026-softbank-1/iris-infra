@@ -1,0 +1,11 @@
+host: "*.internal.likelion.uk"
+groupName: iris-platform-external
+certificateArn: ""
+albSourceCidrs: ["10.40.240.0/24", "10.40.241.0/24"]
+upstream:
+  tailnetFqdn: iris-onprem-01.tailb046e8.ts.net
+  port: 80
+replicas: 2
+image:
+  repository: docker.io/nginxinc/nginx-unprivileged:1.30-alpine
+  digest: "sha256:ed04ec1ff34502c339ee5c3ae3f855442398edc1d05591e2b98981dcbbd20b1e"

@@ -1,0 +1,27 @@
+{{- if .Values.services.onprem.enabled }}
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: iris-onprem-gateway
+  namespace: argocd
+  annotations: {argocd.argoproj.io/sync-wave: "0"}
+spec:
+  project: iris-addons-management
+  source:
+    repoURL: {{ .Values.repoURL | quote }}
+    targetRevision: {{ .Values.revision | quote }}
+    path: helm/charts/iris-onprem-gateway
+    helm:
+      releaseName: onprem-gateway
+      valueFiles: [../../../clusters/aws-dev-management/values/onprem-gateway.yaml]
+  destination:
+    server: {{ .Values.targets.management.endpoint | quote }}
+    namespace: onprem-gateway
+  ignoreDifferences:
+    - {group: "", kind: Service, name: iris-onprem-apps, jsonPointers: [/spec/externalName]}
+  syncPolicy:
+    automated: {prune: false, selfHeal: true}
+    managedNamespaceMetadata:
+      labels: {elbv2.k8s.aws/pod-readiness-gate-inject: enabled}
+    syncOptions: [CreateNamespace=true, ServerSideApply=true, RespectIgnoreDifferences=true]
+{{- end }}

@@ -22,6 +22,10 @@ spec:
       namespace: observability
     - server: {{ $target.endpoint | quote }}
       namespace: {{ if eq $purpose "management" }}iris-platform{{ else }}iris-apps{{ end }}
+    {{- if and (eq $purpose "management") $.Values.services.onprem.enabled }}
+    - server: {{ $target.endpoint | quote }}
+      namespace: onprem-gateway
+    {{- end }}
   clusterResourceWhitelist:
     - {group: "", kind: Namespace}
     - {group: storage.k8s.io, kind: StorageClass}

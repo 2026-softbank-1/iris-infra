@@ -1,0 +1,8 @@
+{
+  "host": "*.internal.likelion.uk",
+  "groupName": "iris-platform-external",
+  "certificateArn": "",
+  "albSourceCidrs": ["10.40.240.0/24", "10.40.241.0/24"],
+  "upstream": {"tailnetFqdn": "iris-onprem-01.tailb046e8.ts.net", "port": 80},
+  "replicas": 2
+}

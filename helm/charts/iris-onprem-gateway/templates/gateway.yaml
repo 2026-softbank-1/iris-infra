@@ -1,0 +1,106 @@
+{{- $arn := required "Set certificateArn (terraform output internal_acm_certificate_arn)" .Values.certificateArn }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: iris-onprem-apps
+  annotations:
+    tailscale.com/tailnet-fqdn: {{ .Values.upstream.tailnetFqdn | quote }}
+    tailscale.com/tags: "tag:iris-onprem-apps"
+spec:
+  type: ExternalName
+  externalName: placeholder
+  ports: [{name: http, port: {{ .Values.upstream.port }}, protocol: TCP}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: onprem-gateway
+spec:
+  replicas: {{ .Values.replicas }}
+  selector:
+    matchLabels: {app.kubernetes.io/name: onprem-gateway}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: onprem-gateway}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext: {runAsNonRoot: true, runAsUser: 101, runAsGroup: 101, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: nginx
+          image: {{ printf "%s@%s" .Values.image.repository .Values.image.digest | quote }}
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+          ports: [{name: http, containerPort: 8080}]
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits: {memory: 128Mi}
+          readinessProbe: {httpGet: {path: /healthz, port: http}, periodSeconds: 10}
+          livenessProbe: {httpGet: {path: /healthz, port: http}, initialDelaySeconds: 10, periodSeconds: 20}
+          volumeMounts:
+            - {name: conf, mountPath: /etc/nginx/nginx.conf, subPath: nginx.conf, readOnly: true}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: conf
+          configMap: {name: onprem-gateway}
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: onprem-gateway
+spec:
+  type: ClusterIP
+  selector: {app.kubernetes.io/name: onprem-gateway}
+  ports: [{name: http, port: 80, targetPort: http}]
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: onprem-gateway
+  annotations:
+    alb.ingress.kubernetes.io/group.name: {{ .Values.groupName | quote }}
+    # 기본 인증서는 그룹 내 첫 멤버가 정한다. 1000 으로 anchor(host rule 없음)보다 뒤에 두고 ns/name 순서로 anchor 가 먼저 오게 한다.
+    alb.ingress.kubernetes.io/group.order: "1000"
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+    alb.ingress.kubernetes.io/certificate-arn: {{ $arn | quote }}
+    alb.ingress.kubernetes.io/healthcheck-path: /healthz
+spec:
+  ingressClassName: alb
+  rules:
+    - host: {{ .Values.host | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service: {name: onprem-gateway, port: {name: http}}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: onprem-gateway
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: onprem-gateway}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        {{- range .Values.albSourceCidrs }}
+        - ipBlock: {cidr: {{ . | quote }}}
+        {{- end }}
+      ports: [{protocol: TCP, port: 8080}]
+  egress:
+    - to:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: kube-system}}
+          podSelector: {matchLabels: {k8s-app: kube-dns}}
+      ports: [{protocol: UDP, port: 53}, {protocol: TCP, port: 53}]
+    - to:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: tailscale}}
+      ports: [{protocol: TCP, port: {{ .Values.upstream.port }}}]
