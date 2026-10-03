@@ -146,6 +146,12 @@
       "required": ["enabled"],
       "properties": {"enabled": {"type": "boolean"}}
     },
+    "onpremAuthRenewal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled"],
+      "properties": {"enabled": {"type": "boolean"}}
+    },
     "albTraffic": {
       "type": "object",
       "additionalProperties": false,

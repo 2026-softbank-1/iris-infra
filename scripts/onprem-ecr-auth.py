@@ -74,12 +74,6 @@ def main():
     registry = authorization['proxyEndpoint'].removeprefix('https://')
     docker_config = {'auths': {registry: {'auth': authorization['authorizationToken']}}}
     namespace = f'svc-{sid}'
-    secret = {
-        'apiVersion': 'v1', 'kind': 'Secret',
-        'metadata': {'name': 'iris-ecr-pull', 'namespace': namespace},
-        'type': 'kubernetes.io/dockerconfigjson',
-        'data': {'.dockerconfigjson': base64.b64encode(json.dumps(docker_config).encode()).decode()},
-    }
     outer = ['ssh', '-o', 'BatchMode=yes', '-o', 'IdentitiesOnly=yes', '-i', args.ssh_key,
              '-p', str(args.ssh_port), f'{args.ssh_user}@{args.ssh_host}']
 
@@ -98,7 +92,16 @@ def main():
     if not any(item['name'] == 'iris-ecr-pull' for item in references):
         references.append({'name': 'iris-ecr-pull'})
     dry_run = [] if args.apply else ['--dry-run=server']
-    print(remote(['apply', '-f', '-'] + dry_run, json.dumps(secret)), end='')
+    current = json.loads(remote(['get', 'secret', 'iris-ecr-pull', '-o', 'json']))
+    if current['type'] != 'kubernetes.io/dockerconfigjson':
+        raise SystemExit('Unexpected image Secret type; no remote change made.')
+    docker = json.loads(base64.b64decode(current['data']['.dockerconfigjson']))
+    docker.setdefault('auths', {}).update(docker_config['auths'])
+    patch = {'metadata': {'resourceVersion': current['metadata']['resourceVersion'],
+                           'annotations': {'kubectl.kubernetes.io/last-applied-configuration': None}},
+             'data': {'.dockerconfigjson': base64.b64encode(json.dumps(docker).encode()).decode()}}
+    print(remote(['patch', 'secret', 'iris-ecr-pull', '--type=merge', '--patch-file=/dev/stdin']
+                 + dry_run, json.dumps(patch)), end='')
     print(remote(['patch', 'serviceaccount', 'default', '--type=merge', '--patch-file=/dev/stdin']
                  + dry_run, json.dumps({'imagePullSecrets': references})), end='')
     expiry = authorization['expiresAt']

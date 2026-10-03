@@ -1,0 +1,43 @@
+{{- if and .Values.services.onprem.enabled .Values.onpremAuthRenewal.enabled }}
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: iris-onprem-auth-renewal
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  sourceRepos: [{{ .Values.repoURL | quote }}]
+  destinations:
+    - {server: {{ .Values.targets.management.endpoint | quote }}, namespace: iris-platform}
+    - {server: {{ .Values.targets.management.endpoint | quote }}, namespace: argocd}
+    - {server: {{ .Values.targets.management.endpoint | quote }}, namespace: tailscale}
+  clusterResourceWhitelist: []
+  namespaceResourceWhitelist:
+    - {group: "", kind: ConfigMap}
+    - {group: "", kind: ServiceAccount}
+    - {group: "", kind: Pod}
+    - {group: batch, kind: CronJob}
+    - {group: batch, kind: Job}
+    - {group: rbac.authorization.k8s.io, kind: Role}
+    - {group: rbac.authorization.k8s.io, kind: RoleBinding}
+    - {group: networking.k8s.io, kind: NetworkPolicy}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: iris-onprem-auth-renewal
+  namespace: argocd
+spec:
+  project: iris-onprem-auth-renewal
+  source:
+    repoURL: {{ .Values.repoURL | quote }}
+    targetRevision: {{ .Values.revision | quote }}
+    path: runtime/onprem-auth-renewal
+  destination:
+    server: {{ .Values.targets.management.endpoint | quote }}
+    namespace: iris-platform
+  syncPolicy:
+    automated: {prune: true, selfHeal: true}
+    syncOptions: [ServerSideApply=true]
+{{- end }}

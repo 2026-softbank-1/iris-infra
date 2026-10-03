@@ -11,7 +11,13 @@
       "chartRevision": "iris-service-0.6.0",
       "server": "https://iris-onprem-api.argocd.svc.cluster.local:6443",
       "ingressClassName": "traefik",
-      "egressDeniedCidrs": ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10", "169.254.0.0/16"]
+      "egressDeniedCidrs": [
+        "10.0.0.0/8",
+        "172.16.0.0/12",
+        "192.168.0.0/16",
+        "100.64.0.0/10",
+        "169.254.0.0/16"
+      ]
     }
   },
   "platform": {
@@ -23,6 +29,9 @@
     ]
   },
   "onpremGateway": {
+    "enabled": true
+  },
+  "onpremAuthRenewal": {
     "enabled": true
   },
   "albTraffic": {
