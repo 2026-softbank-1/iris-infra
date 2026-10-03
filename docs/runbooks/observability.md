@@ -98,6 +98,28 @@ agent → gateway·Loki Application 순서로 삭제합니다. PVC와 S3 버킷�
 
 이 섹션은 새 경로의 적용·확인 절차입니다. **현재 dev 런타임 검증 결과가 아닙니다.** 기존 Loki/Prometheus에 ALB access logs의 정규화 로그와 recording rules를 추가합니다. [지표 계약](../../contracts/service-traffic.md)에 이름·라벨·단위·지연·결측 의미가 있습니다.
 
+### Collector 이미지 CI 설정
+
+`.github/workflows/alb-log-collector.yml`은 이미지 게시와 digest 변경 PR 생성까지 담당합니다. main PR 머지는 기존 Terraform CI의 자동 apply도 유발합니다. 이미지 PR만 머지해도 collector가 활성화되지는 않으며, 아래 적용 절차의 ALB logging/root `albTraffic.enabled`/Argo revision·sync 작업은 별도로 수행합니다.
+
+운영 설정과 실제 실행은 해당 승인 후 진행합니다.
+
+1. account의 **실제** `github_ecr_publishers`에 `alb-log-collector` 키를 추가합니다. 기존 `was`/`error-check-agent` 등 모든 키를 보존하세요. infra의 실제 OIDC prefix를 사용하고 `repository_names = ["iris/alb-log-collector"]`로 제한합니다. 기존 일반 publisher 모듈이 역할/inline policy 두 개를 생성합니다. account plan에서 이 두 생성만 있는지 확인 후 관리자가 apply합니다. Terraform CI용 Admin 역할은 사용하지 않습니다.
+2. Actions 변수 `ALB_COLLECTOR_ECR_PUSH_ROLE_ARN`에 `github_ecr_publisher_role_arns["alb-log-collector"]`를 등록합니다. 기존 `AWS_ACCOUNT_ID`, `AWS_REGION=ap-northeast-2`와 collector values repository가 일치해야 합니다.
+3. fine-grained PAT를 `iris-infra` 저장소만 선택하여 Contents **Read/Write**, Pull requests **Read/Write**, 만료일을 지정해 생성합니다. 필요하면 조직 승인을 완료하고 Actions secret `ALB_COLLECTOR_PR_TOKEN`에 등록합니다. 토큰은 코드/대화에 남기지 않습니다. 만료·갱신 담당자는 등록한 계정 소유자로 지정하고 계정 이관 시 교체합니다. PAT가 있어야 생성·갱신 PR의 CI가 자동 실행됩니다([GitHub 문서](https://docs.github.com/en/actions/concepts/security/github_token)).
+4. workflow 도입 후 첫 PR에서 `collector-ci`를 확인하고 main 보호 규칙에 필수 검사와 **Require branches to be up to date before merging**을 지정합니다. 자동화 계정은 bypass 대상에 포함하지 않습니다. admin 수동 bypass는 이 보호의 보장 범위 밖입니다. 규칙 설정 전에는 오래된 green PR 방지를 운영 완료로 보고하지 않습니다.
+5. 아래 수동 실행에서 `force_rebuild=true`로 최초 이미지를 게시합니다. main 이외 ref의 수동 실행은 로컬 검증만 합니다. 빌드 입력 변경이 main에 들어온 뒤에는 자동 게시합니다.
+
+```bash
+gh workflow run alb-log-collector.yml --ref main -f force_rebuild=true
+gh run list --workflow alb-log-collector.yml --limit 5
+gh pr list --head automation/alb-log-collector-image
+```
+
+설정 누락은 ECR 게시 전에 실패합니다. 실제 PAT 인증/API 실패는 이미지를 게시한 뒤 발생할 수 있으며, 이 경우 ECR 이미지는 남지만 PR 갱신은 실패합니다. AWS 게시 실패·잘못된 digest는 PR을 만들지 않습니다. 최신 main과 입력이 달라지거나 더 최신 실행이 있으면 이전 결과를 건너뜁니다. 누락·실패 복구는 설정/로그를 확인한 뒤 **최신 main**에서 `force_rebuild=true`로 재실행합니다. 자동화 브랜치에 수동 변경이 섞이면 보존 후 분리해야 하며 자동 덮어쓰지 않습니다.
+
+자동화 PR은 values의 digest와 image lock entry 두 개만 변경하는지 확인하고 `collector-ci` 및 기존 Terraform/Helm 검사를 확인합니다. fixture digest는 게시 증거가 아닙니다. 실제 이미지 확인 이후 아래 적용 절차를 수행합니다. CI 문제의 복구는 새 workflow 비활성화·미머지 이미지 PR 닫기·이전 배포 digest 유지이며, ECR 이미지와 기존 수집 데이터는 삭제하지 않습니다.
+
 ```mermaid
 flowchart LR
   ALB[workload ALB iris-service-external] --> RAW[S3 원본 · 7일]

@@ -116,6 +116,19 @@ class BuildPushTest(unittest.TestCase):
         self.assertEqual(self.run_script("push").returncode, 0)
         self.assertNotEqual(first, self.outputs()["image_tag"])
 
+    def test_collector_uses_its_context_and_own_ecr_repository(self):
+        self.configure_push()
+        self.env.update(ECR_REPOSITORY="iris/alb-log-collector",
+                        DOCKERFILE=str(ROOT / "collectors/alb-access-logs/Dockerfile"),
+                        DOCKER_BUILD_CONTEXT=str(ROOT / "collectors/alb-access-logs"))
+        result = self.run_script("push")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        args = self.calls()[1]["args"]
+        self.assertEqual(args[-1], self.env["DOCKER_BUILD_CONTEXT"])
+        self.assertEqual(args[args.index("--file") + 1], self.env["DOCKERFILE"])
+        self.assertEqual(self.outputs()["image_ref"],
+                         "123456789012.dkr.ecr.ap-northeast-2.amazonaws.com/iris/alb-log-collector@" + DIGEST)
+
     def test_account_mismatch_blocks_docker(self):
         self.configure_push()
         self.env["FAKE_ACCOUNT"] = "999999999999"

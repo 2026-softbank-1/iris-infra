@@ -69,6 +69,8 @@ publisher에는 Terraform state·IAM 변경·저장소 생성·`iris/services/*`
 
 입력과 복사용 workflow는 [서비스 빌드 템플릿](../../../examples/github-actions/README.md)을 참고합니다.
 
+infra의 ALB collector CI는 같은 publisher map에 `alb-log-collector` 키를 추가해 사용합니다. 실제 infra OIDC prefix와 `repository_names = ["iris/alb-log-collector"]`를 지정하고 **기존 publisher 입력 전체를 유지**하세요. 역할과 inline policy 두 개만 추가하는 account plan을 검토하며 자동 apply는 하지 않습니다. 적용 후 `github_ecr_publisher_role_arns["alb-log-collector"]`를 infra Actions 변수 `ALB_COLLECTOR_ECR_PUSH_ROLE_ARN`으로 등록합니다. PAT·branch protection·최초 게시 절차는 [observability runbook](../../../docs/runbooks/observability.md#collector-이미지-ci-설정)에 있습니다. 임시 Admin 역할과 다른 서비스의 이미지 게시 역할은 사용하지 않습니다.
+
 ## 네트워크 CI 권한
 
 `ci-network.tf`는 `<project>-<environment>-foundation-network` 관리형 정책을 기존 CI 역할에 연결합니다.

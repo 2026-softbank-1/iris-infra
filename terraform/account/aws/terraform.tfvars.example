@@ -11,6 +11,11 @@ enable_temporary_admin_access = true
 # 서비스 저장소의 실제 OIDC subject를 확인한 뒤 설정합니다.
 # 매핑 예시: examples/github-actions/README.md (저장소 루트 기준)
 github_ecr_publishers = {}
+# 위 빈 map으로 기존 입력을 덮어쓰지 마세요. 기존 publisher를 유지하고 아래 키만 추가합니다.
+# alb-log-collector = {
+#   oidc_subject_prefix = "repo:2026-softbank-1@334759803/iris-infra@1397906876"
+#   repository_names    = ["iris/alb-log-collector"]
+# }
 
 # foundation 및 CI의 cluster ARN scope와 일치시킵니다.
 management_cluster_name = "iris-dev-management"
