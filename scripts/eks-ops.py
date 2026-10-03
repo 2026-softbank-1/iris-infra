@@ -153,7 +153,7 @@ def preflight(target):
     if target['id'].endswith('management'):
         reservations = aws('ec2','describe-instances','--filters',f'Name=instance.group-id,Values={target["node_security_group_id"]}','Name=instance-state-name,Values=running',region=region)['Reservations']
         nodes = [i for r in reservations for i in r['Instances']]
-        need(len(nodes)==2 and all(target['management_api_source_security_group_id'] in {g['GroupId'] for g in i['SecurityGroups']} and not i.get('PublicIpAddress') for i in nodes),'Management node source SG/private-IP attachment mismatch.')
+        need(len(nodes)>=len(target['subnet_ids_by_az']) and all(target['management_api_source_security_group_id'] in {g['GroupId'] for g in i['SecurityGroups']} and not i.get('PublicIpAddress') for i in nodes),'Management node source SG/private-IP attachment mismatch.')
     info = aws('ssm', 'describe-instance-information', '--filters', f'Key=InstanceIds,Values={target["ssm_bridge_instance_id"]}', region=region)['InstanceInformationList']
     need(len(info) == 1 and info[0]['PingStatus'] == 'Online', 'SSM bridge is not Online.')
     version = tuple(int(x) for x in info[0]['AgentVersion'].split('.'))
@@ -212,7 +212,8 @@ def ready(target):
     need(kubectl(target,'auth','can-i','*','*','--all-namespaces').strip()=='yes','Operator Kubernetes admin authorization missing.')
     need(kubectl(target,'get','--raw','/readyz').strip()=='ok','Kubernetes API is not ready.')
     nodes = json.loads(kubectl(target,'get','nodes','-o','json'))['items']
-    need(len(nodes)==2 and {n['metadata']['labels']['topology.kubernetes.io/zone'] for n in nodes} == set(target['subnet_ids_by_az']), 'Expected one node in each reviewed AZ.')
+    # Node counts per AZ come from Terraform node_count_by_az; every reviewed AZ must still have a node.
+    need(len(nodes)>=len(target['subnet_ids_by_az']) and {n['metadata']['labels']['topology.kubernetes.io/zone'] for n in nodes} == set(target['subnet_ids_by_az']), 'Expected nodes in every reviewed AZ and no other AZ.')
     need(all(n['status']['allocatable']['pods']=='35' and any(c['type']=='Ready' and c['status']=='True' for c in n['status']['conditions']) for n in nodes), 'Nodes must be Ready with allocatable.pods=35; refusing bootstrap.')
     ds = json.loads(kubectl(target,'get','daemonset','aws-node','-n','kube-system','-o','json'))
     cni = next(c for c in ds['spec']['template']['spec']['containers'] if c['name']=='aws-node')
@@ -344,7 +345,7 @@ def smoke(target):
     apps=json.loads(kubectl(management,'get','applications','-n','argocd','-o','json'))['items']
     matching=[a for a in apps if a['metadata']['name'].startswith('iris-'+target['id'].removeprefix('aws-dev-')+'-')]
     need(len(matching)==4 and all(a.get('status',{}).get('sync',{}).get('status')=='Synced' and a.get('status',{}).get('health',{}).get('status')=='Healthy' for a in matching),'Target GitOps Applications are not Synced/Healthy.')
-    print(f'{target["id"]}: API, two AZ nodes, addons, storage, metrics and GitOps checks passed. Platform ECR pull: not verified.')
+    print(f'{target["id"]}: API, nodes in both AZs, addons, storage, metrics and GitOps checks passed. Platform ECR pull: not verified.')
 
 
 def exercise(target, image_ref=None, drain_node=None):
@@ -357,7 +358,7 @@ def exercise(target, image_ref=None, drain_node=None):
     if drain_node:
         need(target['id']=='aws-dev-workload','Failover exercise is limited to the workload cluster.')
         need(drain_node in {n['metadata']['name'] for n in nodes},'Drain node is not in this validated cluster.')
-        need(all(not n['spec'].get('unschedulable',False) for n in nodes),'Both nodes must initially be schedulable.')
+        need(all(not n['spec'].get('unschedulable',False) for n in nodes),'All nodes must initially be schedulable.')
     lock=json.loads((ROOT/'helm/images.lock.json').read_text())['verification_images']
     namespace='iris-verification-'+str(os.getpid())
     created=[]

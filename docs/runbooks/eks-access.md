@@ -63,7 +63,7 @@ export ARGOCD_GIT_TOKEN_FILE=/안전한/로컬/읽기전용-token
 make bootstrap CLUSTER=aws-dev-management
 ```
 
-두 API의 TLS/RBAC, AZ별 Ready 노드 2개, `allocatable.pods=35`, prefix delegation·CNI network policy agent를 모두 확인한 뒤 처음 쓰기를 시작합니다. token/키와 cluster Secret은 메모리/stdin으로만 전달합니다. chart/이미지 고정값은 `helm/versions.json`, `helm/bootstrap/Chart.lock`, `helm/images.lock.json`에 있습니다. root와 8개 addon Application이 Synced/Healthy여야 완료입니다. Git의 mutable main 추적이나 user app 관리는 하지 않습니다. 버전 갱신은 새 검토 SHA로 다시 bootstrap합니다.
+두 API의 TLS/RBAC, 모든 AZ에 Ready 노드(management 3대: 2a 2·2c 1, workload 2대), `allocatable.pods=35`, prefix delegation·CNI network policy agent를 모두 확인한 뒤 처음 쓰기를 시작합니다. token/키와 cluster Secret은 메모리/stdin으로만 전달합니다. chart/이미지 고정값은 `helm/versions.json`, `helm/bootstrap/Chart.lock`, `helm/images.lock.json`에 있습니다. root와 8개 addon Application이 Synced/Healthy여야 완료입니다. Git의 mutable main 추적이나 user app 관리는 하지 않습니다. 버전 갱신은 새 검토 SHA로 다시 bootstrap합니다.
 
 Argo CD/Grafana는 ClusterIP입니다. 터널을 유지하며 별도 터미널에서 로컬 포워딩합니다.
 

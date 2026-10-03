@@ -13,12 +13,14 @@ data "terraform_remote_state" "foundation" {
   }
 }
 module "eks" {
-  source                             = "../../../../modules/eks"
-  aws_account_id                     = var.aws_account_id
-  aws_region                         = var.aws_region
-  cluster_name                       = data.terraform_remote_state.foundation.outputs.management_cluster_name
-  vpc_id                             = data.terraform_remote_state.foundation.outputs.vpc_id
-  subnet_ids_by_az                   = data.terraform_remote_state.foundation.outputs.management_subnet_ids_by_az
+  source           = "../../../../modules/eks"
+  aws_account_id   = var.aws_account_id
+  aws_region       = var.aws_region
+  cluster_name     = data.terraform_remote_state.foundation.outputs.management_cluster_name
+  vpc_id           = data.terraform_remote_state.foundation.outputs.vpc_id
+  subnet_ids_by_az = data.terraform_remote_state.foundation.outputs.management_subnet_ids_by_az
+  # Platform Pods (API, workers, agents) outgrew two nodes; 2a runs the third node.
+  node_count_by_az                   = { "ap-northeast-2a" = 2 }
   service_cidr                       = "172.20.0.0/16"
   operator_principal_arn             = var.operator_principal_arn
   additional_operator_principal_arns = var.additional_operator_principal_arns

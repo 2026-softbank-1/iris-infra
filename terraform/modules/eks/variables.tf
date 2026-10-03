@@ -97,6 +97,16 @@ variable "node_instance_type" {
   }
 }
 
+variable "node_count_by_az" {
+  description = "AZ별 고정 노드 수. 적지 않은 AZ 는 1 대다."
+  type        = map(number)
+  default     = {}
+  validation {
+    condition     = alltrue([for az, count in var.node_count_by_az : contains(keys(var.subnet_ids_by_az), az) && count >= 1 && count <= 2])
+    error_message = "node_count_by_az keys must be AZs in subnet_ids_by_az and values 1 or 2."
+  }
+}
+
 variable "node_release_version" {
   description = "node_release_version"
   type        = string

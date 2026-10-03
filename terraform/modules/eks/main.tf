@@ -182,9 +182,9 @@ resource "aws_eks_node_group" "az" {
     version = tostring(aws_launch_template.node.latest_version)
   }
   scaling_config {
-    min_size     = 1
-    desired_size = 1
-    max_size     = 1
+    min_size     = lookup(var.node_count_by_az, each.key, 1)
+    desired_size = lookup(var.node_count_by_az, each.key, 1)
+    max_size     = lookup(var.node_count_by_az, each.key, 1)
   }
   update_config { max_unavailable = 1 }
   node_repair_config { enabled = true }
