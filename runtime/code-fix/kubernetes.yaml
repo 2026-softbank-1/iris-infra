@@ -84,7 +84,7 @@ metadata:
     argocd.argoproj.io/sync-wave: '-2'
   namespace: iris-platform
 data:
-  FIX_ALLOWED_SOURCE_HOSTS: iris-dev-build-artifacts-187069338876-ap-northeast-2.s3.ap-northeast-2.amazonaws.com,iris-dev-build-artifacts-187069338876-ap-northeast-2.s3.amazonaws.com
+  FIX_ALLOWED_SOURCE_HOSTS: iris-dev-build-artifacts-187069338876-ap-northeast-2.s3.ap-northeast-2.amazonaws.com,iris-dev-build-artifacts-187069338876-ap-northeast-2.s3.amazonaws.com,s3.ap-northeast-2.amazonaws.com
   FIX_CACHED_INPUT_PRICE_PER_MILLION: '0.1'
   FIX_DATA_DIR: /data
   FIX_INPUT_PRICE_PER_MILLION: '2'
