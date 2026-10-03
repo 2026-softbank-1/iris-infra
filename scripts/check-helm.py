@@ -587,7 +587,12 @@ def main():
         assert appset['template']['metadata']['finalizers']==['resources-finalizer.argocd.argoproj.io'], 'Deleting a service Application must also delete its workload.'
         service_pins = json.loads((ROOT/'helm/gitops/values.yaml').read_text())['services']
         chart_version = yaml.safe_load((ROOT/'helm/charts/iris-service/Chart.yaml').read_text())['version']
-        assert chart_source['targetRevision']==service_pins['chartRevision']=='iris-service-'+chart_version, 'The AWS ApplicationSet must pin the current iris-service chart tag.'
+        assert chart_source['targetRevision']==service_pins['chartRevision'], 'The AWS ApplicationSet must pin services.chartRevision.'
+        # A new chart version merges first; its tag is cut on the merge commit and a pin follows in a separate PR,
+        # so Argo never points at a tag that does not exist yet. AWS needs Rollouts (0.7.0 or later).
+        assert (0,7,0) <= semver_of(service_pins['chartRevision']) <= semver_of(chart_version), 'AWS must pin a released iris-service tag from 0.7.0 up to the current chart.'
+        if service_pins['chartRevision'] != 'iris-service-'+chart_version:
+            print(f"Notice: AWS services pin {service_pins['chartRevision']}; iris-service {chart_version} reaches them only after its tag and a pin PR.")
         # on-prem has no Argo Rollouts controller; it stays on the Deployment-based chart (docs/runbooks/argo-rollouts.md).
         assert service_pins['onprem']['chartRevision']==ONPREM_CHART_REVISION, 'on-prem must stay on the Deployment-based iris-service 0.6.0 until it runs Argo Rollouts.'
         assert values_source['ref']=='values' and chart_source['helm']['valueFiles']==['$values/{{ .path.path }}/values.yaml']
