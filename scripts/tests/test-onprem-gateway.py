@@ -30,7 +30,7 @@ class Echo(BaseHTTPRequestHandler):
             self.end_headers()
             self.close_connection = True
             return
-        body = json.dumps({'backend': self.server.server_address[0], 'path': self.path,
+        body = json.dumps({'backend': self.server.server_address[0], 'port': self.server.server_address[1], 'path': self.path,
                            'host': self.headers.get('Host'),
                            'scheme': self.headers.get('X-Forwarded-Proto'),
                            'forwarded_for': self.headers.get('X-Forwarded-For')}).encode()
@@ -63,6 +63,9 @@ def main():
     dns.settimeout(0.1)
     stop = threading.Event()
     address = ['127.0.0.1']
+    # Registered servers answer; any other per-server name is NXDOMAIN like a missing egress Service.
+    registered = {'k3x9q2ma'}
+    queried = []
 
     def answer_dns():
         while not stop.is_set():
@@ -73,16 +76,30 @@ def main():
             end = 12
             while packet[end]:
                 end += 1 + packet[end]
+            labels, position = [], 12
+            while packet[position]:
+                labels.append(packet[position + 1:position + 1 + packet[position]].decode())
+                position += 1 + packet[position]
+            name = '.'.join(labels)
+            queried.append(name)
             end += 5  # zero label, QTYPE and QCLASS
             question = packet[12:end]
-            response = packet[:2] + struct.pack('!HHHHH', 0x8180, 1, 1, 0, 0) + question
-            response += b'\xc0\x0c' + struct.pack('!HHIH', 1, 1, 1, 4) + socket.inet_aton(address[0])
+            server_key = name.split('.')[0].removeprefix('iris-onprem-apps-') if name.startswith('iris-onprem-apps-') else None
+            if server_key is not None and server_key not in registered:
+                response = packet[:2] + struct.pack('!HHHHH', 0x8183, 1, 0, 0, 0) + question
+            else:
+                response = packet[:2] + struct.pack('!HHHHH', 0x8180, 1, 1, 0, 0) + question
+                response += b'\xc0\x0c' + struct.pack('!HHIH', 1, 1, 1, 4) + socket.inet_aton(address[0])
             dns.sendto(response, peer)
 
     dns_thread = threading.Thread(target=answer_dns, daemon=True)
     first = ThreadingHTTPServer(('127.0.0.1', 0), Echo)
     upstream_port = first.server_address[1]
     threading.Thread(target=first.serve_forever, daemon=True).start()
+    # Stands in for a user-registered server's egress proxy (iris-onprem-apps-{serverKey}).
+    second = ThreadingHTTPServer(('127.0.0.1', 0), Echo)
+    server_port = second.server_address[1]
+    threading.Thread(target=second.serve_forever, daemon=True).start()
     dns_thread.start()
     with socket.socket() as reservation:
         reservation.bind(('127.0.0.1', 0))
@@ -102,6 +119,9 @@ def main():
             config = config.replace('listen 8080;', f'listen 127.0.0.1:{gateway_port};')
             config = config.replace('kube-dns.kube-system.svc.cluster.local', f'127.0.0.1:{dns.getsockname()[1]}')
             config = config.replace('valid=30s', 'valid=1s')
+            per_server = 'iris-onprem-apps-$server_key.onprem-gateway.svc.cluster.local:80'
+            assert per_server in config
+            config = config.replace(per_server, per_server.removesuffix(':80') + f':{server_port}')
             config = config.replace('svc.cluster.local:80', f'svc.cluster.local:{upstream_port}')
             config = config.replace('/tmp/', str(directory) + '/')
             config = config.replace('/dev/stdout', str(directory / 'access.log'))
@@ -130,7 +150,24 @@ def main():
                 assert json.loads(request(gateway_port, headers={'X-Forwarded-Proto': 'malicious'})[2])['scheme'] == 'https'
                 for host in ('unknown.test', 'echo.internal.likelion.uk.evil.test', 'echoXinternalXlikelionXuk', 'internal.likelion.uk', '-echo.internal.likelion.uk', 'echo-.internal.likelion.uk', 'a'*64+'.internal.likelion.uk', 'nested.echo.internal.likelion.uk'):
                     assert request(gateway_port, host=host)[0] == 404, host
+                # Legacy hosts end with -{service id}; a host ending with -{serverKey} goes to that server only.
+                for host in ('api-12.internal.likelion.uk', 'k3x9q2ma.internal.likelion.uk', 'api-12-1k3x9q2m.internal.likelion.uk',
+                             'api-12-k3x9q2m.internal.likelion.uk', 'api-12-k3x9q2maa.internal.likelion.uk'):
+                    status, _, raw = request(gateway_port, host=host)
+                    assert status == 200 and json.loads(raw)['port'] == upstream_port, host
+                queried.clear()
+                for host in ('api-12-k3x9q2ma.internal.likelion.uk', 'web-k3x9q2ma.internal.likelion.uk', 'API-12-K3X9Q2MA.internal.likelion.uk'):
+                    status, _, raw = request(gateway_port, host=host, path='/p?q=1')
+                    body = json.loads(raw)
+                    assert status == 200 and body['port'] == server_port and body['path'] == '/p?q=1', host
+                    assert body['host'] == host.lower(), 'Host (lowercased by nginx) must reach the server for its Traefik routing.'
+                assert set(queried) == {'iris-onprem-apps-k3x9q2ma.onprem-gateway.svc.cluster.local'}, queried
+                assert request(gateway_port, host='api-12-zzzzzzzz.internal.likelion.uk')[0] == 502, 'Unregistered server key must not fall back to another upstream.'
+                for host in ('a.api-12-k3x9q2ma.internal.likelion.uk', 'api-12-k3x9q2ma.internal.likelion.uk.evil.test', 'api_12-k3x9q2ma.internal.likelion.uk'):
+                    assert request(gateway_port, host=host)[0] == 404, host
                 status, headers, _ = request(gateway_port, headers={'Upgrade': 'websocket', 'Connection': 'Upgrade'})
+                assert status == 101 and headers['Upgrade'] == 'websocket'
+                status, headers, _ = request(gateway_port, host='api-12-k3x9q2ma.internal.likelion.uk', headers={'Upgrade': 'websocket', 'Connection': 'Upgrade'})
                 assert status == 101 and headers['Upgrade'] == 'websocket'
                 # DNS moves to an unavailable loopback address, then recovers, without a gateway restart.
                 address[0] = '127.0.0.2'
@@ -148,12 +185,13 @@ def main():
         if process is not None:
             process.terminate()
             process.wait(timeout=5)
-        first.shutdown()
-        first.server_close()
+        for server in (first, second):
+            server.shutdown()
+            server.server_close()
         stop.set()
         dns_thread.join(timeout=1)
         dns.close()
-    print('Nginx syntax, Host/path/query/TLS headers, unknown Host, WebSocket, DNS re-resolution and upstream failure: passed. No cluster deployment tested.')
+    print('Nginx syntax, Host/path/query/TLS headers, unknown Host, per-server key routing, WebSocket, DNS re-resolution and upstream failure: passed. No cluster deployment tested.')
 
 
 if __name__ == '__main__':

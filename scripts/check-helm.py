@@ -148,6 +148,16 @@ def check_onprem_gateway(directory, targets, baseline):
             'ingress':[{'from':[{'namespaceSelector':{'matchLabels':{'kubernetes.io/metadata.name':'onprem-gateway'}},
                                 'podSelector':{'matchLabels':{'app.kubernetes.io/name':'onprem-gateway'}}}],
                         'ports':[{'protocol':'TCP','port':80}]}]}
+        # Per-server HTTP egress Services use the same ProxyClass, so the gateway egress rule above and this
+        # ingress rule already cover them without listing servers.
+        api_np = resources['NetworkPolicy','iris-onprem-api']
+        assert api_np['metadata']['namespace']=='tailscale'
+        assert api_np['spec']=={'podSelector':{'matchLabels':{'iris.dev/proxy':'onprem-api'}}, 'policyTypes':['Ingress'],
+            'ingress':[{'from':[{'namespaceSelector':{'matchLabels':{'kubernetes.io/metadata.name':'argocd'}}}],
+                        'ports':[{'protocol':'TCP','port':6443}]}]}
+        api_proxy = resources['ProxyClass','iris-onprem-api']
+        assert 'namespace' not in api_proxy['metadata'] and api_proxy['metadata']['annotations']['argocd.argoproj.io/sync-wave']=='-1'
+        assert api_proxy['spec']['statefulSet']['pod']['labels']=={'iris.dev/proxy':'onprem-api'}
         proxy = resources['ProxyClass','iris-onprem-http']
         assert 'namespace' not in proxy['metadata'] and proxy['metadata']['annotations']['argocd.argoproj.io/sync-wave']=='-1'
         assert proxy['spec']['statefulSet']['pod']=={'labels':{'iris.dev/proxy':'onprem-http'},
@@ -168,7 +178,10 @@ def check_onprem_gateway(directory, targets, baseline):
         conf = resources['ConfigMap','onprem-gateway']['data']['nginx.conf']
         assert 'listen 8080 default_server;' in conf and 'server_name *.internal.likelion.uk;' in conf
         assert 'proxy_set_header Host $host;' in conf and 'proxy_set_header X-Forwarded-Proto $forwarded_proto;' in conf
-        assert 'set $upstream http://iris-onprem-apps.onprem-gateway.svc.cluster.local:80;' in conf
+        # Legacy hosts keep the fixed upstream; a host ending in -{serverKey} goes to that server's egress Service.
+        assert 'default http://iris-onprem-apps.onprem-gateway.svc.cluster.local:80;' in conf
+        assert r'"~^[a-z0-9-]+-(?<server_key>[a-z][a-z0-9]{7})\.internal\.likelion\.uk$" http://iris-onprem-apps-$server_key.onprem-gateway.svc.cluster.local:80;' in conf
+        assert 'proxy_pass $onprem_upstream;' in conf
         assert 'valid=30s ipv6=off;' in conf and 'proxy_connect_timeout 5s;' in conf
         assert 'proxy_send_timeout 60s;' in conf and 'proxy_read_timeout 60s;' in conf
         assert not re.search(r'proxy_pass\s+[^;]*\$(host|http_host)',conf), 'Fixed upstream prevents an open proxy.'
