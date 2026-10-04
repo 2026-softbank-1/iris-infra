@@ -24,6 +24,14 @@ rules:
   - apiGroups: [bitnami.com]
     resources: [sealedsecrets]
     verbs: [create, update, patch, delete]
+  # Service console (iris-was ADR 0035, infra ADR 0008): Argo CD's terminal runs `exec` in user service Pods with this
+  # ServiceAccount. The `*/*` read rule above already carries `get` (the WebSocket upgrade); `create` is the SPDY
+  # fallback and what newer API servers also require. Argo only accepts Pods of the Application the Console Gateway
+  # names, and the Gateway fixes app, namespace and container from the signed ticket.
+  # Keep this rule identical to the ClusterRole install.sh writes on user-registered servers (iris-was app/assets/onprem/install.sh).
+  - apiGroups: [""]
+    resources: [pods/exec]
+    verbs: [get, create]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
