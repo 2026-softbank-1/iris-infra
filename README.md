@@ -152,5 +152,6 @@ mock/정적/렌더 검사는 AWS 배포나 IAM 충분성·실제 네트워크 �
 - [API 접근·Argo·관측 스택](docs/runbooks/eks-access.md), [로그·메트릭 수집](docs/runbooks/observability.md), [플랫폼 배포](docs/runbooks/deploy-platform.md)
 - [사용자 환경변수(Sealed Secrets)](docs/runbooks/sealed-secrets.md), [사용자 서비스 배포 방식(Argo Rollouts)](docs/runbooks/argo-rollouts.md)
 - [On-prem gateway](docs/runbooks/onprem-gateway.md), [On-prem E2E](docs/runbooks/onprem-portfolio-e2e.md), [사용자 온프레미스 서버 등록](docs/runbooks/onprem-server-registration.md)
+- [서비스 콘솔(Console Gateway)](docs/runbooks/console-gateway.md)
 - [문제 확인](docs/runbooks/troubleshooting.md), [철거](docs/runbooks/teardown.md)
 - [팀 명령](scripts/README.md), [target 계약](contracts/target.md), [서비스 ECR 빌드 템플릿](examples/github-actions/README.md)

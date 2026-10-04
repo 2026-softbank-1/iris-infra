@@ -99,6 +99,10 @@ psql "host=127.0.0.1 port=15432 dbname=iris user=iris sslmode=require"   # 다�
 
 자동 교체는 없습니다. master 비밀번호는 foundation 변수 `platform_db_password_version`을 올려 apply하면 RDS와 Secrets Manager가 함께 바뀝니다.
 
+## Console Gateway
+
+서비스 화면의 셸을 위한 Gateway 는 같은 `iris/was` 이미지의 별도 컴포넌트(`consoleGateway`)이며 기본 비활성화입니다. digest 는 iris-was 의 Deploy platform workflow 가 `was.yaml` 의 `consoleGateway.digest` 로 커밋합니다. 켜는 순서·값·검증·롤백은 [Console Gateway runbook](console-gateway.md)을 따릅니다.
+
 ## 다른 레포의 플랫폼 서비스 추가
 
 레포마다 자기 digest 파일(`platform/aws-dev-management/<repo>.yaml`)만 씁니다.
