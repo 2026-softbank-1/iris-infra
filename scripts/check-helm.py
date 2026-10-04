@@ -69,7 +69,7 @@ def check_onprem_gateway(directory, targets, baseline):
     for gateway_enabled in (False, True):
         for services_enabled in (False, True):
             values = {'revision':'main', 'targets':targets,
-                      'onpremGateway':{'enabled':gateway_enabled},
+                      'onpremGateway':{'enabled':gateway_enabled}, 'onpremServers':{'enabled':False},
                       'services':{'onprem':{'enabled':services_enabled, 'server':'https://onprem.example:6443',
                                             'ingressClassName':'traefik', 'egressDeniedCidrs':['192.168.0.0/16']}}}
             root_values.write_text(json.dumps(values))
@@ -238,18 +238,20 @@ def check_onprem_servers(directory, targets, baseline):
     base = indexed(baseline)
     management = targets['management']['endpoint']
     defaults = json.loads((ROOT/'helm/gitops/values.yaml').read_text())
-    assert defaults['onpremServers']['enabled'] is False, 'Enable only after the runbook prerequisites (docs/runbooks/onprem-server-registration.md).'
+    # Enabled on 2026-10-04 after the runbook prerequisites (docs/runbooks/onprem-server-registration.md).
+    assert defaults['onpremServers']['enabled'] is True and semver_of(defaults['onpremServers']['chartRevision'])>=(0,8,0)
     for name in ('iris-onprem-servers', 'iris-onprem-probe'):
         assert ('AppProject', name) not in base
     for name in ('iris-onprem-servers', 'iris-svc-onprem-servers-appset'):
         assert ('ApplicationSet', name) not in base
     values = directory/'gitops-onprem-servers.json'
-    # Enabling keeps the default pin only if it already supports imagePullSecrets.
     values.write_text(json.dumps({'revision':'a'*40, 'targets':targets, 'services':{'onprem':{'enabled':False}},
                                   'onpremGateway':{'enabled':False}, 'onpremServers':{'enabled':True}}))
-    if semver_of(defaults['onpremServers']['chartRevision']) < (0,8,0):
-        failed = subprocess.run([HELM,'template','check',str(ROOT/'helm/gitops'),'-f',str(values),'--kube-version',VERSIONS['kubernetes']+'.0'],capture_output=True,text=True)
-        assert failed.returncode and 'below iris-service-0.8.0' in failed.stderr, 'Enabling servers with a chart that rejects imagePullSecrets must fail.'
+    old_pin = directory/'gitops-onprem-servers-old-pin.json'
+    old_pin.write_text(json.dumps({'revision':'a'*40, 'targets':targets, 'services':{'onprem':{'enabled':False}},
+                                   'onpremGateway':{'enabled':False}, 'onpremServers':{'enabled':True,'chartRevision':'iris-service-0.7.1'}}))
+    failed = subprocess.run([HELM,'template','check',str(ROOT/'helm/gitops'),'-f',str(old_pin),'--kube-version',VERSIONS['kubernetes']+'.0'],capture_output=True,text=True)
+    assert failed.returncode and 'below iris-service-0.8.0' in failed.stderr, 'Enabling servers with a chart that rejects imagePullSecrets must fail.'
     server_revision = 'iris-service-0.8.0'
     values.write_text(json.dumps({'revision':'a'*40, 'targets':targets, 'services':{'onprem':{'enabled':False}},
                                   'onpremGateway':{'enabled':False}, 'onpremServers':{'enabled':True,'chartRevision':server_revision}}))
@@ -647,7 +649,7 @@ def check_platform(directory, targets, bootstrap):
     command('lint','--strict',chart,'-f',cluster,'-f',only_api,'--kube-version',VERSIONS['kubernetes']+'.0','--namespace','iris-platform')
     docs=[x for x in yaml.safe_load_all(command('template','iris-platform',chart,'-f',cluster,'-f',only_api,'-f',agent,'--kube-version',VERSIONS['kubernetes']+'.0','--namespace','iris-platform')) if x]
     assert {d['metadata']['name'] for d in docs if d['kind'] in {'Deployment','Job','Ingress'}}=={'iris-platform-api','iris-platform-migration','iris-platform-error-agent'}, 'Only components with a digest deploy.'
-    enabled=directory/'gitops-platform.json';enabled.write_text(json.dumps({'revision':'a'*40,'targets':targets,'platform':{'enabled':True},'services':{'onprem':{'enabled':False}},'onpremGateway':{'enabled':False}}))
+    enabled=directory/'gitops-platform.json';enabled.write_text(json.dumps({'revision':'a'*40,'targets':targets,'platform':{'enabled':True},'services':{'onprem':{'enabled':False}},'onpremGateway':{'enabled':False},'onpremServers':{'enabled':False}}))
     docs=render(ROOT/'helm/gitops', enabled, namespace='argocd')
     assert sum(d['kind']=='Application' for d in docs)==15 and sum(d['kind']=='AppProject' for d in docs)==4
     app=next(d for d in docs if d['kind']=='Application' and d['metadata']['name']=='iris-platform')
@@ -677,7 +679,7 @@ def main():
         targets = {p: {'name':f'iris-dev-{p}', 'region':'ap-northeast-2','vpc_id':'vpc-0123456789abcdef0','endpoint':f'https://{p}.eks.amazonaws.com'} for p in ('management','workload')}
         values = directory/'gitops.json'
         # Isolate the existing AWS baseline; check_onprem_gateway exercises both gateway states.
-        values.write_text(json.dumps({'revision':'a'*40,'targets':targets,'services':{'onprem':{'enabled':False}},'onpremGateway':{'enabled':False}}))
+        values.write_text(json.dumps({'revision':'a'*40,'targets':targets,'services':{'onprem':{'enabled':False}},'onpremGateway':{'enabled':False},'onpremServers':{'enabled':False}}))
         gitops = render(ROOT/'helm/gitops', values, namespace='argocd')
         # Platform is opt-in at bootstrap (GITOPS_PLATFORM_ENABLED); check_platform covers it.
         assert sum(d['kind']=='Application' for d in gitops)==14
@@ -760,7 +762,7 @@ def main():
         assert rendered_kinds <= {(w['group'],w['kind']) for w in services['namespaceResourceWhitelist']}, f'iris-svc-project must allow chart kinds: {rendered_kinds}'
         allowed = {p['metadata']['name'].removeprefix('iris-addons-'): {(w['group'],w['kind']) for w in p['spec']['clusterResourceWhitelist']} for p in gitops if p['kind']=='AppProject'}
         tracking = directory/'tracking.json'
-        tracking_values = {'revision':'a'*40,'targets':targets,'platform':{'enabled':True},'services':{'onprem':{'enabled':False}},'albTraffic':{'enabled':True},'onpremGateway':{'enabled':False}}
+        tracking_values = {'revision':'a'*40,'targets':targets,'platform':{'enabled':True},'services':{'onprem':{'enabled':False}},'albTraffic':{'enabled':True},'onpremGateway':{'enabled':False},'onpremServers':{'enabled':False}}
         tracking.write_text(json.dumps(tracking_values))
         pinned_apps = {d['metadata']['name']:d for d in render(ROOT/'helm/gitops', tracking, namespace='argocd') if d['kind']=='Application'}
         tracking_values['revision'] = 'main'
