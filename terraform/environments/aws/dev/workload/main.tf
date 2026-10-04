@@ -23,6 +23,7 @@ module "eks" {
   operator_principal_arn             = var.operator_principal_arn
   additional_operator_principal_arns = var.additional_operator_principal_arns
   argocd_deploy_role_arn             = data.terraform_remote_state.foundation.outputs.argocd_deploy_role_arns["workload"]
+  console_gateway_role_arn           = data.terraform_remote_state.foundation.outputs.console_gateway_role_arn
   bridge_security_group_id           = data.terraform_remote_state.foundation.outputs.ssm_bridge_security_group_id
   additional_api_security_group_ids  = [data.terraform_remote_state.foundation.outputs.workload_api_target_security_group_id]
   tags                               = local.tags

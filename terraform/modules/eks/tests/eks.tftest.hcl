@@ -99,3 +99,27 @@ run "reject_single_az" {
   variables { subnet_ids_by_az = { ap-northeast-2a = "subnet-0123456789abcdef0" } }
   expect_failures = [var.subnet_ids_by_az]
 }
+run "no_console_gateway_entry_by_default" {
+  command = plan
+  assert {
+    condition     = length(aws_eks_access_entry.console_gateway) == 0
+    error_message = "Without a Console Gateway role (management) no Access Entry may exist."
+  }
+}
+run "console_gateway_group_only" {
+  command = plan
+  variables { console_gateway_role_arn = "arn:aws:iam::123456789012:role/console-gateway" }
+  assert {
+    condition     = length(aws_eks_access_entry.console_gateway) == 1 && aws_eks_access_entry.console_gateway[0].principal_arn == var.console_gateway_role_arn && aws_eks_access_entry.console_gateway[0].kubernetes_groups == toset(["iris-console"]) && aws_eks_access_entry.console_gateway[0].type == "STANDARD"
+    error_message = "The Console Gateway is mapped only to Kubernetes group iris-console."
+  }
+  assert {
+    condition     = aws_eks_access_policy_association.operator.principal_arn != var.console_gateway_role_arn && aws_eks_access_policy_association.argocd.principal_arn != var.console_gateway_role_arn && alltrue([for k, p in aws_eks_access_policy_association.additional_operator : p.principal_arn != var.console_gateway_role_arn])
+    error_message = "The Console Gateway Access Entry must not get any access policy (cluster-admin or otherwise)."
+  }
+}
+run "reject_console_gateway_session_arn" {
+  command = plan
+  variables { console_gateway_role_arn = "arn:aws:sts::123456789012:assumed-role/console-gateway/session" }
+  expect_failures = [var.console_gateway_role_arn]
+}

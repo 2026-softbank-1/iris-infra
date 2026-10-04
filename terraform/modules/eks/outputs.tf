@@ -7,3 +7,4 @@ output "api_security_group_id" { value = aws_security_group.api.id }
 output "node_security_group_id" { value = aws_security_group.node.id }
 output "node_group_names_by_az" { value = { for az, group in aws_eks_node_group.az : az => group.node_group_name } }
 output "load_balancer_controller_role_arn" { value = aws_iam_role.lbc.arn }
+output "console_gateway_access_entry_principals" { value = aws_eks_access_entry.console_gateway[*].principal_arn }

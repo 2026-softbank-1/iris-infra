@@ -30,6 +30,7 @@ override_data {
     loki_role_arn                           = "arn:aws:iam::123456789012:role/loki"
     build_worker_role_arn                   = "arn:aws:iam::123456789012:role/build-worker"
     control_api_role_arn                    = "arn:aws:iam::123456789012:role/control-api"
+    console_gateway_role_arn                = "arn:aws:iam::123456789012:role/console-gateway"
   } }
 }
 variables {
@@ -66,6 +67,20 @@ run "control_api_identity" {
   assert {
     condition     = aws_eks_pod_identity_association.control_api.role_arn != aws_eks_pod_identity_association.build_worker.role_arn && aws_eks_pod_identity_association.control_api.role_arn != aws_eks_pod_identity_association.deploy_worker.role_arn
     error_message = "Control API must not share a role with the Build or Deploy Worker."
+  }
+}
+
+run "console_gateway_identity" {
+  command = plan
+  assert {
+    condition     = aws_eks_pod_identity_association.console_gateway.namespace == "iris-platform" && aws_eks_pod_identity_association.console_gateway.service_account == "console-gateway" && aws_eks_pod_identity_association.console_gateway.role_arn == data.terraform_remote_state.foundation.outputs.console_gateway_role_arn
+    error_message = "Console Gateway must use its own foundation role through iris-platform/console-gateway only."
+  }
+  assert {
+    condition = alltrue([for other in [
+      aws_eks_pod_identity_association.control_api, aws_eks_pod_identity_association.build_worker, aws_eks_pod_identity_association.deploy_worker
+    ] : aws_eks_pod_identity_association.console_gateway.role_arn != other.role_arn])
+    error_message = "Console Gateway must not share a role with the API or the Workers."
   }
 }
 
