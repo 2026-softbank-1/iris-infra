@@ -14,9 +14,9 @@ from refresh import SERVER, checked, decode, encode, subject, timestamp
 ACCOUNT = '187069338876'
 REGION = 'ap-northeast-2'
 REGISTRY = f'{ACCOUNT}.dkr.ecr.{REGION}.amazonaws.com'
-ISSUER = f'arn:aws:sts::{ACCOUNT}:assumed-role/iris-dev-onprem-ecr-renewer/'
-PULL_ROLE = f'arn:aws:iam::{ACCOUNT}:role/iris-dev-onprem-ecr-renewal-pull'
-SUBJECT = 'system:serviceaccount:iris-system:iris-ecr-renewer'
+ISSUER = f'arn:aws:sts::{ACCOUNT}:assumed-role/iris-dev-onprem-ecr-svc-28/'
+PULL_ROLE = f'arn:aws:iam::{ACCOUNT}:role/iris-dev-onprem-ecr-pull'
+SUBJECT = 'system:serviceaccount:svc-28:iris-ecr-renewer'
 SECRET = 'iris-ecr-pull'
 NAMESPACE = re.compile(r'svc-([1-9][0-9]*)\Z')
 MARGIN = timedelta(minutes=15)
@@ -221,11 +221,11 @@ def run_all(namespace, secret_name, local, remote, *, identity, sts, ecr_factory
         raise ValueError('Unexpected AWS issuer role')
     path = f'/api/v1/namespaces/{namespace}/secrets/{secret_name}'
     bootstrap = checked(local.get(path))
-    old_token = decode(bootstrap['data']['token'])
+    old_token = decode(bootstrap['data']['token']).strip()
     if decode(bootstrap['data']['server']) != SERVER or subject(old_token) != SUBJECT:
         raise ValueError('Unexpected on-prem identity')
     worker = Reconciler(remote, old_token, sts, ecr_factory, now)
-    fresh = worker.request('POST', '/api/v1/namespaces/iris-system/serviceaccounts/iris-ecr-renewer/token',
+    fresh = worker.request('POST', '/api/v1/namespaces/svc-28/serviceaccounts/iris-ecr-renewer/token',
         json={'apiVersion': 'authentication.k8s.io/v1', 'kind': 'TokenRequest',
               'spec': {'expirationSeconds': 86400}})['status']
     if subject(fresh['token']) != SUBJECT or timestamp(fresh['expirationTimestamp']) < now + timedelta(hours=3):
