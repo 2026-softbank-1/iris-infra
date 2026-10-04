@@ -83,7 +83,7 @@ flowchart TB
 
 | 타깃 | ApplicationSet | values 경로 | chart |
 | --- | --- | --- | --- |
-| prod (workload EKS) | `iris-svc-appset` | `services/*/prod` | `iris-service-0.7.1` (Argo Rollouts) |
+| prod (workload EKS) | `iris-svc-appset` | `services/*/prod` | `iris-service-0.9.0` (Argo Rollouts, 프로젝트 내부 통신·개발용 DB) |
 | onprem (K3s) | `iris-svc-onprem-appset` | `services/*/onprem` | `iris-service-0.6.0` (Deployment·롤링) |
 
 - 비용 구성: 노드 4대(m7i-flex.large On-Demand, 클러스터당 2a/2c 1대씩), NAT는 `per_az`(2개)가 기본값이다.
