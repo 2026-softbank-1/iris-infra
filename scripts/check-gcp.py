@@ -76,6 +76,11 @@ def main():
         assert workload['ClusterRole', 'iris-gcp-ecr-namespaces']['rules'][0]['resources'] == ['namespaces']
         np = workload['NetworkPolicy', 'ecr-credentials']['spec']
         assert np['ingress'] == [] and np['egress'][2]['to'][0]['ipBlock']['cidr'] == credentials['kubeApiCidr']
+        assert np['egress'][0] == {
+            'to': [{'namespaceSelector': {'matchLabels': {'kubernetes.io/metadata.name': 'kube-system'}},
+                    'podSelector': {'matchLabels': {'k8s-app': name}}} for name in ('kube-dns', 'node-local-dns')],
+            'ports': [{'protocol': 'UDP', 'port': 53}, {'protocol': 'TCP', 'port': 53}],
+        }
         default_workload = render('charts/gcp-workload', {'gateway': values['gateway']}, directory)
         assert not any(k[0] in ('Deployment', 'ServiceAccount', 'Secret') for k in default_workload)
         raw = (ROOT/'helm/charts/iris-service/ci/aws-values.yaml').read_text()
