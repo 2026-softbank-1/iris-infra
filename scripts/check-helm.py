@@ -649,13 +649,24 @@ def check_platform(directory, targets, bootstrap):
                 assert container['command']==['uvicorn','app.console_gateway.main:app','--host','0.0.0.0','--port','8080']
                 assert container['ports']==[{'name':'http','containerPort':8080}]
                 assert container['readinessProbe']['httpGet']=={'path':'/readyz','port':'http'} and container['livenessProbe']['httpGet']=={'path':'/healthz','port':'http'}
-                # No database, no Secret, no AWS key: ticket verification uses the public key in the ConfigMap, AWS access is Pod Identity.
-                assert 'env' not in container and not pod.get('initContainers') and not pod.get('volumes')
+                # No database, no AWS key: ticket verification uses the public key in the ConfigMap, AWS access is Pod Identity.
+                # The only Secret is the optional Argo CD role token for on-prem shells (read as an env var, never mounted).
+                terminal=bool(gateway.get('argocdTerminal'))
+                assert not pod.get('initContainers')
+                if terminal:
+                    assert container['env']==[{'name':'CONSOLE_ARGOCD_TOKEN','valueFrom':{'secretKeyRef':{'name':gateway['argocdTokenSecret'],'key':'CONSOLE_ARGOCD_TOKEN','optional':True}}}], 'Optional: the AWS path must start before the Argo token exists.'
+                    assert container['volumeMounts']==[{'name':'argocd-ca','mountPath':'/etc/iris-argocd','readOnly':True}]
+                    assert pod['volumes']==[{'name':'argocd-ca','configMap':{'name':values['deployWorker']['caConfigMap']}}], 'Same CA bundle ConfigMap as the Deploy Worker and the API.'
+                else:
+                    assert 'env' not in container and 'volumeMounts' not in container and not pod.get('volumes')
                 assert container['envFrom']==[{'configMapRef':{'name':'iris-platform-console-gateway'}}] and 'iris.dev/database-client' not in doc['spec']['template']['metadata']['labels']
                 assert pod['serviceAccountName']=='console-gateway', 'Foundation trusts and management binds Pod Identity for iris-platform/console-gateway.'
                 assert doc['spec']['replicas']==1 and doc['spec']['strategy']=={'type':'Recreate'}, 'One-time ticket use is remembered in memory: never two Gateways at once.'
                 config=next(d for d in docs if d['kind']=='ConfigMap' and d['metadata']['name']=='iris-platform-console-gateway')['data']
-                assert config=={'LOG_LEVEL':values['was']['logLevel'],'AWS_REGION':values['awsRegion'],'CONSOLE_TICKET_PUBLIC_KEY':gateway['ticketPublicKey'],'CONSOLE_AWS_CLUSTER_NAME':gateway['awsCluster']['name'],'CONSOLE_AWS_CLUSTER_ENDPOINT':gateway['awsCluster']['endpoint'],'CONSOLE_AWS_CLUSTER_CA':gateway['awsCluster']['ca'],'CONSOLE_ALLOWED_ORIGINS':','.join(gateway['allowedOrigins']),'CONSOLE_IDLE_TIMEOUT_SECONDS':str(gateway['idleTimeoutSeconds']),'CONSOLE_MAX_SESSION_SECONDS':str(gateway['maxSessionSeconds']),'CONSOLE_MAX_SESSIONS_PER_USER':str(gateway['maxSessionsPerUser'])}
+                expected_gateway_config={'LOG_LEVEL':values['was']['logLevel'],'AWS_REGION':values['awsRegion'],'CONSOLE_TICKET_PUBLIC_KEY':gateway['ticketPublicKey'],'CONSOLE_AWS_CLUSTER_NAME':gateway['awsCluster']['name'],'CONSOLE_AWS_CLUSTER_ENDPOINT':gateway['awsCluster']['endpoint'],'CONSOLE_AWS_CLUSTER_CA':gateway['awsCluster']['ca'],'CONSOLE_ALLOWED_ORIGINS':','.join(gateway['allowedOrigins']),'CONSOLE_IDLE_TIMEOUT_SECONDS':str(gateway['idleTimeoutSeconds']),'CONSOLE_MAX_SESSION_SECONDS':str(gateway['maxSessionSeconds']),'CONSOLE_MAX_SESSIONS_PER_USER':str(gateway['maxSessionsPerUser'])}
+                if terminal:
+                    expected_gateway_config.update(CONSOLE_ARGOCD_SERVER_URL=values['deployWorker']['argocdUrl'],SSL_CERT_FILE='/etc/iris-argocd/ca-bundle.pem')
+                assert config==expected_gateway_config
                 assert PRIVATE_PEM_KIND + '-----' not in json.dumps(docs), 'A private key must never appear in a rendered manifest.'
                 continue
             was=image_of[component]
@@ -733,7 +744,14 @@ def check_platform(directory, targets, bootstrap):
             gwp=policies['iris-platform-console-gateway-alb']
             assert gwp['policyTypes']==['Ingress'] and gwp['podSelector']['matchLabels']['app.kubernetes.io/component']=='console-gateway'
             assert gwp['ingress'][0]['ports']==[{'protocol':'TCP','port':8080}] and [e['ipBlock']['cidr'] for e in gwp['ingress'][0]['from']]==values['network']['albSubnetCidrs']
-            assert not any(p['podSelector']['matchLabels'].get('app.kubernetes.io/component')=='console-gateway' for n,p in policies.items() if n!='iris-platform-console-gateway-alb' and 'matchLabels' in p['podSelector']), 'The Gateway matches no RDS/Argo/observability policy.'
+            assert not any(p['podSelector']['matchLabels'].get('app.kubernetes.io/component')=='console-gateway' for n,p in policies.items() if n not in {'iris-platform-console-gateway-alb','iris-platform-console-gateway-argocd'} and 'matchLabels' in p['podSelector']), 'The Gateway matches no RDS/Deploy-Worker-Argo/observability policy.'
+            # On-prem shells: the Gateway reaches argocd-server (8080) and nothing else new, exactly like the API's log reader.
+            if gateway.get('argocdTerminal'):
+                gargo=policies['iris-platform-console-gateway-argocd']
+                assert gargo['podSelector']['matchLabels']['app.kubernetes.io/component']=='console-gateway' and gargo['policyTypes']==['Egress']
+                assert gargo['egress']==[{'to':[{'namespaceSelector':{'matchLabels':{'kubernetes.io/metadata.name':'argocd'}},'podSelector':{'matchLabels':{'app.kubernetes.io/name':'argocd-server'}}}],'ports':[{'protocol':'TCP','port':8080}]}]
+            else:
+                assert 'iris-platform-console-gateway-argocd' not in policies
         obs=policies['iris-platform-api-observability']
         assert obs['podSelector']['matchLabels']['app.kubernetes.io/component']=='api'
         assert [(r['to'][0]['podSelector']['matchLabels']['app.kubernetes.io/name'],r['ports']) for r in obs['egress']]==[('loki',[{'protocol':'TCP','port':3100}]),('prometheus',[{'protocol':'TCP','port':9090}])], 'API reads only Loki and Prometheus in observability.'
@@ -776,7 +794,8 @@ def check_platform(directory, targets, bootstrap):
         lambda v:v['consoleGateway'].update(ticketPublicKey=pem_private),lambda v:v['consoleGateway'].update(ticketPublicKey=''),lambda v:v['consoleGateway'].update(ticketSigningSecret=''),
         lambda v:v['consoleGateway']['awsCluster'].update(endpoint='http://insecure.example.com'),lambda v:v['consoleGateway']['awsCluster'].update(endpoint=''),lambda v:v['consoleGateway']['awsCluster'].update(ca=''),lambda v:v['consoleGateway']['awsCluster'].update(name=''),
         lambda v:v['consoleGateway'].update(allowedOrigins=[]),lambda v:v['consoleGateway'].update(allowedOrigins=['*']),lambda v:v['consoleGateway'].update(allowedOrigins=['https://app.example.com/path']),
-        lambda v:v['consoleGateway'].update(maxSessionsPerUser=0),lambda v:v['consoleGateway'].update(idleTimeoutSeconds=5)]
+        lambda v:v['consoleGateway'].update(maxSessionsPerUser=0),lambda v:v['consoleGateway'].update(idleTimeoutSeconds=5),
+        lambda v:v['consoleGateway'].update(argocdTerminal='yes'),lambda v:v['consoleGateway'].update(argocdTokenSecret='Bad_Name')]
     for change in gateway_mutations:
         values=copy.deepcopy(gateway_good);change(values);bad.write_text(json.dumps(values))
         result=subprocess.run([HELM,'template','iris-platform',str(chart),'-f',str(bad),'--kube-version',VERSIONS['kubernetes']+'.0','--namespace','iris-platform'],capture_output=True)
@@ -790,6 +809,17 @@ def check_platform(directory, targets, bootstrap):
     assert any(d['kind']=='ServiceAccount' and d['metadata']['name']=='console-gateway' for d in docs) and any(d['kind']=='ConfigMap' and d['metadata']['name']=='iris-platform-console-gateway' for d in docs)
     assert set(next(d for d in docs if d['kind']=='ConfigMap' and d['metadata']['name']=='iris-platform-api')['data'])<={'LOG_LEVEL','AWS_REGION','BUILD_LOG_GROUP'}
     assert 'checksum/console' not in next(d for d in docs if d['kind']=='Deployment' and d['metadata']['name']=='iris-platform-api')['spec']['template']['metadata']['annotations']
+    # Without the Argo terminal the Gateway has no Secret reference, CA mount, Argo egress or Argo settings (AWS shells only).
+    docs=render_gateway(lambda v:v['consoleGateway'].update(argocdTerminal=False))
+    gateway_pod=next(d for d in docs if d['kind']=='Deployment' and d['metadata']['name']=='iris-platform-console-gateway')['spec']['template']['spec']
+    assert 'env' not in gateway_pod['containers'][0] and 'volumeMounts' not in gateway_pod['containers'][0] and not gateway_pod.get('volumes')
+    assert not any(d['kind']=='NetworkPolicy' and d['metadata']['name']=='iris-platform-console-gateway-argocd' for d in docs)
+    assert not {'CONSOLE_ARGOCD_SERVER_URL','SSL_CERT_FILE'}&set(next(d for d in docs if d['kind']=='ConfigMap' and d['metadata']['name']=='iris-platform-console-gateway')['data'])
+    # Enabled without a digest still carries the Argo settings in the ConfigMap but deploys no Pod, policy or Secret reference.
+    docs=render_gateway(lambda v:v['consoleGateway'].update(digest=''))
+    assert next(d for d in docs if d['kind']=='ConfigMap' and d['metadata']['name']=='iris-platform-console-gateway')['data']['CONSOLE_ARGOCD_SERVER_URL']==gateway_good['deployWorker']['argocdUrl']
+    assert not any(d['kind']=='NetworkPolicy' and d['metadata']['name']=='iris-platform-console-gateway-argocd' for d in docs)
+    assert platform_values['consoleGateway']['argocdTerminal'] is True, 'The cluster values enable the on-prem shell path; without the role token the Gateway answers on-prem requests with CLUSTER_UNAVAILABLE.'
     # A digest without enabled changes nothing.
     docs=render_gateway(lambda v:v['consoleGateway'].update(enabled=False))
     assert not any('console-gateway' in d['metadata']['name'] for d in docs)
@@ -825,6 +855,14 @@ def main():
     accounts = {d['metadata']['name'] for d in bootstrap if d['kind']=='ServiceAccount'}
     assert {'argocd-server','argocd-application-controller','argocd-applicationset-controller'} <= accounts
     assert not any(d['kind']=='Ingress' for d in bootstrap)
+    # Argo CD's terminal serves the Console Gateway's on-prem shells (iris-was ADR 0035). exec.enabled is read per request;
+    # exec.shells stays unset so the default order applies and enabling needs no argocd-server restart.
+    argocd_cm=next(d for d in bootstrap if d['kind']=='ConfigMap' and d['metadata']['name']=='argocd-cm')['data']
+    assert argocd_cm['exec.enabled']=='true' and 'exec.shells' not in argocd_cm
+    # The public on-prem server's Argo ServiceAccount may exec, and only through this one rule (install.sh mirrors it).
+    deployer=next(d for d in yaml.safe_load_all((ROOT/'clusters/onprem-workload/argocd-service-deployer.yaml').read_text()) if d and d['kind']=='ClusterRole')
+    assert [r for r in deployer['rules'] if any('exec' in x for x in r['resources'])]==[{'apiGroups':[''],'resources':['pods/exec'],'verbs':['get','create']}]
+    assert not any(('*' in r['resources'] or '*' in r['apiGroups']) and set(r['verbs'])-{'get','list','watch'} for r in deployer['rules']), 'Wildcard rules stay read-only.'
     with tempfile.TemporaryDirectory(prefix='iris-helm-') as temporary:
         directory = Path(temporary)
         targets = {p: {'name':f'iris-dev-{p}', 'region':'ap-northeast-2','vpc_id':'vpc-0123456789abcdef0','endpoint':f'https://{p}.eks.amazonaws.com'} for p in ('management','workload')}
@@ -869,7 +907,9 @@ def main():
         assert services['roles']==[
             {'name':'iris-deploy-reader','policies':['p, proj:iris-svc-project:iris-deploy-reader, applications, get, iris-svc-project/*, allow']},
             {'name':'iris-log-reader','policies':['p, proj:iris-svc-project:iris-log-reader, applications, get, iris-svc-project/*, allow',
-                                                  'p, proj:iris-svc-project:iris-log-reader, logs, get, iris-svc-project/*, allow']}], 'Project roles are read-only: no sync, update, delete or exec.'
+                                                  'p, proj:iris-svc-project:iris-log-reader, logs, get, iris-svc-project/*, allow']},
+            {'name':'iris-console','policies':['p, proj:iris-svc-project:iris-console, applications, get, iris-svc-project/*, allow',
+                                               'p, proj:iris-svc-project:iris-console, exec, create, iris-svc-project/*, allow']}], 'Project roles never sync, update or delete; only iris-console may exec (Console Gateway terminal), and only that one.'
         service_docs = render(ROOT/'helm/charts/iris-service', ROOT/'helm/charts/iris-service/ci/aws-values.yaml', namespace='svc-12')
         ingress = next(d for d in service_docs if d['kind']=='Ingress')
         assert not any(d['kind']=='Deployment' for d in service_docs), 'Since 0.7.0 the app runs only as a Rollout.'
