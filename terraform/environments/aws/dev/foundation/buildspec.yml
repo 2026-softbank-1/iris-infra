@@ -2,6 +2,7 @@
 # iris-was Build Worker(app/services/build_service.py)가 StartBuild 환경변수로 넘기는 값:
 #   SOURCE_URL ROOT_DIRECTORY BUILDER DOCKERFILE_PATH REGISTRY IMAGE_REPO IMAGE_TAG
 #   SERVICE_ID, railpack 이면 RAILPACK_BUILD_CMD·RAILPACK_START_CMD(선택)
+#   dockerfile 이면 DOCKER_TARGET(선택, 멀티 스테이지 target. railpack 에서는 무시)
 # Worker 는 실패 단계로 원인을 나눈다. 플랫폼 준비(install)는 인프라 오류로 재시도하고,
 # 사용자 소스가 처음 해석되는 pre_build 는 BUILD_CONFIG_REQUIRED, build 는 BUILD_FAILED 다.
 version: 0.2
@@ -54,5 +55,12 @@ phases:
             --build-arg "cache-key=$SERVICE_ID" \
             -f /tmp/plan.json .
         else
+          if [ -n "${DOCKER_TARGET:-}" ]; then
+            if ! [[ "$DOCKER_TARGET" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$ ]]; then
+              echo "invalid DOCKER_TARGET: must match ^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$" >&2
+              exit 1
+            fi
+            common+=(--target "$DOCKER_TARGET")
+          fi
           docker buildx build "${common[@]}" -f "$DOCKERFILE_PATH" .
         fi
