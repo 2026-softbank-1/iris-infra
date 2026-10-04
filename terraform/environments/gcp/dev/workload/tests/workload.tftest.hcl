@@ -1,10 +1,23 @@
-mock_provider "google" {}
+mock_provider "google" {
+  mock_data "google_project" {
+    defaults = { number = "123456789012" }
+  }
+}
 variables {
   project_id             = "iris-fixture-project"
   management_oidc_issuer = "https://oidc.eks.ap-northeast-2.amazonaws.com/id/EXAMPLE"
 }
 run "independent_private_workload" {
   command = plan
+  assert {
+    condition = toset(jsondecode(trimprefix(google_project_iam_member.argocd.condition[0].expression, "resource.name in "))) == toset([
+      "projects/iris-fixture-project/zones/asia-northeast3-a/clusters/gcp-dev-workload",
+      "projects/iris-fixture-project/locations/asia-northeast3-a/clusters/gcp-dev-workload",
+      "projects/123456789012/zones/asia-northeast3-a/clusters/gcp-dev-workload",
+      "projects/123456789012/locations/asia-northeast3-a/clusters/gcp-dev-workload"
+    ]) && toset(google_project_iam_custom_role.connect.permissions) == toset(["container.clusters.get", "container.clusters.connect"])
+    error_message = "Argo may connect only to this cluster via project ID or number."
+  }
   assert {
     condition     = !contains(local.apis, "iam.googleapis.com") && !contains(local.apis, "iamcredentials.googleapis.com") && !contains(local.apis, "sts.googleapis.com")
     error_message = "Account owns federation APIs before workload CI authenticates."
