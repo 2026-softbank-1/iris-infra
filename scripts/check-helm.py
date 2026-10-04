@@ -760,7 +760,7 @@ def main():
         egress = next(d for d in service_docs if d['kind']=='NetworkPolicy' and d['metadata']['name']=='restrict-egress')['spec']
         assert egress['podSelector']=={} and egress['policyTypes']==['Egress'] and {'cidr':'0.0.0.0/0','except':['10.40.0.0/16','169.254.0.0/16']} in [t.get('ipBlock') for r in egress['egress'] for t in r['to']], 'User pods must not reach VPC (collector NLB, nodes) or link-local addresses.'
         assert ingress['metadata']['annotations']['alb.ingress.kubernetes.io/group.name']=='iris-service-external', 'All services share the external ALB group.'
-        rendered_kinds = {(d['apiVersion'].rpartition('/')[0], d['kind']) for fixture in ('aws-values.yaml','database-values.yaml','aliases-values.yaml') for d in render(ROOT/'helm/charts/iris-service', ROOT/'helm/charts/iris-service/ci'/fixture, namespace='svc-12')}
+        rendered_kinds = {(d['apiVersion'].rpartition('/')[0], d['kind']) for fixture in ('aws-values.yaml','database-values.yaml','database-initdb-values.yaml','aliases-values.yaml') for d in render(ROOT/'helm/charts/iris-service', ROOT/'helm/charts/iris-service/ci'/fixture, namespace='svc-12')}
         assert rendered_kinds <= {(w['group'],w['kind']) for w in services['namespaceResourceWhitelist']}, f'iris-svc-project must allow chart kinds: {rendered_kinds}'
         allowed = {p['metadata']['name'].removeprefix('iris-addons-'): {(w['group'],w['kind']) for w in p['spec']['clusterResourceWhitelist']} for p in gitops if p['kind']=='AppProject'}
         tracking = directory/'tracking.json'
