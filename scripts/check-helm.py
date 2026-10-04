@@ -210,16 +210,16 @@ def check_onprem_gateway(directory, targets, baseline):
         result = subprocess.run([HELM,'template','check',str(chart),'-f',str(bad_values)],capture_output=True)
         assert result.returncode, f'Invalid gateway values must fail: {override}'
     policy = json.loads((ROOT/'clusters/aws-dev-management/onprem/tailnet-policy-additions.json').read_text())
-    assert policy['tagOwners']=={'tag:iris-onprem-apps':['tag:iris-operator'],'tag:iris-onprem-api':['tag:iris-operator']}
-    # Each egress proxy reaches only its port; on-prem servers (tag:iris-onprem) are destinations only.
-    assert policy['grants']==[{'src':['tag:iris-onprem-apps'],'dst':['tag:iris-onprem'],'ip':['tcp:80']},
-                              {'src':['tag:iris-onprem-api'],'dst':['tag:iris-onprem'],'ip':['tcp:6443']}]
+    assert policy['tagOwners']=={'tag:iris-onprem-apps':['tag:iris-operator']}
+    # The apps proxy reaches only TCP 80; on-prem servers (tag:iris-onprem) are destinations only. API proxies use the
+    # operator default tag (tag:iris-mgmt-egress) whose 6443 grant already exists in the live policy; the test pins it.
+    assert policy['grants']==[{'src':['tag:iris-onprem-apps'],'dst':['tag:iris-onprem'],'ip':['tcp:80']}]
     assert not any('tag:iris-onprem' in grant['src'] for grant in policy['grants'])
     tests = {t['src']: t for t in policy['tests']}
     assert tests['tag:iris-onprem-apps']=={'src':'tag:iris-onprem-apps','accept':['tag:iris-onprem:80'],'deny':['tag:iris-onprem:6443']}
-    assert tests['tag:iris-onprem-api']['accept']==['tag:iris-onprem:6443'] and 'tag:iris-onprem:80' in tests['tag:iris-onprem-api']['deny']
+    assert tests['tag:iris-mgmt-egress']=={'src':'tag:iris-mgmt-egress','accept':['tag:iris-onprem:6443']}
     assert 'accept' not in tests['tag:iris-onprem'] and {'tag:iris-onprem:80','tag:iris-onprem:6443','tag:iris-operator:443'} <= set(tests['tag:iris-onprem']['deny'])
-    # The chart's egress Services must use exactly the tags this fragment grants.
+    # Services that set tags must use exactly the tags this fragment grants; the per-server API Service sets none.
     proxy_tags = set()
     for chart, fixture in (('iris-onprem-gateway', ROOT/'clusters/aws-dev-management/values/onprem-gateway.yaml'), ('iris-onprem-server', ROOT/'helm/charts/iris-onprem-server/ci/server-values.yaml')):
         rendered = yaml.safe_load_all(command('template', 'check', ROOT/'helm/charts'/chart, '-f', fixture, '--namespace', 'onprem-gateway'))
@@ -333,11 +333,13 @@ def check_onprem_servers(directory, targets, baseline):
         assert secret['data']=={'name':'onprem-'+key,'server':f'https://iris-onprem-api-{key}.argocd.svc.cluster.local:6443'}
         api, apps = resources['Service','iris-onprem-api-'+key], resources['Service','iris-onprem-apps-'+key]
         assert api['metadata']['namespace']=='argocd' and apps['metadata']['namespace']=='onprem-gateway'
-        for service, proxy_class, hostname, tag, port in ((api,'iris-onprem-server-api','iris-mgmt-onprem-api-'+key,'tag:iris-onprem-api',6443),
+        # The API proxy takes the operator default tag (no annotation), as the legacy VM's does.
+        for service, proxy_class, hostname, tag, port in ((api,'iris-onprem-server-api','iris-mgmt-onprem-api-'+key,None,6443),
                                                           (apps,'iris-onprem-http','iris-mgmt-onprem-http-'+key,'tag:iris-onprem-apps',80)):
             notes = service['metadata']['annotations']
-            assert {k: v for k, v in notes.items() if k.startswith('tailscale.com/')}=={'tailscale.com/proxy-class':proxy_class,
-                'tailscale.com/hostname':hostname,'tailscale.com/tailnet-fqdn':data['server']['tailnetFqdn'],'tailscale.com/tags':tag}
+            expected = {'tailscale.com/proxy-class':proxy_class,'tailscale.com/hostname':hostname,'tailscale.com/tailnet-fqdn':data['server']['tailnetFqdn']}
+            if tag: expected['tailscale.com/tags'] = tag
+            assert {k: v for k, v in notes.items() if k.startswith('tailscale.com/')}==expected
             assert service['spec']['type']=='ExternalName' and service['spec']['externalName']=='placeholder' and service['spec']['ports'][0]['port']==port
         probe = resources['Application','iris-onprem-probe-'+key]
         assert probe['metadata']['namespace']=='argocd' and 'finalizers' not in probe['metadata'], 'Deleting a server must not wait on its cluster.'

@@ -2,6 +2,8 @@
 # Tailscale egress Services, as the existing VM's (docs/runbooks/onprem-gateway.md). The operator in
 # `tailscale` starts one proxy per Service and replaces spec.externalName (the Application ignores it).
 # ProxyClasses and their NetworkPolicies are shared and live in the iris-onprem-gateway chart.
+# The API proxy sets no tags, like the legacy VM's: it joins with the operator default (PROXY_TAGS,
+# tag:iris-mgmt-egress), which the live tailnet policy already lets reach tag:iris-onprem:6443.
 apiVersion: v1
 kind: Service
 metadata:
@@ -14,7 +16,6 @@ metadata:
     tailscale.com/proxy-class: iris-onprem-server-api
     tailscale.com/hostname: iris-mgmt-onprem-api-{{ $key }}
     tailscale.com/tailnet-fqdn: {{ .Values.server.tailnetFqdn | quote }}
-    tailscale.com/tags: "tag:iris-onprem-api"
 spec:
   type: ExternalName
   externalName: placeholder

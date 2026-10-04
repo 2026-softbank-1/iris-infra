@@ -5,7 +5,7 @@
 | 리소스 | 이름 | 내용 |
 |---|---|---|
 | SealedSecret | `argocd/cluster-onprem-{serverKey}` | Argo cluster Secret. `name: onprem-{serverKey}`, `server: https://iris-onprem-api-{serverKey}.argocd.svc.cluster.local:6443` 은 chart 가 정하고, 봉인된 `config`(bearer token·CA·serverName)만 data 파일에서 옵니다. management Sealed Secrets controller 가 풉니다 |
-| Service(ExternalName) | `argocd/iris-onprem-api-{serverKey}` | Tailscale egress → `{tailnetFqdn}:6443`. ProxyClass `iris-onprem-server-api`, 태그 `tag:iris-onprem-api` |
+| Service(ExternalName) | `argocd/iris-onprem-api-{serverKey}` | Tailscale egress → `{tailnetFqdn}:6443`. ProxyClass `iris-onprem-server-api`, 태그는 지정하지 않아 operator 기본값 `tag:iris-mgmt-egress`(기존 VM API 프록시와 같음) |
 | Service(ExternalName) | `onprem-gateway/iris-onprem-apps-{serverKey}` | Tailscale egress → `{tailnetFqdn}:80`. ProxyClass `iris-onprem-http`, 태그 `tag:iris-onprem-apps`. 게이트웨이가 host 의 `-{serverKey}` 로 고릅니다 |
 | Application | `argocd/iris-onprem-probe-{serverKey}` | project `iris-onprem-probe`, `destination.name: onprem-{serverKey}`, namespace `iris-system` 에 `iris-onprem-probe` chart(ConfigMap 1개). Synced+Healthy 면 Deploy Worker 가 서버를 `CONNECTED` 로 둡니다 |
 

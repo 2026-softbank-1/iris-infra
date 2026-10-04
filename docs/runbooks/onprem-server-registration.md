@@ -12,7 +12,7 @@ flowchart LR
   S --> E2[Service onprem-gateway/iris-onprem-apps-KEY]
   S --> P[Application iris-onprem-probe-KEY]
   SS -->|management sealed-secrets| C[Argo cluster onprem-KEY]
-  E1 -->|Tailscale tag:iris-onprem-api, TCP 6443| K[사용자 서버 K3s API]
+  E1 -->|Tailscale tag:iris-mgmt-egress, TCP 6443| K[사용자 서버 K3s API]
   P -->|ConfigMap iris-system/iris-onprem-probe| K
   N[nginx onprem-gateway] -->|host *-KEY.internal.likelion.uk| E2
   E2 -->|Tailscale tag:iris-onprem-apps, TCP 80| T[사용자 서버 Traefik]
@@ -59,12 +59,12 @@ AWS 서비스의 `services.chartRevision` 은 이 작업과 상관없습니다([
 
 ### 3. Tailscale 정책과 가입 키
 
-1. [정책 조각](../../clusters/aws-dev-management/onprem/tailnet-policy-additions.json)을 기존 tailnet 정책에 **병합**합니다(교체 금지). 추가되는 것: `tag:iris-onprem-api`(owner `tag:iris-operator`)와 `tag:iris-onprem-api → tag:iris-onprem:6443` grant, `tag:iris-onprem` 출발을 막는 deny 테스트.
+1. [정책 조각](../../clusters/aws-dev-management/onprem/tailnet-policy-additions.json)을 기존 tailnet 정책에 **병합**합니다(교체 금지). 추가되는 것: `tag:iris-onprem` 출발을 막는 deny 테스트와, 기존 `tag:iris-mgmt-egress → tag:iris-onprem:6443` grant 를 고정하는 accept 테스트. API 프록시용 새 태그는 필요 없습니다(아래).
 2. 병합한 전체 정책에서 테스트가 통과해야 저장됩니다. `tag:iris-onprem` 을 출발지로 쓰는 기존 grant/ACL(전체 허용 포함)이 있으면 `src: tag:iris-onprem` deny 테스트가 실패합니다. 기존 VM 에 그런 출발 권한이 필요하다면 저장하지 말고 사용자 서버용 태그를 따로 두는 계약 변경을 먼저 합니다. 같은 태그를 쓰면 사용자 서버도 그 권한을 갖습니다.
 3. `tag:iris-onprem` 의 tagOwners 에 가입 키를 만드는 사람(또는 `autogroup:admin`)이 있어야 합니다.
 4. 관리 콘솔 Settings → Keys 에서 auth key 를 만듭니다: **Reusable**, **Pre-approved**, Tags `tag:iris-onprem`, Ephemeral 끔. 만료(최대 90일)를 기록하고 만료 전에 교체합니다. 값은 출력·채팅에 남기지 않고 WAS env Secret 의 `ONPREM_TAILSCALE_AUTH_KEY` 에만 넣습니다. 이 키를 가진 누구나 `tag:iris-onprem` 장치를 tailnet 에 넣을 수 있으므로 2번의 출발 deny 가 전제입니다(서버마다 1회용 키는 계약 §10 의 다음 단계).
 
-operator 의 egress 프록시는 Service 마다 `tailscale.com/tags` 로 `tag:iris-onprem-api`·`tag:iris-onprem-apps` 를 받습니다. operator 자신의 태그(`tag:iris-operator`)가 두 태그의 owner 여야 프록시가 가입합니다.
+서버별 API 프록시는 태그를 지정하지 않아 operator 기본값 `tag:iris-mgmt-egress`(PROXY_TAGS)로 가입합니다. 기존 VM 의 API 프록시와 같고, 운영 정책의 `tag:iris-mgmt-egress → tag:iris-onprem:6443` grant 가 **태그 기준**(VM 주소가 아님)이어야 새 서버에도 닿습니다. 2026-10-04 운영에서 `tag:iris-onprem-api` 는 정책에 없어 operator 가 `requested tags ... are invalid or not permitted (400)` 로 거절했습니다(그래서 0.1.1 에서 뺐습니다). 앱 프록시는 `tag:iris-onprem-apps` 를 씁니다(owner `tag:iris-operator`).
 
 ### 4. Terraform (IAM)
 
