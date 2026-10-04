@@ -1,0 +1,13 @@
+gateway:
+  addressName: ""
+  certificateMap: ""
+  baseDomain: gcp.likelion.uk
+credentials:
+  enabled: false
+  image: ""
+  serviceAccountEmail: ""
+  serviceAccountId: ""
+  awsAccountId: ""
+  roleArn: ""
+  audience: iris-gcp-ecr-pull
+  kubeApiCidr: ""

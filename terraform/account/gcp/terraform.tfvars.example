@@ -1,0 +1,4 @@
+project_id           = "REPLACE_WITH_PROJECT_ID"
+state_bucket_name    = "REPLACE_WITH_EXISTING_STATE_BUCKET"
+github_repository_id = "REPLACE_WITH_NUMERIC_REPOSITORY_ID"
+github_owner_id      = "REPLACE_WITH_NUMERIC_OWNER_ID"

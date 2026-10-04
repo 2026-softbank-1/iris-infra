@@ -19,8 +19,8 @@
 | `containerPort` | ✅ | 8080. env `PORT`, Service targetPort, probe 포트 |
 | `command` | | 이미지 ENTRYPOINT·CMD 를 exec form 으로 덮어씀(Dockerfile 빌드의 startCommand) |
 | `health.path` | | 있으면 readiness `httpGet`(Host = `route.host`)·ALB health check 경로, 없으면 readiness TCP·ALB `/`. ALB 는 Host 를 못 넣어 항상 200-499 를 정상으로 봅니다 |
-| `health.timeoutSeconds` | ✅ | 30~3600. Rollout `progressDeadlineSeconds`(넘기면 abort) |
-| `deploymentStrategy` | | `ROLLING`(기본)·`CANARY`·`BLUE_GREEN`. chart 0.7.0 부터. replicas 가 2 미만이면 chart 가 `ROLLING` 으로 렌더링합니다. 이전 chart schema 는 이 키를 거절하므로 0.7.0 을 쓰는 타깃(AWS)에만 씁니다. **on-prem 타깃은 `iris-service-0.6.0`(롤링만)이라 쓰지 않습니다** |
+| `health.timeoutSeconds` | ✅ | 30~3600. Rollout `progressDeadlineSeconds`(넘기면 abort); GCP Deployment는 기한 초과를 표시하며 자동 abort하지 않음 |
+| `deploymentStrategy` | | AWS의 Rollout은 `ROLLING`(기본)·`CANARY`·`BLUE_GREEN`을 지원합니다(chart 0.7.0 부터). replicas 가 2 미만이면 `ROLLING` 으로 렌더링합니다. 이전 chart schema 는 이 키를 거절합니다. **레거시 on-prem 타깃은 `iris-service-0.6.0`(롤링만)이라 쓰지 않습니다**. GCP chart 0.10.0의 `route.mode=gateway`는 Deployment이며 생략 또는 `ROLLING`만 허용합니다. GCP의 `CANARY`·`BLUE_GREEN`은 거부합니다 |
 | `route.host` | ✅ | `{slug}.<BASE_DOMAIN>`. Ingress host, env `IRIS_PUBLIC_DOMAIN` |
 | `iris.serviceName` | | env `IRIS_SERVICE_NAME`. 서비스 이름(DNS label) |
 | `iris.targetName` | | env `IRIS_TARGET_NAME`. 배포 타깃 이름(예: `aws`) |
@@ -37,7 +37,7 @@
 | `database.initScripts` | | chart 0.9.0 부터. `[{name, content\|binaryContent}]` 최대 20개, name `^[0-9]{2}-[A-Za-z0-9._-]+\.(sql\|sql\.gz\|js)$`(postgres·mysql: sql/sql.gz, mongodb: js, redis: 거절). ConfigMap `app-initdb` -> `/docker-entrypoint-initdb.d`, **데이터 디렉터리가 비어 있는 첫 기동에서만 실행** |
 
 `workload.kind: database` 면 `image`·`command` 를 거절하고 `projectId`·`database` 가 필수입니다. `route`·`health`·`containerPort`·`deploymentStrategy`·`iris`
-는 받아들이되 쓰지 않습니다. 자격 증명은 `variables`(엔진 공식 env 이름)로 넣습니다. 0.9.0 키는 이전 chart schema 가 거절하므로 0.9.0 을 쓰는 타깃(AWS)에만 씁니다. **on-prem 은 `iris-service-0.6.0` 이라 데이터베이스·별칭·projectId 를 쓰지 않습니다**(WAS 가 거절). 사용자 등록 서버(`onprem-{serverKey}`)도 `onpremServers.chartRevision`(0.8.0)이라 마찬가지입니다.
+는 받아들이되 쓰지 않습니다. 자격 증명은 `variables`(엔진 공식 env 이름)로 넣습니다. 0.9.0 키는 이전 chart schema 가 거절합니다. AWS chart 0.9.0은 DB·별칭·projectId를 지원하며, GCP chart 0.10.0은 앱의 별칭·projectId만 지원합니다. GCP의 `route.mode=gateway`와 `workload.kind=database` 조합은 storage·권한 계약이 없어 schema가 거부합니다. **on-prem 은 `iris-service-0.6.0` 이라 데이터베이스·별칭·projectId 를 쓰지 않습니다**(WAS 가 거절). 사용자 등록 서버(`onprem-{serverKey}`)도 `onpremServers.chartRevision`(0.8.0)이라 마찬가지입니다.
 자세한 렌더링은 [chart README](../helm/charts/iris-service/README.md#프로젝트-내부-통신-090) 를 봅니다.
 
 ## chart 기본값 (배포별 values 에 넣지 않음)

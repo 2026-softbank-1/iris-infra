@@ -1,0 +1,6 @@
+aws_account_id         = "123456789012"
+gcp_service_account_id = "REPLACE_WITH_NUMERIC_GCP_SA_UNIQUE_ID"
+audience               = "iris-gcp-ecr-pull"
+# Optional manual setup after account/aws owns the GitHub OIDC provider:
+enable_github_publisher     = false
+github_oidc_subject_prefix = "" # actual repo:OWNER/REPO or repo:OWNER@ID/REPO@ID

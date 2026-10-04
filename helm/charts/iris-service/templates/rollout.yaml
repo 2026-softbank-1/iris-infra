@@ -1,26 +1,40 @@
 {{- if not (include "iris-service.isDatabase" .) }}
+{{- $gateway := eq .Values.route.mode "gateway" }}
 {{- $strategy := include "iris-service.deploymentStrategy" . }}
+{{- if $gateway }}
+apiVersion: apps/v1
+kind: Deployment
+{{- else }}
 apiVersion: argoproj.io/v1alpha1
 kind: Rollout
+{{- end }}
 metadata:
   name: app
   labels:
     {{- include "iris-service.labels" . | nindent 4 }}
+  {{- if not $gateway }}
   annotations:
     # Deploy Worker 가 고른 방식과 Pod 수 때문에 실제로 렌더링한 방식입니다.
     iris/deployment-strategy: {{ $strategy }}
+  {{- end }}
 spec:
   replicas: {{ .Values.replicas }}
-  # 이 시간 안에 새 Pod 가 진행하지 못하면 abort 해 이전 Pod 로 되돌리고 Degraded 가 됩니다.
-  # Deploy Worker 는 Degraded 를 실패로 판정합니다. pause 중에는 시간을 세지 않습니다.
+  # Deployment 는 진행 기한을 표시하고, Rollout 은 기한을 넘기면 abort 합니다.
   progressDeadlineSeconds: {{ .Values.health.timeoutSeconds }}
+  {{- if not $gateway }}
   progressDeadlineAbort: true
+  {{- end }}
   revisionHistoryLimit: 3
   selector:
     matchLabels:
       {{- include "iris-service.selectorLabels" . | nindent 6 }}
   strategy:
-    {{- if eq $strategy "BLUE_GREEN" }}
+    {{- if $gateway }}
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+    {{- else if eq $strategy "BLUE_GREEN" }}
     # 새 묶음을 replicas 만큼 모두 Ready 로 띄우고 30초 뒤 Service 를 새 묶음으로 바꿉니다.
     # 이전 묶음은 30초 더 두었다가 내립니다. Service·Ingress 는 하나뿐이라 preview Service 는 없습니다.
     blueGreen:
@@ -60,9 +74,12 @@ spec:
       automountServiceAccountToken: false
       # 아래 preStop 15초 뒤에도 앱이 SIGTERM 을 받고 정리할 30초(Kubernetes 기본값)가 남게 합니다.
       terminationGracePeriodSeconds: 45
-      {{- with .Values.imagePullSecrets }}
-      # 사용자가 등록한 온프레미스 서버는 노드에 ECR 인증이 없어 namespace 의 pull Secret 을 씁니다.
-      # 서버의 갱신 CronJob 이 같은 이름으로 만듭니다. default SA 패치는 그 뒤에 만든 Pod 에만 먹어 Pod 에 직접 넣습니다.
+      {{- $pullSecrets := default (list) .Values.imagePullSecrets }}
+      {{- if .Values.registryPull.enabled }}
+      {{- $pullSecrets = append $pullSecrets (dict "name" .Values.registryPull.secretName) }}
+      {{- end }}
+      {{- with uniq $pullSecrets }}
+      # 온프레미스의 명시적 pull Secret 과 GCP 갱신기 Secret 을 중복 없이 참조합니다.
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}

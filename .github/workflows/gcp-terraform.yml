@@ -1,0 +1,132 @@
+name: GCP Terraform
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      action:
+        description: Fresh workload plan, or explicit apply after activation
+        type: choice
+        options: [plan, apply]
+        default: plan
+
+permissions:
+  contents: read
+
+# Serialize plans and applies against one workload state. Never cancel an apply.
+concurrency:
+  group: gcp-dev-workload-terraform
+  cancel-in-progress: false
+
+env:
+  PYTHONDONTWRITEBYTECODE: '1'
+  GCP_TERRAFORM_DEPLOY_ENABLED: ${{ vars.GCP_TERRAFORM_DEPLOY_ENABLED || 'false' }}
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    outputs:
+      changed: ${{ steps.changes.outputs.changed }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Classify workload inputs and explain disabled deployment
+        id: changes
+        run: python3 scripts/gcp-ci.py classify
+      - name: Read Terraform version
+        id: terraform-version
+        run: |
+          version="$(tr -d '[:space:]' < .terraform-version)"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ steps.terraform-version.outputs.version }}
+          terraform_wrapper: false
+      - uses: azure/setup-helm@v4.3.1
+        with:
+          version: v3.19.1
+      - name: Install manifest parser
+        run: python3 -m pip install PyYAML==6.0.3
+      - name: Verify scaffold, Terraform, mock contracts and rendered Helm
+        run: |
+          make scaffold-check tf-check tf-test helm-check
+          python3 scripts/tests/test-gcp-ci.py
+          python3 scripts/tests/test-gcp.py
+          python3 scripts/tests/test-eks-ops.py
+          python3 scripts/tests/test-tf-ci.py
+          python3 scripts/tests/test-terraform-ci-changes.py
+      - name: Install verified workflow and shell linters
+        run: |
+          tool_dir="$RUNNER_TEMP/gcp-linters"
+          mkdir -p "$tool_dir"
+          curl --fail --location --retry 3 https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz --output "$tool_dir/actionlint.tar.gz"
+          printf '%s  %s\n' 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8 "$tool_dir/actionlint.tar.gz" | sha256sum --check
+          tar --extract --gzip --file "$tool_dir/actionlint.tar.gz" --directory "$tool_dir" actionlint
+          curl --fail --location --retry 3 https://github.com/koalaman/shellcheck/releases/download/v0.11.0/shellcheck-v0.11.0.linux.x86_64.tar.gz --output "$tool_dir/shellcheck.tar.gz"
+          printf '%s  %s\n' b7af85e41cc99489dcc21d66c6d5f3685138f06d34651e6d34b42ec6d54fe6f6 "$tool_dir/shellcheck.tar.gz" | sha256sum --check
+          tar --extract --gzip --file "$tool_dir/shellcheck.tar.gz" --directory "$tool_dir" shellcheck-v0.11.0/shellcheck
+          "$tool_dir/actionlint" .github/workflows/*.yml
+          "$tool_dir/shellcheck-v0.11.0/shellcheck" -x scripts/*.sh examples/github-actions/build-push-ecr.sh
+
+  workload:
+    needs: verify
+    if: >-
+      needs.verify.result == 'success' && github.ref == 'refs/heads/main' &&
+      ((github.event_name == 'push' && vars.GCP_TERRAFORM_DEPLOY_ENABLED == 'true' && needs.verify.outputs.changed == 'true') ||
+       (github.event_name == 'workflow_dispatch' &&
+        (inputs.action == 'plan' || (inputs.action == 'apply' && vars.GCP_TERRAFORM_DEPLOY_ENABLED == 'true'))))
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    environment: gcp-dev
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      VERIFY_RESULT: ${{ needs.verify.result }}
+      RUNTIME_CHANGED: ${{ needs.verify.outputs.changed }}
+      REQUESTED_ACTION: ${{ github.event_name == 'push' && 'apply' || inputs.action }}
+      GH_TOKEN: ${{ github.token }}
+      GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+      GCP_PROJECT_NUMBER: ${{ vars.GCP_PROJECT_NUMBER }}
+      GCP_STATE_BUCKET: ${{ vars.GCP_STATE_BUCKET }}
+      GCP_TERRAFORM_SERVICE_ACCOUNT: ${{ vars.GCP_TERRAFORM_SERVICE_ACCOUNT }}
+      GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+      GCP_GITHUB_REPOSITORY_ID: ${{ vars.GCP_GITHUB_REPOSITORY_ID }}
+      GCP_GITHUB_OWNER_ID: ${{ vars.GCP_GITHUB_OWNER_ID }}
+      GCP_MANAGEMENT_OIDC_ISSUER: ${{ vars.GCP_MANAGEMENT_OIDC_ISSUER }}
+      GCP_BASE_DOMAIN: ${{ vars.GCP_BASE_DOMAIN || 'gcp.likelion.uk' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Gate event, latest main SHA and nonsecret configuration before authentication
+        id: target
+        run: python3 scripts/gcp-ci.py prepare --action "$REQUESTED_ACTION"
+      - name: Authenticate through refreshable WIF ADC
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+        with:
+          workload_identity_provider: ${{ steps.target.outputs.provider }}
+          service_account: ${{ steps.target.outputs.service_account }}
+          project_id: ${{ steps.target.outputs.project_id }}
+          create_credentials_file: true
+          export_environment_variables: true
+          cleanup_credentials: true
+      - uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3
+      - name: Read Terraform version
+        id: terraform-version
+        run: |
+          version="$(tr -d '[:space:]' < .terraform-version)"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ steps.terraform-version.outputs.version }}
+          terraform_wrapper: false
+      - name: Verify project, active SA, bucket and refreshable ADC; plan and apply exact saved plan
+        run: python3 scripts/gcp-ci.py run --action "$REQUESTED_ACTION"

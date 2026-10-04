@@ -15,6 +15,10 @@ def main():
         "terraform/environments/aws/dev/foundation",
         "terraform/environments/aws/dev/management",
         "terraform/environments/aws/dev/workload",
+        "terraform/bootstrap/gcp",
+        "terraform/account/gcp",
+        "terraform/environments/gcp/dev/workload",
+        "terraform/environments/aws/dev/gcp-access",
     ]
     required = [
         "README.md", "Makefile", ".terraform-version",
@@ -26,6 +30,9 @@ def main():
         "helm/versions.json", "helm/images.lock.json", "helm/bootstrap/Chart.lock",
         "helm/gitops/values.schema.json",
         ".github/workflows/terraform-check.yml",
+        ".github/workflows/gcp-terraform.yml", ".github/workflows/gcp-ecr-credentials.yml",
+        "scripts/gcp-ci.py", "scripts/gcp-image-ci.py", "scripts/gcp-setup.py",
+        "terraform/config/gcp/ci.example.json", "docs/runbooks/gcp-pipeline.md",
     ]
     for directory in roots:
         for name in (
@@ -35,19 +42,19 @@ def main():
             required.append(f"{directory}/{name}")
     for name in ("main.tf", "variables.tf", "outputs.tf", "README.md"):
         required.append(f"terraform/modules/eks/{name}")
-    for name in ("cluster-baseline", "iris-platform", "iris-service"):
+    for name in ("cluster-baseline", "iris-platform", "iris-service", "gcp-workload"):
         for filename in ("Chart.yaml", "values.yaml", "values.schema.json", "README.md"):
             required.append(f"helm/charts/{name}/{filename}")
         if not (ROOT / "helm/charts" / name / "templates").is_dir():
             raise SystemExit(f"Missing templates directory: {name}")
-    for name in ("aws-dev-management", "aws-dev-workload", "local-workload"):
+    for name in ("aws-dev-management", "aws-dev-workload", "local-workload", "gcp-dev-workload"):
         required.append(f"clusters/{name}/cluster.yaml")
     for name in ("deployment", "target", "build", "namespace", "release"):
         required.append(f"contracts/{name}.md")
     for name in required:
         if not (ROOT / name).is_file():
             raise SystemExit(f"Missing file: {name}")
-    for schema in [*(ROOT / "helm/charts").glob("*/values.schema.json"), ROOT/"helm/gitops/values.schema.json", ROOT/"contracts/target.schema.json"]:
+    for schema in [*(ROOT / "helm/charts").glob("*/values.schema.json"), ROOT/"helm/gitops/values.schema.json", ROOT/"contracts/target.schema.json", ROOT/"contracts/gcp-target.schema.json"]:
         data = json.loads(schema.read_text())
         if data.get("type") != "object":
             raise SystemExit(f"Expected an object schema: {schema}")

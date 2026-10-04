@@ -1,4 +1,4 @@
-{{- if not (include "iris-service.isDatabase" .) }}
+{{- if and (not (include "iris-service.isDatabase" .)) (eq .Values.route.mode "ingress") }}
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:

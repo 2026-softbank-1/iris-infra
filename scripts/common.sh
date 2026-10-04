@@ -15,8 +15,8 @@ require_command() {
 
 stack_directory() {
   case "$1" in
-    bootstrap/aws|account/aws) printf '%s/terraform/%s\n' "$REPO_ROOT" "$1" ;;
-    aws/dev/foundation|aws/dev/management|aws/dev/workload)
+    bootstrap/aws|account/aws|bootstrap/gcp|account/gcp) printf '%s/terraform/%s\n' "$REPO_ROOT" "$1" ;;
+    aws/dev/foundation|aws/dev/management|aws/dev/workload|aws/dev/gcp-access|gcp/dev/workload)
       printf '%s/terraform/environments/%s\n' "$REPO_ROOT" "$1" ;;
     *) fail "허용되지 않은 STACK: $1" ;;
   esac

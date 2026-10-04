@@ -19,7 +19,7 @@ validate_directory() {
   terraform -chdir="$dir" validate
 }
 
-for stack in bootstrap/aws account/aws aws/dev/foundation aws/dev/management aws/dev/workload; do
+for stack in bootstrap/aws account/aws aws/dev/foundation aws/dev/management aws/dev/workload bootstrap/gcp account/gcp gcp/dev/workload aws/dev/gcp-access; do
   dir="$(stack_directory "$stack")"
   printf 'validate: %s\n' "$stack"
   validate_directory "$dir"

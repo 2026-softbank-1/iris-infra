@@ -1,5 +1,20 @@
 # 아키텍처
 
+GCP `gcp-dev-workload`는 독립 VPC/private GKE·GCS state·NAT·HTTPS Gateway·TLS·
+Sealed Secrets key를 구현합니다. 요청은 `*.gcp.likelion.uk → GCP Gateway → GKE Pod`로
+처리하고 AWS proxy를 거치지 않습니다. AWS Argo는 EKS token/Google WIF로 DNS API에
+접속하고 ECR은 GCP 전용 단기 인증 갱신기로 연결합니다. Terraform은 IP/cert/cloud
+resource, Argo는 Gateway/LB/workload, 갱신기는 예약 Secret의 인증 data/expiry를
+소유합니다. 상대 cloud state를 읽지 않습니다. 배포 상태와 제품 Worker 연동은 별도입니다.
+[ADR 0007](decisions/0007-independent-gcp-workload.md), [GCP 런북](runbooks/gcp-workload.md).
+
+GCP는 bootstrap(Storage/state) → 수동 account(초기 IAM APIs/GitHub WIF/CI GSA) →
+workload(서비스 APIs/GKE/network/cert)의 순서로 관리합니다. GitHub GCP workload
+자동 apply와 helper 이미지 게시 workflow는 기본 비활성화입니다. 자동화는 account와
+bootstrap을 적용하지 않으며 AWS `gcp-access`는 관리자 수동 영역입니다.
+project IAM 관리 권한이 있어 state/prefix 분리는 침해된 CI에 대한 보안 격리가 아닙니다.
+활성화/권한/복구 경계는 [GCP pipeline](runbooks/gcp-pipeline.md)을 따릅니다.
+
 현재 Terraform은 bootstrap/account/foundation과 관리·앱 EKS를 구현합니다. Helm bootstrap은 Argo CD와 GitOps root를, Argo는 공통 addon을 설치합니다. iris-service chart는 구현됐고 사용자 앱 배포는 GitOps입니다. 플랫폼 chart는 외부 RDS를 사용하는 API·Worker·선택적 Error Check Agent를 구현하며 로컬 k3d는 scaffold입니다. 코드 구현과 실제 적용 상태는 다르며 운영 확인은 state/plan 및 smoke 결과로 판단합니다.
 
 ```mermaid

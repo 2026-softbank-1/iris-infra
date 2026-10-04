@@ -1,5 +1,23 @@
 # 팀 명령
 
+GCP 자동 파이프라인 준비·활성화는 [GCP pipeline 런북](../docs/runbooks/gcp-pipeline.md),
+운영과 초기 bootstrap은 [GCP 런북](../docs/runbooks/gcp-workload.md)을 따릅니다.
+기본 flag=false에서는 계정 없이 검증만 합니다. `make gcp-readiness`는 offline,
+`gcp-online-readiness`/`gcp-github-discover`는 명시적 읽기 전용 조회입니다.
+`gcp-ci-config`는 account의 nonsecret output만 `.generated/gcp-ci.json`으로 추출합니다.
+`tf-* STACK=account/gcp`는 관리자 수동 IAM 설정이며 CI 적용 대상이 아닙니다.
+`make gcp-ci-test`는 인증/최신 SHA/동일 saved plan/삭제 차단/취소 cleanup/immutable
+이미지 재사용을 fake CLI로 검사합니다. 실제 장시간 ADC refresh와 배포는 별도 확인합니다.
+`make gcp-export/gcp-preflight/gcp-smoke`는 cloud/Kubernetes 읽기 전용,
+`gcp-access`는 전용 로컬 kubeconfig 생성, `gcp-bootstrap/gcp-backup-keys`는 명시적
+원격 변경입니다. 모두 `GCP_PROJECT_ID`를 검증합니다. 최초 GCS state는
+`gcp-state-local-init/local-plan/local-apply/migrate`로 별도 local bootstrap에서
+migration합니다. 이후 `tf-* STACK=gcp/dev/workload`와 수동 관리자
+`STACK=aws/dev/gcp-access`를 사용합니다. `GITOPS_GCP_ENABLED=1`은 Argo 등록 opt-in입니다.
+`python3 scripts/tests/test-gcp.py`는 fake identity/회전/cache/예약 Secret/context/CI
+범위를 검사하고 `scripts/check-gcp.py`는 Helm 렌더를 검사합니다. 실제 배포 성공은
+런북의 HTTPS/uncached pull/Argo resync/격리/key 복구 실험으로 별도 확인합니다.
+
 `make help`와 [private EKS runbook](../docs/runbooks/eks-access.md)을 참고합니다. shell은 Bash를 사용합니다.
 
 | 명령/스크립트 | 동작 |

@@ -1,0 +1,3 @@
+project_id             = "replace-project-id"
+management_oidc_issuer = "https://oidc.eks.ap-northeast-2.amazonaws.com/id/REPLACE"
+base_domain            = "gcp.likelion.uk"

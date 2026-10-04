@@ -112,11 +112,12 @@ jobs:
         run: |
           python3 scripts/tests/test-collector-ci.py
           python3 scripts/tests/test-terraform-ci-changes.py
+          python3 scripts/tests/test-gcp-ci.py
       - name: Lint workflows and Bash script
         run: |
           bash -n examples/github-actions/build-push-ecr.sh
           shellcheck -x scripts/*.sh examples/github-actions/build-push-ecr.sh
-          actionlint .github/workflows/terraform-check.yml .github/workflows/alb-log-collector.yml examples/github-actions/build-push-ecr.yml
+          actionlint .github/workflows/*.yml examples/github-actions/build-push-ecr.yml
       - uses: docker/setup-buildx-action@v3
         if: needs.changes.outputs.platform_check == 'true'
       - name: Build local scratch fixture without AWS credentials
@@ -169,6 +170,12 @@ jobs:
         run: |
           python3 -m pip install httpx==0.28.1 PyYAML==6.0.3
           python3 -m unittest discover -s runtime/onprem-auth-renewal -p 'test_*.py'
+      - name: Test GCP identity, credential rotation and bootstrap gates without cloud credentials
+        if: needs.changes.outputs.ops_check == 'true'
+        run: python3 scripts/tests/test-gcp.py
+      - name: Build pinned GCP credential reconciler without publishing
+        if: needs.changes.outputs.ops_check == 'true'
+        run: docker build --tag iris-gcp-credentials-check runtime/gcp-ecr-credentials
       - name: Test IAM permission checker with fake AWS responses
         if: needs.changes.outputs.ops_check == 'true'
         run: python3 scripts/tests/test-eks-ci-permissions.py

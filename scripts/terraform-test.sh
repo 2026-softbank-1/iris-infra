@@ -23,7 +23,7 @@ mkdir -p "$TF_PLUGIN_CACHE_DIR"
 if [[ -d "$REPO_ROOT/terraform/modules/eks/.terraform/providers/registry.terraform.io" ]]; then
   cp -R "$REPO_ROOT/terraform/modules/eks/.terraform/providers/registry.terraform.io" "$TF_PLUGIN_CACHE_DIR/"
 fi
-for path in account/aws environments/aws/dev/foundation modules/eks environments/aws/dev/management environments/aws/dev/workload; do
+for path in account/aws environments/aws/dev/foundation modules/eks environments/aws/dev/management environments/aws/dev/workload bootstrap/gcp account/gcp environments/gcp/dev/workload environments/aws/dev/gcp-access; do
   terraform -chdir="$work/terraform/$path" init -backend=false -input=false -lockfile=readonly
   terraform -chdir="$work/terraform/$path" test
  done

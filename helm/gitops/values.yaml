@@ -42,5 +42,8 @@
   },
   "albTraffic": {
     "enabled": false
+  },
+  "gcp": {
+    "enabled": false
   }
 }

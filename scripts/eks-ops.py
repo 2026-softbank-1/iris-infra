@@ -7,6 +7,7 @@ publication, tool installation or image publication is performed by this tool.
 import argparse
 import base64
 import json
+import importlib.util
 import os
 from pathlib import Path
 import re
@@ -235,6 +236,32 @@ def wait_for(check, message, timeout=600):
     raise RuntimeError(message)
 
 
+def gcp_bootstrap_inputs(management):
+    """Validate optional GCP inputs before any AWS/GCP Kubernetes mutation."""
+    flag = os.environ.get('GITOPS_GCP_ENABLED', '0')
+    need(flag in ('0', '1'), 'GITOPS_GCP_ENABLED must be 0 or 1.')
+    registered = kubectl(management, 'get', 'secret', 'iris-gcp-workload-cluster', '-n', 'argocd', '--ignore-not-found', '-o', 'name').strip()
+    if flag == '0':
+        need(not registered, 'GCP is registered; supply GITOPS_GCP_ENABLED=1 and validated GCP inputs before rebootstrap.')
+        return None
+    require('gcloud')
+    spec = importlib.util.spec_from_file_location('gcp_ops', ROOT/'scripts/gcp-ops.py')
+    gcp = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(gcp)
+    try:
+        payload = json.loads((ROOT/'.generated/gcp-gitops.json').read_text())
+        target = gcp.validate(payload['target'], gcp.project())
+        gcp.preflight(target)
+        certificate = gcp.cloud(target, 'certificate-manager', 'certificates', 'describe', target['certificate_name'], '--location', 'global')
+        secret = json.loads(gcp.kubectl(target, 'get', 'secret', 'iris-ecr-pull', '-n', 'iris-system', '-o', 'json'))
+        gcp.bootstrap_gate(target, payload['gcp'], secret)
+    except (ValueError, TypeError, KeyError, OSError, subprocess.SubprocessError):
+        raise ValueError('GCP bootstrap prerequisites failed; sensitive responses suppressed. See the GCP runbook.') from None
+    need(certificate.get('managed', {}).get('state') == 'ACTIVE', 'Complete GCP DNS authorization and wait for the certificate before enabling Argo.')
+    need(payload['gcp']['credentials']['awsAccountId'] == management['account_id'], 'GCP pull and management AWS accounts must match.')
+    return gcp, target, payload['gcp']
+
+
 def bootstrap():
     require('helm','git')
     platform_flag=os.environ.get('GITOPS_PLATFORM_ENABLED','0')
@@ -264,12 +291,20 @@ def bootstrap():
         run(['helm','lint','--strict',chart,'-f',platform_values,'--kube-version',version,'--namespace','iris-platform'])
         run(['helm','template','iris-platform',chart,'-f',platform_values,'--kube-version',version,'--namespace','iris-platform'])
     # All inputs, both APIs, CA/RBAC, nodes and CNI are checked before any write.
+    gcp_input = gcp_bootstrap_inputs(management)
     kubectl(management,'create','namespace','argocd','--dry-run=client','-o','json')
     ns={'apiVersion':'v1','kind':'Namespace','metadata':{'name':'argocd'}}
     apply(management,[ns])
+    helm_overlay = []
+    if gcp_input:
+        gcp, gcp_target, _ = gcp_input
+        apply(management, [gcp.identity_configmap(gcp_target)])
+        overlay_path = ROOT/'.generated/argocd-gcp-values.json'
+        write_private(overlay_path, gcp.argo_overlay(gcp_target))
+        helm_overlay = ['-f', str(overlay_path)]
     run(['helm','repo','add','iris-argocd',versions['charts']['argo-cd']['repo']],timeout=120)
     run(['helm','dependency','build',str(ROOT/'helm/bootstrap')],timeout=300)
-    run(['helm','upgrade','--install','argocd',str(ROOT/'helm/bootstrap'),'--namespace','argocd','--kubeconfig',str(kubeconfig(management)),'--kube-context',management['kube_context'],'--wait','--timeout','15m'],timeout=960)
+    run(['helm','upgrade','--install','argocd',str(ROOT/'helm/bootstrap'),*helm_overlay,'--namespace','argocd','--kubeconfig',str(kubeconfig(management)),'--kube-context',management['kube_context'],'--wait','--timeout','15m'],timeout=960)
     repo_url=SSH_REPO if key_path else REPO
     gitops_url=GITOPS_SSH_REPO if key_path else GITOPS_REPO
     objects=[]
@@ -282,6 +317,10 @@ def bootstrap():
         auth={'awsAuthConfig':{'clusterName':target['name'],'roleARN':target['argocd_role_arn']},'tlsClientConfig':{'insecure':False,'caData':target['ca_data']}}
         objects.append({'apiVersion':'v1','kind':'Secret','metadata':{'name':f'iris-{purpose}-cluster','namespace':'argocd','labels':{'argocd.argoproj.io/secret-type':'cluster'}},'type':'Opaque','stringData':{'name':target['name'],'server':target['endpoint'],'config':json.dumps(auth)}})
     values={'repoURL':repo_url,'revision':revision,'services':{'repoURL':gitops_url},'platform':{'enabled':platform_enabled},'targets':{p:{k:t[k] for k in ('endpoint','name','region','vpc_id')} for p,t in targets.items()}}
+    if gcp_input:
+        gcp, gcp_target, gcp_values = gcp_input
+        objects.append(gcp.cluster_secret(gcp_target))
+        values['gcp'] = gcp_values
     objects += [
         {'apiVersion':'argoproj.io/v1alpha1','kind':'AppProject','metadata':{'name':'iris-root','namespace':'argocd'},'spec':{'sourceRepos':[repo_url],'destinations':[{'server':management['endpoint'],'namespace':'argocd'}],'clusterResourceWhitelist':[],'namespaceResourceWhitelist':[{'group':'argoproj.io','kind':'Application'},{'group':'argoproj.io','kind':'AppProject'},{'group':'argoproj.io','kind':'ApplicationSet'}]}},
         {'apiVersion':'argoproj.io/v1alpha1','kind':'Application','metadata':{'name':'iris-addons','namespace':'argocd'},'spec':{'project':'iris-root','source':{'repoURL':repo_url,'targetRevision':revision,'path':'helm/gitops','helm':{'valuesObject':values}},'destination':{'server':management['endpoint'],'namespace':'argocd'},'syncPolicy':{'automated':{'prune':False,'selfHeal':True},'syncOptions':['ServerSideApply=true']}}}]
@@ -291,6 +330,8 @@ def bootstrap():
     # Loki stores logs in management only; Argo Rollouts serves user services in workload only. Sealed Secrets runs in both
     # with separate keys: user variables (workload) and on-prem server cluster Secrets (management) (helm/gitops applications.yaml).
     names=['iris-addons']+[f'iris-{p}-{a}' for p in targets for a in addons+(('loki','sealed-secrets') if p=='management' else ('sealed-secrets','argo-rollouts'))]
+    if gcp_input:
+        names += ['iris-gcp-workload', 'iris-gcp-sealed-secrets']
     def synced():
         apps=json.loads(kubectl(management,'get','applications','-n','argocd','-o','json'))['items']
         statuses={a['metadata']['name']:a.get('status',{}) for a in apps}
