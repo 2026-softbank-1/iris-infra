@@ -125,10 +125,10 @@ run "console_gateway_boundary" {
 run "onprem_ecr_pull_boundary" {
   command = apply
   assert {
-    condition = aws_iam_role.onprem_ecr_pull.name == "${var.project}-${var.environment}-onprem-ecr-pull" && jsonencode(jsondecode(aws_iam_role.onprem_ecr_pull.assume_role_policy).Statement) == jsonencode([{
+    condition = aws_iam_role.onprem_ecr_pull.name == "${var.project}-${var.environment}-onprem-ecr-pull" && length(jsondecode(aws_iam_role.onprem_ecr_pull.assume_role_policy).Statement) == 2 && jsonencode(jsondecode(aws_iam_role.onprem_ecr_pull.assume_role_policy).Statement[0]) == jsonencode({
       Effect = "Allow", Action = ["sts:AssumeRole", "sts:TagSession"], Principal = { AWS = aws_iam_role.control_api.arn }
-    }])
-    error_message = "Only the Control API role may assume the on-prem ECR pull role; TagSession carries its transitive Pod Identity session tags."
+    })
+    error_message = "Preserve the existing Control API trust statement unchanged alongside the separately constrained existing renewer."
   }
   assert {
     condition = aws_iam_role_policy.onprem_ecr_pull.role == aws_iam_role.onprem_ecr_pull.id && jsonencode(jsondecode(aws_iam_role_policy.onprem_ecr_pull.policy).Statement) == jsonencode([

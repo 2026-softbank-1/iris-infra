@@ -105,13 +105,16 @@ GitHub Actions 변수와 자동 배포 절차는 [Terraform CI runbook](../../..
 
 `ci-control-api.tf`는 Control API Pod Identity 역할(`<project>-<environment>-control-api`) 하나의 생성·인라인 정책 관리와 EKS Pod Identity 전달(`iam:PassRole`, `pods.eks.amazonaws.com` 한정)만 허용하는 별도 정책을 CI 역할에 붙입니다. 이 역할은 `runtime_role_arns` 에 넣지 않으므로 EKS/EC2 PassRole 범위가 넓어지지 않고, `ci-eks.tf` 정책의 6144자 한도도 늘지 않습니다. 같은 정책이 Control API 가 AssumeRole 하는 `<project>-<environment>-onprem-ecr-pull` 역할의 생성·인라인 정책 관리도 허용합니다(이 역할은 다른 서비스에 넘기지 않으므로 PassRole 은 없습니다). 두 역할의 권한은 foundation `control-api-identity.tf`·`onprem-ecr-pull.tf` 에 있습니다. account를 foundation보다 먼저 적용합니다.
 
-같은 정책 문서에서 기존 VM 범용 갱신기의 `<project>-<environment>-onprem-ecr-renewer`와
-`<project>-<environment>-onprem-ecr-renewal-pull` 두 역할만 추가로 관리합니다. issuer인
-`onprem-ecr-renewer`만 `pods.eks.amazonaws.com`에 PassRole할 수 있고, pull 역할은
-AssumeRole 용도로만 사용합니다. foundation `onprem-ecr-renewal.tf`가 권한을 소유하고
-management가 전용 Pod Identity association을 소유합니다. 새 정책 문서/attachment를
-추가하지 않아 기존 account-plan 권한 검사기의 10개 문서 제한을 유지합니다.
-온프렘 bootstrap 및 기존 svc28 Job 전환은 [갱신기 runbook](../../../runtime/onprem-auth-renewal/README.md)을 따릅니다.
+같은 정책 문서에서 기존 수동 관리 역할 `<project>-<environment>-onprem-ecr-svc-28`에
+`GetRolePolicy`·`PutRolePolicy`·`DeleteRolePolicy`만 추가로 허용합니다. 역할 생성·삭제,
+trust 변경이나 새 PassRole 권한은 추가하지 않습니다. foundation `onprem-ecr-renewal.tf`는
+이 역할에 추가하는 AssumeRole inline policy만 소유하고, 기존 `onprem-ecr-pull` 역할의
+trust는 기존 Control API 문장을 보존하며 갱신기의 Pod Identity tags에 한정된 문장을 추가합니다.
+기존 role·Pod Identity association·인증 Secret을 재사용하며 새 AWS 역할/association을 만들지 않습니다.
+새 정책 문서/attachment도 추가하지 않아 account-plan 검사기의 10개 문서 제한을 유지합니다.
+실제 CI 역할에 AdministratorAccess가 이미 연결돼 있으면 이번 배포용 account 권한 추가는
+선행 조건이 아닙니다. scoped CI 운영으로 복귀할 때는 갱신한 account 정책을 적용해야 합니다.
+온프렘 권한 확장 및 기존 Job 전환은 [갱신기 runbook](../../../runtime/onprem-auth-renewal/README.md)을 따릅니다.
 
 같은 정책 문서가 서비스 화면의 셸을 여는 Console Gateway Pod Identity 역할(`<project>-<environment>-console-gateway`) 하나도 관리합니다. 별도 문장 `ConsoleGatewayRole` 이 생성·수정·삭제·태그만 허용하고(권한 정책 put/attach 는 허용하지 않음, 이 역할에는 권한 정책이 없어야 합니다) `PassConsoleGatewayRole` 이 `pods.eks.amazonaws.com` 한정 `iam:PassRole` 만 허용합니다. 이 역할도 `runtime_role_arns` 에 넣지 않으며 EKS Access Entry·Pod Identity association 의 ARN 은 `ci-eks.tf` 정책이 이미 덮습니다. 이번에도 새 정책 문서를 만들지 않아 검사기의 10개 문서 한도(관리형 7 + 인라인 3)를 유지합니다. account를 foundation보다 먼저 적용합니다.
 
