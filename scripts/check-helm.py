@@ -271,6 +271,10 @@ def semver_of(revision):
     return tuple(map(int, revision.removeprefix('iris-service-').split('.')))
 
 
+# What the ApplicationSet controller writes into every git generator on a webhook refresh (Argo CD 3.5).
+EMPTY_GENERATOR_TEMPLATE = {'metadata':{}, 'spec':{'destination':{}, 'project':''}}
+
+
 def check_onprem_servers(directory, targets, baseline):
     """User-registered on-prem servers: GitOps flag, per-server chart and probe chart (no cluster)."""
     indexed = lambda docs: {(d['kind'], d['metadata']['name']): d for d in docs}
@@ -317,7 +321,7 @@ def check_onprem_servers(directory, targets, baseline):
     assert probe_project['roles']==[{'name':'iris-deploy-reader','policies':['p, proj:iris-onprem-probe:iris-deploy-reader, applications, get, iris-onprem-probe/*, allow']}], 'Deploy Worker only reads probe status.'
 
     server_set = docs['ApplicationSet','iris-onprem-servers']['spec']
-    assert server_set['generators']==[{'git':{'repoURL':defaults['services']['repoURL'],'revision':'main','files':[{'path':'platform/onprem-servers/*/values.yaml'}]}}]
+    assert server_set['generators']==[{'git':{'repoURL':defaults['services']['repoURL'],'revision':'main','template':EMPTY_GENERATOR_TEMPLATE,'files':[{'path':'platform/onprem-servers/*/values.yaml'}]}}]
     assert server_set['syncPolicy']['applicationsSync']=='sync'
     template = server_set['template']
     assert template['metadata']=={'name':'iris-onprem-server-{{ .path.basename }}','finalizers':['resources-finalizer.argocd.argoproj.io']}
@@ -327,7 +331,7 @@ def check_onprem_servers(directory, targets, baseline):
     assert chart_source['path']=='helm/charts/iris-onprem-server' and chart_source['targetRevision']=='a'*40, 'Infra chart follows the reviewed infra revision.'
     assert chart_source['helm']['valueFiles']==['$values/{{ .path.path }}/values.yaml'] and values_source['ref']=='values'
     assert chart_source['helm']['valuesObject']['gatewayNamespace']=='onprem-gateway', 'valuesObject outranks the data file.'
-    assert spec['ignoreDifferences']==[{'group':'','kind':'Service','jsonPointers':['/spec/externalName']}]
+    assert spec['ignoreDifferences']==[{'kind':'Service','jsonPointers':['/spec/externalName']}]
     assert spec['syncPolicy']=={'automated':{'prune':True,'selfHeal':True},'syncOptions':['RespectIgnoreDifferences=true']}
     for source in spec['sources']:
         assert source['repoURL'] in project_repos[spec['project']]
@@ -842,6 +846,7 @@ def main():
             for source in app['spec'].get('sources') or [app['spec']['source']]:
                 assert source['repoURL'] in project_repos[app['spec']['project']], f"{app['metadata']['name']}: {source['repoURL']} is not in AppProject {app['spec']['project']} sourceRepos"
         appset = next(d for d in gitops if d['kind']=='ApplicationSet')['spec']
+        assert all(g['git'].get('template')==EMPTY_GENERATOR_TEMPLATE for d in gitops if d['kind']=='ApplicationSet' for g in d['spec']['generators']), 'Webhook refresh writes this back; Git must match.'
         chart_source, values_source = appset['template']['spec']['sources']
         assert appset['syncPolicy']['applicationsSync']=='sync', 'A removed service directory must delete its Application (Deploy Worker REMOVE).'
         assert appset['template']['metadata']['finalizers']==['resources-finalizer.argocd.argoproj.io'], 'Deleting a service Application must also delete its workload.'

@@ -70,6 +70,9 @@ spec:
     - git:
         repoURL: {{ $s.repoURL | quote }}
         revision: {{ $s.revision | quote }}
+        # The ApplicationSet controller writes this empty generator template back whenever a GitHub webhook refreshes
+        # the set; declaring it keeps the root Application from going OutOfSync after every GitOps push.
+        template: {metadata: {}, spec: {destination: {}, project: ""}}
         directories:
           - path: services/*/prod
   syncPolicy:
@@ -123,6 +126,9 @@ spec:
     - git:
         repoURL: {{ $s.repoURL | quote }}
         revision: {{ $s.revision | quote }}
+        # The ApplicationSet controller writes this empty generator template back whenever a GitHub webhook refreshes
+        # the set; declaring it keeps the root Application from going OutOfSync after every GitOps push.
+        template: {metadata: {}, spec: {destination: {}, project: ""}}
         directories:
           - path: services/*/onprem
   syncPolicy:
