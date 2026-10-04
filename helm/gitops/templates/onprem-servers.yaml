@@ -68,6 +68,9 @@ spec:
     - git:
         repoURL: {{ $s.repoURL | quote }}
         revision: {{ $s.revision | quote }}
+        # The ApplicationSet controller writes this empty generator template back whenever a GitHub webhook refreshes
+        # the set; declaring it keeps the root Application from going OutOfSync after every GitOps push.
+        template: {metadata: {}, spec: {destination: {}, project: ""}}
         files:
           - path: platform/onprem-servers/*/values.yaml
   syncPolicy:
@@ -105,7 +108,7 @@ spec:
         namespace: argocd
       # The Tailscale operator rewrites externalName to its proxy Service.
       ignoreDifferences:
-        - {group: "", kind: Service, jsonPointers: [/spec/externalName]}
+        - {kind: Service, jsonPointers: [/spec/externalName]}
       syncPolicy:
         automated: {prune: true, selfHeal: true}
         syncOptions: [RespectIgnoreDifferences=true]
@@ -122,6 +125,9 @@ spec:
     - git:
         repoURL: {{ $s.repoURL | quote }}
         revision: {{ $s.revision | quote }}
+        # The ApplicationSet controller writes this empty generator template back whenever a GitHub webhook refreshes
+        # the set; declaring it keeps the root Application from going OutOfSync after every GitOps push.
+        template: {metadata: {}, spec: {destination: {}, project: ""}}
         # Matches services/{id}/onprem-{serverKey} only; the legacy services/{id}/onprem stays with iris-svc-onprem-appset.
         directories:
           - path: services/*/onprem-*
