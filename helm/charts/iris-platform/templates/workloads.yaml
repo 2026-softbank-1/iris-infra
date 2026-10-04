@@ -109,7 +109,7 @@ spec:
             {{- end }}
           volumeMounts:
             {{- include "iris-platform.database-mount" $ | nindent 12 }}
-            {{- if eq $component "deploy-worker" }}
+            {{- if or (eq $component "deploy-worker") (and (eq $component "api") $.Values.api.argocdLogs) }}
             - {name: argocd-ca, mountPath: /etc/iris-argocd, readOnly: true}
             {{- end }}
           securityContext:
@@ -118,7 +118,7 @@ spec:
             {{- toYaml $settings.resources | nindent 12 }}
       volumes:
         {{- include "iris-platform.database-volume" $ | nindent 8 }}
-        {{- if eq $component "deploy-worker" }}
+        {{- if or (eq $component "deploy-worker") (and (eq $component "api") $.Values.api.argocdLogs) }}
         - name: argocd-ca
           configMap:
             name: {{ $.Values.deployWorker.caConfigMap | quote }}

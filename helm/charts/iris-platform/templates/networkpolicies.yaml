@@ -66,6 +66,34 @@ spec:
               app.kubernetes.io/name: argocd-server
       ports:
         - {protocol: TCP, port: 8080}
+{{- if .Values.api.argocdLogs }}
+---
+# The API reads on-prem runtime logs from argocd-server (pod-log API, read-only token).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-api-argocd
+  labels:
+    {{- include "iris-platform.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name | quote }}
+      app.kubernetes.io/component: api
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: argocd
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: argocd-server
+      ports:
+        - {protocol: TCP, port: 8080}
+{{- end }}
 ---
 # The API reads user service logs (Loki) and metrics (Prometheus) in observability.
 # Baseline application-boundary only allows 443/DNS egress.
