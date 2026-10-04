@@ -19,6 +19,8 @@ flowchart LR
 - `clusters/aws-dev-management/values/onprem-gateway.yaml`은 `publicIngress.enabled: true`와 기존 `*.internal.likelion.uk` ACM ARN을 사용합니다. 비공개 경로를 먼저 검증할 때는 이 값을 `false`로 두고 인증된 Kubernetes port-forward로 확인합니다.
 - 파일을 검토하고 main에 커밋·푸시하면 main을 추적하는 기존 Argo root가 변경을 동기화해야 합니다. root의 revision이나 Terraform CI를 이 작업에서 변경하지 않으며, bootstrap 재실행도 필요하지 않습니다. 활성화할 때 root/자식 Application의 실제 revision·Sync 상태를 확인합니다.
 
+사용자가 등록한 서버(`<label>-<serverKey>.internal.likelion.uk`)는 같은 게이트웨이가 host 끝의 serverKey 로 서버별 egress Service 를 고릅니다. 그 경로는 [온프레미스 서버 등록](onprem-server-registration.md)을 봅니다. 이 문서는 기존 VM 경로입니다.
+
 ## 1. Tailscale 선행 조건
 
 기존 management `tailscale` 네임스페이스의 operator와 `ProxyClass` CRD가 준비되어 있어야 합니다. operator가 사용하는 태그는 `tag:iris-operator`, 대상 VM은 `tag:iris-onprem`입니다.

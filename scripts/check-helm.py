@@ -148,6 +148,22 @@ def check_onprem_gateway(directory, targets, baseline):
             'ingress':[{'from':[{'namespaceSelector':{'matchLabels':{'kubernetes.io/metadata.name':'onprem-gateway'}},
                                 'podSelector':{'matchLabels':{'app.kubernetes.io/name':'onprem-gateway'}}}],
                         'ports':[{'protocol':'TCP','port':80}]}]}
+        # Per-server HTTP egress Services use the same ProxyClass, so the gateway egress rule above and this
+        # ingress rule already cover them without listing servers.
+        # The legacy VM's hand-made API proxy objects (ProxyClass/Service iris-onprem-api, NetworkPolicy
+        # iris-onprem-api-ingress, label onprem-api) are not Argo-managed; the chart must never render them.
+        for legacy in (('ProxyClass','iris-onprem-api'),('NetworkPolicy','iris-onprem-api'),('NetworkPolicy','iris-onprem-api-ingress'),('Service','iris-onprem-api')):
+            assert legacy not in resources, legacy
+        assert not any(d['kind']!='NetworkPolicy' and 'onprem-api' in json.dumps(d.get('spec',{})) for d in docs)
+        api_np = resources['NetworkPolicy','iris-onprem-server-api']
+        assert api_np['metadata']['namespace']=='tailscale'
+        assert api_np['spec']=={'podSelector':{'matchLabels':{'iris.dev/proxy':'onprem-server-api'}}, 'policyTypes':['Ingress'],
+            'ingress':[{'from':[{'namespaceSelector':{'matchLabels':{'kubernetes.io/metadata.name':'argocd'}},
+                                 'podSelector':{'matchExpressions':[{'key':'app.kubernetes.io/name','operator':'In','values':['argocd-application-controller','argocd-server']}]}}],
+                        'ports':[{'protocol':'TCP','port':6443}]}]}
+        api_proxy = resources['ProxyClass','iris-onprem-server-api']
+        assert 'namespace' not in api_proxy['metadata'] and api_proxy['metadata']['annotations']['argocd.argoproj.io/sync-wave']=='-1'
+        assert api_proxy['spec']['statefulSet']['pod']['labels']=={'iris.dev/proxy':'onprem-server-api'}
         proxy = resources['ProxyClass','iris-onprem-http']
         assert 'namespace' not in proxy['metadata'] and proxy['metadata']['annotations']['argocd.argoproj.io/sync-wave']=='-1'
         assert proxy['spec']['statefulSet']['pod']=={'labels':{'iris.dev/proxy':'onprem-http'},
@@ -168,7 +184,10 @@ def check_onprem_gateway(directory, targets, baseline):
         conf = resources['ConfigMap','onprem-gateway']['data']['nginx.conf']
         assert 'listen 8080 default_server;' in conf and 'server_name *.internal.likelion.uk;' in conf
         assert 'proxy_set_header Host $host;' in conf and 'proxy_set_header X-Forwarded-Proto $forwarded_proto;' in conf
-        assert 'set $upstream http://iris-onprem-apps.onprem-gateway.svc.cluster.local:80;' in conf
+        # Legacy hosts keep the fixed upstream; a host ending in -{serverKey} goes to that server's egress Service.
+        assert 'default http://iris-onprem-apps.onprem-gateway.svc.cluster.local:80;' in conf
+        assert r'"~^[a-z0-9-]+-(?<server_key>[a-z][a-z0-9]{7})\.internal\.likelion\.uk$" http://iris-onprem-apps-$server_key.onprem-gateway.svc.cluster.local:80;' in conf
+        assert 'proxy_pass $onprem_upstream;' in conf
         assert 'valid=30s ipv6=off;' in conf and 'proxy_connect_timeout 5s;' in conf
         assert 'proxy_send_timeout 60s;' in conf and 'proxy_read_timeout 60s;' in conf
         assert not re.search(r'proxy_pass\s+[^;]*\$(host|http_host)',conf), 'Fixed upstream prevents an open proxy.'
@@ -191,10 +210,168 @@ def check_onprem_gateway(directory, targets, baseline):
         result = subprocess.run([HELM,'template','check',str(chart),'-f',str(bad_values)],capture_output=True)
         assert result.returncode, f'Invalid gateway values must fail: {override}'
     policy = json.loads((ROOT/'clusters/aws-dev-management/onprem/tailnet-policy-additions.json').read_text())
-    assert policy=={'tagOwners':{'tag:iris-onprem-apps':['tag:iris-operator']},
-                    'grants':[{'src':['tag:iris-onprem-apps'],'dst':['tag:iris-onprem'],'ip':['tcp:80']}],
-                    'tests':[{'src':'tag:iris-onprem-apps','accept':['tag:iris-onprem:80'],'deny':['tag:iris-onprem:6443']}]}
+    assert policy['tagOwners']=={'tag:iris-onprem-apps':['tag:iris-operator'],'tag:iris-onprem-api':['tag:iris-operator']}
+    # Each egress proxy reaches only its port; on-prem servers (tag:iris-onprem) are destinations only.
+    assert policy['grants']==[{'src':['tag:iris-onprem-apps'],'dst':['tag:iris-onprem'],'ip':['tcp:80']},
+                              {'src':['tag:iris-onprem-api'],'dst':['tag:iris-onprem'],'ip':['tcp:6443']}]
+    assert not any('tag:iris-onprem' in grant['src'] for grant in policy['grants'])
+    tests = {t['src']: t for t in policy['tests']}
+    assert tests['tag:iris-onprem-apps']=={'src':'tag:iris-onprem-apps','accept':['tag:iris-onprem:80'],'deny':['tag:iris-onprem:6443']}
+    assert tests['tag:iris-onprem-api']['accept']==['tag:iris-onprem:6443'] and 'tag:iris-onprem:80' in tests['tag:iris-onprem-api']['deny']
+    assert 'accept' not in tests['tag:iris-onprem'] and {'tag:iris-onprem:80','tag:iris-onprem:6443','tag:iris-operator:443'} <= set(tests['tag:iris-onprem']['deny'])
+    # The chart's egress Services must use exactly the tags this fragment grants.
+    proxy_tags = set()
+    for chart, fixture in (('iris-onprem-gateway', ROOT/'clusters/aws-dev-management/values/onprem-gateway.yaml'), ('iris-onprem-server', ROOT/'helm/charts/iris-onprem-server/ci/server-values.yaml')):
+        rendered = yaml.safe_load_all(command('template', 'check', ROOT/'helm/charts'/chart, '-f', fixture, '--namespace', 'onprem-gateway'))
+        proxy_tags |= {d['metadata']['annotations']['tailscale.com/tags'] for d in rendered if d and d['kind']=='Service' and 'tailscale.com/tags' in d['metadata'].get('annotations', {})}
+    assert proxy_tags=={src for grant in policy['grants'] for src in grant['src']}
     # These are fragment assertions, not evaluation of the live/merged Tailscale policy.
+
+
+def semver_of(revision):
+    return tuple(map(int, revision.removeprefix('iris-service-').split('.')))
+
+
+def check_onprem_servers(directory, targets, baseline):
+    """User-registered on-prem servers: GitOps flag, per-server chart and probe chart (no cluster)."""
+    indexed = lambda docs: {(d['kind'], d['metadata']['name']): d for d in docs}
+    base = indexed(baseline)
+    management = targets['management']['endpoint']
+    defaults = json.loads((ROOT/'helm/gitops/values.yaml').read_text())
+    assert defaults['onpremServers']['enabled'] is False, 'Enable only after the runbook prerequisites (docs/runbooks/onprem-server-registration.md).'
+    for name in ('iris-onprem-servers', 'iris-onprem-probe'):
+        assert ('AppProject', name) not in base
+    for name in ('iris-onprem-servers', 'iris-svc-onprem-servers-appset'):
+        assert ('ApplicationSet', name) not in base
+    values = directory/'gitops-onprem-servers.json'
+    # Enabling keeps the default pin only if it already supports imagePullSecrets.
+    values.write_text(json.dumps({'revision':'a'*40, 'targets':targets, 'services':{'onprem':{'enabled':False}},
+                                  'onpremGateway':{'enabled':False}, 'onpremServers':{'enabled':True}}))
+    if semver_of(defaults['onpremServers']['chartRevision']) < (0,8,0):
+        failed = subprocess.run([HELM,'template','check',str(ROOT/'helm/gitops'),'-f',str(values),'--kube-version',VERSIONS['kubernetes']+'.0'],capture_output=True,text=True)
+        assert failed.returncode and 'below iris-service-0.8.0' in failed.stderr, 'Enabling servers with a chart that rejects imagePullSecrets must fail.'
+    server_revision = 'iris-service-0.8.0'
+    values.write_text(json.dumps({'revision':'a'*40, 'targets':targets, 'services':{'onprem':{'enabled':False}},
+                                  'onpremGateway':{'enabled':False}, 'onpremServers':{'enabled':True,'chartRevision':server_revision}}))
+    docs = indexed(render(ROOT/'helm/gitops', values, namespace='argocd'))
+    # Existing AWS documents stay as they are; only the service project gains the onprem-* destination.
+    for key in (('ApplicationSet','iris-svc-appset'), ('AppProject','iris-addons-workload')):
+        assert docs[key]==base[key]
+    assert ('ApplicationSet','iris-svc-onprem-appset') not in docs, 'The legacy on-prem ApplicationSet keeps its own flag.'
+    services = docs['AppProject','iris-svc-project']['spec']
+    assert services['destinations']==[{'server':targets['workload']['endpoint'],'namespace':'svc-*'},{'name':'onprem-*','namespace':'svc-*'}]
+    assert ('Application','iris-onprem-gateway') in docs, 'Servers route through the gateway, so the flag enables it.'
+    addons = docs['AppProject','iris-addons-management']['spec']
+    assert {'server':management,'namespace':'tailscale'} in addons['destinations'] and {'group':'tailscale.com','kind':'ProxyClass'} in addons['clusterResourceWhitelist']
+    project_repos = {k[1]: d['spec']['sourceRepos'] for k, d in docs.items() if k[0]=='AppProject'}
+
+    servers_project = docs['AppProject','iris-onprem-servers']['spec']
+    assert servers_project['destinations']==[{'server':management,'namespace':'argocd'},{'server':management,'namespace':'onprem-gateway'}]
+    assert servers_project['clusterResourceWhitelist']==[]
+    allowed = {(w['group'],w['kind']) for w in servers_project['namespaceResourceWhitelist']}
+    assert allowed=={('bitnami.com','SealedSecret'),('','Service'),('argoproj.io','Application')}
+    probe_project = docs['AppProject','iris-onprem-probe']['spec']
+    assert probe_project['destinations']==[{'name':'onprem-*','namespace':'iris-system'}] and probe_project['clusterResourceWhitelist']==[]
+    assert probe_project['namespaceResourceWhitelist']==[{'group':'','kind':'ConfigMap'}]
+    assert probe_project['roles']==[{'name':'iris-deploy-reader','policies':['p, proj:iris-onprem-probe:iris-deploy-reader, applications, get, iris-onprem-probe/*, allow']}], 'Deploy Worker only reads probe status.'
+
+    server_set = docs['ApplicationSet','iris-onprem-servers']['spec']
+    assert server_set['generators']==[{'git':{'repoURL':defaults['services']['repoURL'],'revision':'main','files':[{'path':'platform/onprem-servers/*/values.yaml'}]}}]
+    assert server_set['syncPolicy']['applicationsSync']=='sync'
+    template = server_set['template']
+    assert template['metadata']=={'name':'iris-onprem-server-{{ .path.basename }}','finalizers':['resources-finalizer.argocd.argoproj.io']}
+    spec = template['spec']
+    assert spec['project']=='iris-onprem-servers' and spec['destination']=={'server':management,'namespace':'argocd'}
+    chart_source, values_source = spec['sources']
+    assert chart_source['path']=='helm/charts/iris-onprem-server' and chart_source['targetRevision']=='a'*40, 'Infra chart follows the reviewed infra revision.'
+    assert chart_source['helm']['valueFiles']==['$values/{{ .path.path }}/values.yaml'] and values_source['ref']=='values'
+    assert chart_source['helm']['valuesObject']['gatewayNamespace']=='onprem-gateway', 'valuesObject outranks the data file.'
+    assert spec['ignoreDifferences']==[{'group':'','kind':'Service','jsonPointers':['/spec/externalName']}]
+    assert spec['syncPolicy']=={'automated':{'prune':True,'selfHeal':True},'syncOptions':['RespectIgnoreDifferences=true']}
+    for source in spec['sources']:
+        assert source['repoURL'] in project_repos[spec['project']]
+
+    svc_set = docs['ApplicationSet','iris-svc-onprem-servers-appset']['spec']
+    assert svc_set['generators'][0]['git']['directories']==[{'path':'services/*/onprem-*'}]
+    svc = svc_set['template']
+    assert svc['metadata']['name']=='svc-{{ index .path.segments 1 }}', 'Deploy Worker observes svc-{id} on every target.'
+    assert svc['spec']['project']=='iris-svc-project'
+    assert svc['spec']['destination']=={'name':'{{ index .path.segments 2 }}','namespace':'svc-{{ index .path.segments 1 }}'}
+    svc_chart = svc['spec']['sources'][0]
+    assert svc_chart['targetRevision']==server_revision
+    assert svc_chart['helm']['valuesObject']=={'route':{'className':'traefik'},'networkPolicy':{'egressDeniedCidrs':defaults['onpremServers']['egressDeniedCidrs']}}
+    chart_version = yaml.safe_load((ROOT/'helm/charts/iris-service/Chart.yaml').read_text())['version']
+    assert semver_of(defaults['onpremServers']['chartRevision'])<=semver_of(chart_version), 'Pin the current chart tag or an earlier released one.'
+    # Argo directory globs use path.Match: '*' never crosses '/', and 'onprem' and 'onprem-*' do not overlap.
+    import fnmatch
+    for path, legacy, server in (('services/12/onprem',True,False),('services/12/onprem-k3x9q2ma',False,True),('services/12/prod',False,False)):
+        assert fnmatch.fnmatchcase(path,'services/*/onprem')==legacy and fnmatch.fnmatchcase(path,'services/*/onprem-*')==server
+
+    # Render the server chart the way the ApplicationSet does: the data file plus its valuesObject.
+    chart = ROOT/'helm/charts/iris-onprem-server'
+    data = yaml.safe_load((chart/'ci/server-values.yaml').read_text())
+    key = data['server']['key']
+    app_values = json.loads(json.dumps(chart_source['helm']['valuesObject']).replace('{{ .path.basename }}', key))
+    combined = directory/'onprem-server.json'
+    combined.write_text(json.dumps({**{k: data[k] for k in ('server','cluster')}, **app_values}))
+    for fixture in (chart/'ci/server-values.yaml', combined):
+        rendered = render(chart, fixture, release='onprem-server-'+key, namespace='argocd')
+        check_images(rendered)
+        resources = indexed(rendered)
+        assert set(resources)=={('SealedSecret','cluster-onprem-'+key),('Service','iris-onprem-api-'+key),('Service','iris-onprem-apps-'+key),('Application','iris-onprem-probe-'+key)}
+        assert {group_kind(d) for d in rendered} <= allowed
+        destinations = {(d['server'], d['namespace']) for d in servers_project['destinations']}
+        assert all((management, d['metadata']['namespace']) in destinations for d in rendered), 'Every resource names a namespace its project allows.'
+        sealed = resources['SealedSecret','cluster-onprem-'+key]
+        assert sealed['metadata']['namespace']=='argocd' and sealed['metadata']['annotations']['argocd.argoproj.io/sync-wave']=='-1'
+        assert sealed['spec']['encryptedData']=={'config':data['cluster']['encryptedConfig']}, 'Only the sealed config is secret.'
+        secret = sealed['spec']['template']
+        assert secret['metadata']['name']=='cluster-onprem-'+key and secret['metadata']['namespace']=='argocd', 'Strict scope Deploy Worker sealed for.'
+        assert secret['metadata']['labels']['argocd.argoproj.io/secret-type']=='cluster' and secret['type']=='Opaque'
+        assert secret['data']=={'name':'onprem-'+key,'server':f'https://iris-onprem-api-{key}.argocd.svc.cluster.local:6443'}
+        api, apps = resources['Service','iris-onprem-api-'+key], resources['Service','iris-onprem-apps-'+key]
+        assert api['metadata']['namespace']=='argocd' and apps['metadata']['namespace']=='onprem-gateway'
+        for service, proxy_class, hostname, tag, port in ((api,'iris-onprem-server-api','iris-mgmt-onprem-api-'+key,'tag:iris-onprem-api',6443),
+                                                          (apps,'iris-onprem-http','iris-mgmt-onprem-http-'+key,'tag:iris-onprem-apps',80)):
+            notes = service['metadata']['annotations']
+            assert {k: v for k, v in notes.items() if k.startswith('tailscale.com/')}=={'tailscale.com/proxy-class':proxy_class,
+                'tailscale.com/hostname':hostname,'tailscale.com/tailnet-fqdn':data['server']['tailnetFqdn'],'tailscale.com/tags':tag}
+            assert service['spec']['type']=='ExternalName' and service['spec']['externalName']=='placeholder' and service['spec']['ports'][0]['port']==port
+        probe = resources['Application','iris-onprem-probe-'+key]
+        assert probe['metadata']['namespace']=='argocd' and 'finalizers' not in probe['metadata'], 'Deleting a server must not wait on its cluster.'
+        assert probe['spec']['project']=='iris-onprem-probe' and probe['spec']['destination']=={'name':'onprem-'+key,'namespace':'iris-system'}
+        assert probe['spec']['source']['path']=='helm/charts/iris-onprem-probe' and probe['spec']['source']['repoURL'] in project_repos['iris-onprem-probe']
+        assert probe['spec']['syncPolicy']['automated']=={'prune':True,'selfHeal':True}
+        assert 'syncOptions' not in probe['spec']['syncPolicy'], 'install.sh creates iris-system and grants only ConfigMaps there; no CreateNamespace.'
+    assert probe['spec']['source']['targetRevision']=='a'*40, 'Probe chart follows the same reviewed infra revision.'
+    probe_docs = render(ROOT/'helm/charts/iris-onprem-probe', ROOT/'helm/charts/iris-onprem-probe/ci/probe-values.yaml', release='iris-onprem-probe', namespace='iris-system')
+    assert [(d['kind'], d['metadata']['name'], d['data']) for d in probe_docs]==[('ConfigMap','iris-onprem-probe',{'serverKey':key})]
+    assert {group_kind(d) for d in probe_docs} <= {(w['group'],w['kind']) for w in probe_project['namespaceResourceWhitelist']}
+
+    good = json.loads(combined.read_text())
+    mutations = {
+        'directory differs from key': lambda v: v.update(directoryKey='zzzzzzzz'),
+        'cluster name differs': lambda v: v['server'].update(clusterName='onprem-zzzzzzzz'),
+        'fqdn of another server': lambda v: v['server'].update(tailnetFqdn='iris-zzzzzzzz.tailb046e8.ts.net'),
+        'fqdn outside tailnet': lambda v: v['server'].update(tailnetFqdn='iris-k3x9q2ma.example.com'),
+        'key starts with digit': lambda v: (v['server'].update(key='1k3x9q2m', clusterName='onprem-1k3x9q2m', tailnetFqdn='iris-1k3x9q2m.tailb046e8.ts.net'), v.update(directoryKey='1k3x9q2m')),
+        'api port': lambda v: v['server'].update(apiPort=443),
+        'apps port': lambda v: v['server'].update(appsPort=8080),
+        'plaintext config': lambda v: v['cluster'].update(encryptedConfig='{"bearerToken": "x"}'),
+        'unknown field': lambda v: v['cluster'].update(server='https://example.com'),
+        'other probe project': lambda v: v['probe'].update(project='default'),
+        'unreviewed revision': lambda v: v['probe'].update(targetRevision='feature/x'),
+        'missing directory key': lambda v: v.pop('directoryKey'),
+        'apps Service moved': lambda v: v.update(gatewayNamespace='argocd'),
+    }
+    bad = directory/'bad-onprem-server.json'
+    for label, change in mutations.items():
+        candidate = copy.deepcopy(good); change(candidate); bad.write_text(json.dumps(candidate))
+        result = subprocess.run([HELM,'template','check',str(chart),'-f',str(bad),'--namespace','argocd'],capture_output=True)
+        assert result.returncode, f'Invalid server data must fail before Argo applies it: {label}'
+    for bad_probe in ({'serverKey':'UPPER123'}, {'serverKey':'k3x9q2ma','extra':1}):
+        bad.write_text(json.dumps(bad_probe))
+        assert subprocess.run([HELM,'template','check',str(ROOT/'helm/charts/iris-onprem-probe'),'-f',str(bad)],capture_output=True).returncode
 
 
 def canary_replicas(replicas, weight, max_surge=1):
@@ -321,6 +498,7 @@ def check_platform(directory, targets, bootstrap):
                 else:
                     assert 'GITHUB_APP_PRIVATE_KEY' not in env
                     assert env['ARGOCD_TOKEN']['valueFrom']['secretKeyRef']['name']==values['deployWorker']['argocdSecret']
+                    assert env['ARGOCD_PROBE_TOKEN']['valueFrom']['secretKeyRef']=={'name':values['deployWorker']['argocdSecret'],'key':'ARGOCD_PROBE_TOKEN','optional':True}, 'Probe reader token is optional and Deploy Worker only.'
                     assert all(env[key]['valueFrom']['secretKeyRef']['name']==values['deployWorker']['githubSecret'] for key in ('GITOPS_APP_ID','GITOPS_APP_PRIVATE_KEY','GITOPS_INSTALLATION_ID'))
                     assert next(v for v in pod['volumes'] if v['name']=='argocd-ca')['configMap']['name']==values['deployWorker']['caConfigMap']
         prep=[d for d in docs if d['kind'] in {'ServiceAccount','ConfigMap','NetworkPolicy'}]
@@ -366,7 +544,7 @@ def check_platform(directory, targets, bootstrap):
     assert {d['metadata']['name'] for d in docs if d['kind'] in {'Deployment','Job','Ingress'}}=={'iris-platform-api','iris-platform-migration','iris-platform-error-agent'}, 'Only components with a digest deploy.'
     enabled=directory/'gitops-platform.json';enabled.write_text(json.dumps({'revision':'a'*40,'targets':targets,'platform':{'enabled':True},'services':{'onprem':{'enabled':False}},'onpremGateway':{'enabled':False}}))
     docs=render(ROOT/'helm/gitops', enabled, namespace='argocd')
-    assert sum(d['kind']=='Application' for d in docs)==14 and sum(d['kind']=='AppProject' for d in docs)==4
+    assert sum(d['kind']=='Application' for d in docs)==15 and sum(d['kind']=='AppProject' for d in docs)==4
     app=next(d for d in docs if d['kind']=='Application' and d['metadata']['name']=='iris-platform')
     assert app['metadata']['finalizers']==['resources-finalizer.argocd.argoproj.io'] and app['spec']['syncPolicy']['automated']=={'prune':True,'selfHeal':True}
     assert app['spec']['destination']=={'server':targets['management']['endpoint'],'namespace':'iris-platform'}
@@ -397,7 +575,7 @@ def main():
         values.write_text(json.dumps({'revision':'a'*40,'targets':targets,'services':{'onprem':{'enabled':False}},'onpremGateway':{'enabled':False}}))
         gitops = render(ROOT/'helm/gitops', values, namespace='argocd')
         # Platform is opt-in at bootstrap (GITOPS_PLATFORM_ENABLED); check_platform covers it.
-        assert sum(d['kind']=='Application' for d in gitops)==13
+        assert sum(d['kind']=='Application' for d in gitops)==14
         for app in (d for d in gitops if d['kind']=='Application' and d['metadata']['name'].endswith('-aws-load-balancer-controller')):
             # Re-sync must not rotate the LBC webhook certificate under running controllers.
             ignored = {(i['kind'],i['name']) for i in app['spec']['ignoreDifferences']}
@@ -415,7 +593,12 @@ def main():
         assert appset['template']['metadata']['finalizers']==['resources-finalizer.argocd.argoproj.io'], 'Deleting a service Application must also delete its workload.'
         service_pins = json.loads((ROOT/'helm/gitops/values.yaml').read_text())['services']
         chart_version = yaml.safe_load((ROOT/'helm/charts/iris-service/Chart.yaml').read_text())['version']
-        assert chart_source['targetRevision']==service_pins['chartRevision']=='iris-service-'+chart_version, 'The AWS ApplicationSet must pin the current iris-service chart tag.'
+        assert chart_source['targetRevision']==service_pins['chartRevision'], 'The AWS ApplicationSet must pin services.chartRevision.'
+        # A new chart version merges first; its tag is cut on the merge commit and a pin follows in a separate PR,
+        # so Argo never points at a tag that does not exist yet. AWS needs Rollouts (0.7.0 or later).
+        assert (0,7,0) <= semver_of(service_pins['chartRevision']) <= semver_of(chart_version), 'AWS must pin a released iris-service tag from 0.7.0 up to the current chart.'
+        if service_pins['chartRevision'] != 'iris-service-'+chart_version:
+            print(f"Notice: AWS services pin {service_pins['chartRevision']}; iris-service {chart_version} reaches them only after its tag and a pin PR.")
         # on-prem has no Argo Rollouts controller; it stays on the Deployment-based chart (docs/runbooks/argo-rollouts.md).
         assert service_pins['onprem']['chartRevision']==ONPREM_CHART_REVISION, 'on-prem must stay on the Deployment-based iris-service 0.6.0 until it runs Argo Rollouts.'
         assert values_source['ref']=='values' and chart_source['helm']['valueFiles']==['$values/{{ .path.path }}/values.yaml']
@@ -452,12 +635,18 @@ def main():
             'plaintext field': lambda v: v['variables'].update(plain={'A':'b'}),
             'unknown identity field': lambda v: v['iris'].update(x=1),
             'invalid service name': lambda v: v['iris'].update(serviceName='My_App'),
+            'invalid pull secret name': lambda v: v.update(imagePullSecrets=[{'name':'Iris_Ecr'}]),
+            'empty pull secrets': lambda v: v.update(imagePullSecrets=[]),
+            'pull secret extra field': lambda v: v.update(imagePullSecrets=[{'name':'iris-ecr-pull','namespace':'x'}]),
         }
         bad_service = directory/'bad-service.json'
         for label, change in mutations.items():
             values = copy.deepcopy(good); change(values); bad_service.write_text(json.dumps(values))
             result = subprocess.run([HELM,'template','demo',str(ROOT/'helm/charts/iris-service'),'-f',str(bad_service),'--kube-version',VERSIONS['kubernetes']+'.0'],capture_output=True)
             assert result.returncode, f'Invalid user variables must fail before deployment: {label}'
+        assert 'imagePullSecrets' not in rollout['spec']['template']['spec'], 'AWS nodes pull from ECR with their own role.'
+        pulled = render(ROOT/'helm/charts/iris-service', ROOT/'helm/charts/iris-service/ci/onprem-server-values.yaml', namespace='svc-12')
+        assert next(d for d in pulled if d['kind']=='Rollout')['spec']['template']['spec']['imagePullSecrets']==[{'name':'iris-ecr-pull'}], 'User-registered servers pull with the namespace Secret their CronJob refreshes.'
         egress = next(d for d in service_docs if d['kind']=='NetworkPolicy' and d['metadata']['name']=='restrict-egress')['spec']
         assert egress['podSelector']=={} and egress['policyTypes']==['Egress'] and {'cidr':'0.0.0.0/0','except':['10.40.0.0/16','169.254.0.0/16']} in [t.get('ipBlock') for r in egress['egress'] for t in r['to']], 'User pods must not reach VPC (collector NLB, nodes) or link-local addresses.'
         assert ingress['metadata']['annotations']['alb.ingress.kubernetes.io/group.name']=='iris-service-external', 'All services share the external ALB group.'
@@ -471,7 +660,7 @@ def main():
         tracking_values['revision'] = 'main'
         tracking.write_text(json.dumps(tracking_values))
         tracking_apps = {d['metadata']['name']:d for d in render(ROOT/'helm/gitops', tracking, namespace='argocd') if d['kind']=='Application'}
-        assert tracking_apps.keys()==pinned_apps.keys() and len(tracking_apps)==15
+        assert tracking_apps.keys()==pinned_apps.keys() and len(tracking_apps)==16
         assert {'iris-platform','iris-management-alb-log-collector'} <= tracking_apps.keys()
         infra_repo = json.loads((ROOT/'helm/gitops/values.yaml').read_text())['repoURL']
         for name, app in tracking_apps.items():
@@ -504,6 +693,7 @@ def main():
         assert {'server':'https://onprem.example:6443','namespace':'svc-*'} in project['destinations']
         assert 'iris-svc-onprem-appset' not in {d['metadata']['name'] for d in gitops if d['kind']=='ApplicationSet'}, 'AWS-only fixture disables the on-prem ApplicationSet.'
         check_onprem_gateway(directory, targets, gitops)
+        check_onprem_servers(directory, targets, gitops)
         check_platform(directory, targets, bootstrap)
         charts = {}
         for name, pin in VERSIONS['charts'].items():
@@ -566,7 +756,9 @@ def main():
                         assert '--kubelet-certificate-authority=/var/run/secrets/kubernetes.io/serviceaccount/ca.crt' in args
                         assert '--kubelet-insecure-tls' not in args
                 elif name=='sealed-secrets':
-                    assert purpose=='workload', 'User variables are unsealed only where user services run.'
+                    # workload: user variables. management: Argo cluster Secrets of user-registered on-prem servers.
+                    # Same pin and settings; each cluster generates its own key.
+                    assert (ROOT/'clusters/aws-dev-management/values/sealed-secrets.yaml').read_text()==(ROOT/'clusters/aws-dev-workload/values/sealed-secrets.yaml').read_text()
                     [controller] = [d for d in docs if d['kind']=='Deployment']
                     assert controller['metadata']['name']=='sealed-secrets-controller' and controller['spec']['replicas']==1
                     args = controller['spec']['template']['spec']['containers'][0]['args']

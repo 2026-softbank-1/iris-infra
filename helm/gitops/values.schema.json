@@ -140,6 +140,19 @@
         }
       }
     },
+    "onpremServers": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled"],
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "chartRevision": {"type": "string", "pattern": "^iris-service-[0-9]+\\.[0-9]+\\.[0-9]+$"},
+        "ingressClassName": {"type": "string", "minLength": 1},
+        "egressDeniedCidrs": {"type": "array", "minItems": 1, "items": {"type": "string"}}
+      },
+      "if": {"properties": {"enabled": {"const": true}}},
+      "then": {"required": ["chartRevision", "ingressClassName", "egressDeniedCidrs"]}
+    },
     "onpremGateway": {
       "type": "object",
       "additionalProperties": false,

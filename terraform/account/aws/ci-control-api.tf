@@ -1,13 +1,15 @@
 # Administrators apply account before foundation. The Control API role only reads build logs,
 # so CI may administer that one role and pass it only to EKS Pod Identity.
+# The on-prem ECR pull role is assumed by the Control API (STS), never passed to a service.
 locals {
-  control_api_role_arn = "arn:aws:iam::${var.aws_account_id}:role/${var.project}-${var.environment}-control-api"
+  control_api_role_arn     = "arn:aws:iam::${var.aws_account_id}:role/${var.project}-${var.environment}-control-api"
+  onprem_ecr_pull_role_arn = "arn:aws:iam::${var.aws_account_id}:role/${var.project}-${var.environment}-onprem-ecr-pull"
 }
 
 resource "aws_iam_policy" "control_api" {
   name = "${var.project}-${var.environment}-control-api-deployment"
   policy = jsonencode({ Version = "2012-10-17", Statement = [
-    { Sid = "ControlApiRole", Effect = "Allow", Action = ["iam:CreateRole", "iam:GetRole", "iam:UpdateAssumeRolePolicy", "iam:UpdateRole", "iam:UpdateRoleDescription", "iam:DeleteRole", "iam:ListRolePolicies", "iam:ListAttachedRolePolicies", "iam:ListInstanceProfilesForRole", "iam:PutRolePolicy", "iam:GetRolePolicy", "iam:DeleteRolePolicy", "iam:TagRole", "iam:UntagRole", "iam:ListRoleTags"], Resource = local.control_api_role_arn },
+    { Sid = "ControlApiRole", Effect = "Allow", Action = ["iam:CreateRole", "iam:GetRole", "iam:UpdateAssumeRolePolicy", "iam:UpdateRole", "iam:UpdateRoleDescription", "iam:DeleteRole", "iam:ListRolePolicies", "iam:ListAttachedRolePolicies", "iam:ListInstanceProfilesForRole", "iam:PutRolePolicy", "iam:GetRolePolicy", "iam:DeleteRolePolicy", "iam:TagRole", "iam:UntagRole", "iam:ListRoleTags"], Resource = [local.control_api_role_arn, local.onprem_ecr_pull_role_arn] },
     { Sid = "PassControlApiRole", Effect = "Allow", Action = ["iam:PassRole"], Resource = local.control_api_role_arn, Condition = { StringEquals = { "iam:PassedToService" = "pods.eks.amazonaws.com" } } }
   ] })
 }

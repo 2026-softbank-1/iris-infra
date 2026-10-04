@@ -1,0 +1,35 @@
+{{- $key := include "iris-onprem-server.key" . }}
+# Deploy Worker marks the server CONNECTED when this Application is Synced and Healthy: Argo reached the
+# server's API through the egress proxy with the sealed token and wrote one ConfigMap.
+# No resources finalizer: deleting the server must not wait on a cluster that may already be gone.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: iris-onprem-probe-{{ $key }}
+  namespace: argocd
+  labels:
+    {{- include "iris-onprem-server.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  project: {{ .Values.probe.project }}
+  source:
+    repoURL: {{ .Values.probe.repoURL | quote }}
+    targetRevision: {{ .Values.probe.targetRevision | quote }}
+    path: helm/charts/iris-onprem-probe
+    helm:
+      releaseName: iris-onprem-probe
+      valuesObject:
+        serverKey: {{ $key }}
+  destination:
+    name: {{ .Values.server.clusterName }}
+    # install.sh creates iris-system and lets the Argo ServiceAccount write only ConfigMaps there, so the
+    # probe needs no CreateNamespace. Reads are not limited: the deployer ClusterRole has cluster-wide
+    # get/list/watch on */* (Argo's cache), Secrets included.
+    namespace: iris-system
+  syncPolicy:
+    automated: {prune: true, selfHeal: true}
+    # The server may join the tailnet after this Application exists; keep retrying the first sync.
+    retry:
+      limit: 10
+      backoff: {duration: 30s, factor: 2, maxDuration: 5m}

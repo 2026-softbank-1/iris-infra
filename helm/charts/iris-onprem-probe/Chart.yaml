@@ -1,0 +1,6 @@
+apiVersion: v2
+name: iris-onprem-probe
+description: One ConfigMap that Argo CD syncs to a user-registered on-prem server to prove it can reach and write to it
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

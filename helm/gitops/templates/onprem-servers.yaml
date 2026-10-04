@@ -1,0 +1,161 @@
+{{- /* User-registered on-prem servers (docs/runbooks/onprem-server-registration.md). Deploy Worker writes one
+     platform/onprem-servers/{serverKey}/values.yaml per server; Argo turns it into a cluster Secret, Tailscale egress
+     Services and a probe Application. Services on those servers live in services/{id}/onprem-{serverKey}. */}}
+{{- if .Values.onpremServers.enabled }}
+{{- $management := .Values.targets.management }}
+{{- $s := .Values.services }}
+{{- $o := .Values.onpremServers }}
+{{- if semverCompare "<0.8.0" (trimPrefix "iris-service-" $o.chartRevision) }}
+{{- fail (printf "onpremServers.chartRevision %s is below iris-service-0.8.0: server services set imagePullSecrets, which older chart schemas reject. Tag iris-service-0.8.0 first." $o.chartRevision) }}
+{{- end }}
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: iris-onprem-servers
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  sourceRepos:
+    - {{ .Values.repoURL | quote }}
+    - {{ $s.repoURL | quote }}
+  destinations:
+    - server: {{ $management.endpoint | quote }}
+      namespace: argocd
+    - server: {{ $management.endpoint | quote }}
+      namespace: onprem-gateway
+  clusterResourceWhitelist: []
+  # Only what the iris-onprem-server chart renders. The probe Application it creates is confined by its own project.
+  namespaceResourceWhitelist:
+    - {group: bitnami.com, kind: SealedSecret}
+    - {group: "", kind: Service}
+    - {group: argoproj.io, kind: Application}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: iris-onprem-probe
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  sourceRepos:
+    - {{ .Values.repoURL | quote }}
+  # install.sh lets the server's Argo ServiceAccount write only ConfigMaps in iris-system; the project allows no more.
+  # Its reads are cluster-wide (deployer ClusterRole), Secrets included.
+  destinations:
+    - name: onprem-*
+      namespace: iris-system
+  clusterResourceWhitelist: []
+  namespaceResourceWhitelist:
+    - {group: "", kind: ConfigMap}
+  roles:
+    # Deploy Worker reads probe status with this role's token. A project role can only read its own project,
+    # so this is a second token next to iris-svc-project's.
+    - name: iris-deploy-reader
+      policies:
+        - p, proj:iris-onprem-probe:iris-deploy-reader, applications, get, iris-onprem-probe/*, allow
+---
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: iris-onprem-servers
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - git:
+        repoURL: {{ $s.repoURL | quote }}
+        revision: {{ $s.revision | quote }}
+        files:
+          - path: platform/onprem-servers/*/values.yaml
+  syncPolicy:
+    # Deleting the server directory (Deploy Worker) deletes its Application and, through the finalizer,
+    # the cluster Secret, egress Services and probe Application.
+    applicationsSync: sync
+  template:
+    metadata:
+      name: 'iris-onprem-server-{{ "{{" }} .path.basename {{ "}}" }}'
+      finalizers:
+        - resources-finalizer.argocd.argoproj.io
+    spec:
+      project: iris-onprem-servers
+      sources:
+        - repoURL: {{ .Values.repoURL | quote }}
+          path: helm/charts/iris-onprem-server
+          targetRevision: {{ .Values.revision | quote }}
+          helm:
+            releaseName: 'onprem-server-{{ "{{" }} .path.basename {{ "}}" }}'
+            valueFiles:
+              - '$values/{{ "{{" }} .path.path {{ "}}" }}/values.yaml'
+            # Pinned here so the Deploy Worker's data file cannot override them.
+            valuesObject:
+              directoryKey: '{{ "{{" }} .path.basename {{ "}}" }}'
+              gatewayNamespace: onprem-gateway
+              probe:
+                repoURL: {{ .Values.repoURL | quote }}
+                targetRevision: {{ .Values.revision | quote }}
+                project: iris-onprem-probe
+        - repoURL: {{ $s.repoURL | quote }}
+          targetRevision: {{ $s.revision | quote }}
+          ref: values
+      destination:
+        server: {{ $management.endpoint | quote }}
+        namespace: argocd
+      # The Tailscale operator rewrites externalName to its proxy Service.
+      ignoreDifferences:
+        - {group: "", kind: Service, jsonPointers: [/spec/externalName]}
+      syncPolicy:
+        automated: {prune: true, selfHeal: true}
+        syncOptions: [RespectIgnoreDifferences=true]
+---
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: iris-svc-onprem-servers-appset
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - git:
+        repoURL: {{ $s.repoURL | quote }}
+        revision: {{ $s.revision | quote }}
+        # Matches services/{id}/onprem-{serverKey} only; the legacy services/{id}/onprem stays with iris-svc-onprem-appset.
+        directories:
+          - path: services/*/onprem-*
+  syncPolicy:
+    applicationsSync: sync
+  template:
+    metadata:
+      name: 'svc-{{ "{{" }} index .path.segments 1 {{ "}}" }}'
+      finalizers:
+        - resources-finalizer.argocd.argoproj.io
+    spec:
+      project: iris-svc-project
+      sources:
+        - repoURL: {{ .Values.repoURL | quote }}
+          path: helm/charts/iris-service
+          # Own pin: these servers need imagePullSecrets (0.8.0) without moving every AWS service.
+          targetRevision: {{ $o.chartRevision | quote }}
+          helm:
+            valueFiles:
+              - '$values/{{ "{{" }} .path.path {{ "}}" }}/values.yaml'
+            valuesObject:
+              route: {className: {{ $o.ingressClassName | quote }}}
+              networkPolicy: {egressDeniedCidrs: {{ toJson $o.egressDeniedCidrs }}}
+        - repoURL: {{ $s.repoURL | quote }}
+          targetRevision: {{ $s.revision | quote }}
+          ref: values
+      destination:
+        # The directory name is the Argo cluster name onprem-{serverKey}.
+        name: '{{ "{{" }} index .path.segments 2 {{ "}}" }}'
+        namespace: 'svc-{{ "{{" }} index .path.segments 1 {{ "}}" }}'
+      syncPolicy:
+        automated: {prune: true, selfHeal: true}
+        syncOptions: [CreateNamespace=true, PruneLast=true]
+        managedNamespaceMetadata:
+          labels:
+            pod-security.kubernetes.io/enforce: baseline
+{{- end }}

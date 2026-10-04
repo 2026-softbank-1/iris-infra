@@ -12,6 +12,8 @@ GitOps 저장소의 `services/{service_id}/prod/values.yaml`(Deploy Worker 작�
 | SealedSecret | `variables.name` | `variables` 가 있을 때만. sync-wave -1. Sealed Secrets controller 가 같은 이름의 Secret 으로 풉니다 |
 | NetworkPolicy | `restrict-egress` | `networkPolicy.egressDeniedCidrs`(기본 VPC·link-local) 를 막고 같은 namespace·DNS·VPC 밖·`egressAllowed`(cidr·port)만 허용 |
 
+`imagePullSecrets` 가 있으면 Pod spec 에 그대로 넣습니다(0.8.0, 사용자가 등록한 온프레미스 서버의 ECR pull Secret `iris-ecr-pull`).
+
 컨테이너는 `variables` 가 있으면 그 Secret 을 `envFrom` 으로 읽고, `iris.*` 가 있으면 `IRIS_SERVICE_NAME`·`IRIS_TARGET_NAME`·`IRIS_DEPLOYMENT_ID` env 를 갖습니다. env 가 envFrom 보다 우선합니다([ADR 0004](../../../docs/decisions/0004-user-variables-sealed-secrets.md)).
 
 ## 배포 방식 (`deploymentStrategy`)

@@ -1,0 +1,29 @@
+# 사용자가 등록한 온프레미스 서버 타깃의 Deploy Worker values 와 ApplicationSet 값(route.className)입니다. helm-check 가 사용합니다.
+{
+  "containerPort": 8080,
+  "health": {
+    "timeoutSeconds": 300
+  },
+  "image": {
+    "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "repository": "000000000000.dkr.ecr.ap-northeast-2.amazonaws.com/iris/services/12"
+  },
+  "imagePullSecrets": [
+    {
+      "name": "iris-ecr-pull"
+    }
+  ],
+  "iris": {
+    "deploymentId": 6789012,
+    "serviceName": "my-app",
+    "targetName": "onprem-k3x9q2ma"
+  },
+  "release": {
+    "id": 345,
+    "sourceSha": "0000000000000000000000000000000000000000"
+  },
+  "route": {
+    "host": "my-app-12-k3x9q2ma.internal.likelion.uk",
+    "className": "traefik"
+  }
+}

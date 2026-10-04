@@ -1,3 +1,4 @@
+{{- $domain := trimPrefix "*." .Values.host }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -22,7 +23,14 @@ data:
       # nginx wildcard server_name also matches nested labels; allow exactly one DNS label.
       map $host $allowed_host {
         default 0;
-        "~^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.{{ trimPrefix "*." .Values.host | regexQuoteMeta }}$" 1;
+        "~^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.{{ $domain | regexQuoteMeta }}$" 1;
+      }
+      # A user-registered server's host ends with -{serverKey} (8 chars, first a letter); the iris-onprem-server
+      # chart creates its egress Service. Legacy hosts end with -{service id}, a digit, and keep the fixed
+      # upstream. Only the 8-char key reaches the upstream name, never the rest of the Host.
+      map $host $onprem_upstream {
+        default http://iris-onprem-apps.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.upstream.port }};
+        "~^[a-z0-9-]+-(?<server_key>[a-z][a-z0-9]{7})\.{{ $domain | regexQuoteMeta }}$" http://iris-onprem-apps-$server_key.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.upstream.port }};
       }
       client_max_body_size 50m;
       # Host 가 IP 인 ALB health check / kubelet probe 와 매칭 안 되는 Host 는 여기서 끝낸다.
@@ -37,8 +45,7 @@ data:
         location = /healthz { access_log off; return 200 "ok\n"; }
         location / {
           if ($allowed_host = 0) { return 404; }
-          set $upstream http://iris-onprem-apps.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.upstream.port }};
-          proxy_pass $upstream;
+          proxy_pass $onprem_upstream;
           proxy_http_version 1.1;
           proxy_set_header Host $host;
           proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;

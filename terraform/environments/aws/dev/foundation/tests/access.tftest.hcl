@@ -99,6 +99,33 @@ run "control_api_boundary" {
   }
 }
 
+run "onprem_ecr_pull_boundary" {
+  command = apply
+  assert {
+    condition = aws_iam_role.onprem_ecr_pull.name == "${var.project}-${var.environment}-onprem-ecr-pull" && jsonencode(jsondecode(aws_iam_role.onprem_ecr_pull.assume_role_policy).Statement) == jsonencode([{
+      Effect = "Allow", Action = ["sts:AssumeRole", "sts:TagSession"], Principal = { AWS = aws_iam_role.control_api.arn }
+    }])
+    error_message = "Only the Control API role may assume the on-prem ECR pull role; TagSession carries its transitive Pod Identity session tags."
+  }
+  assert {
+    condition = aws_iam_role_policy.onprem_ecr_pull.role == aws_iam_role.onprem_ecr_pull.id && jsonencode(jsondecode(aws_iam_role_policy.onprem_ecr_pull.policy).Statement) == jsonencode([
+      { Sid = "EcrAuthorizationToken", Effect = "Allow", Action = ["ecr:GetAuthorizationToken"], Resource = "*" },
+      { Sid = "PullServiceImages", Effect = "Allow", Action = ["ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer", "ecr:BatchCheckLayerAvailability"], Resource = "arn:aws:ecr:${var.aws_region}:${var.aws_account_id}:repository/${var.project}/services/*" }
+    ])
+    error_message = "The on-prem ECR pull role may only get a token and pull user service images; no push, delete or platform repositories."
+  }
+  assert {
+    condition = aws_iam_role_policy.control_api_onprem_ecr_pull.name == "assume-onprem-ecr-pull" && aws_iam_role_policy.control_api_onprem_ecr_pull.role == aws_iam_role.control_api.id && jsonencode(jsondecode(aws_iam_role_policy.control_api_onprem_ecr_pull.policy).Statement) == jsonencode([{
+      Sid = "AssumeOnpremEcrPull", Effect = "Allow", Action = ["sts:AssumeRole"], Resource = aws_iam_role.onprem_ecr_pull.arn
+    }]) && output.onprem_ecr_pull_role_arn == aws_iam_role.onprem_ecr_pull.arn
+    error_message = "Control API may assume only the on-prem ECR pull role and gets no ECR permission itself."
+  }
+  assert {
+    condition     = !contains([aws_iam_role.build_worker.name, aws_iam_role.deploy_worker.name, aws_iam_role.control_api.name], aws_iam_role.onprem_ecr_pull.name)
+    error_message = "The on-prem ECR pull role is separate from every runtime role."
+  }
+}
+
 run "build_worker_source_uploads_boundary" {
   command = apply
   assert {
