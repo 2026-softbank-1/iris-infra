@@ -3,6 +3,15 @@ locals {
   region = "asia-northeast3"
   zone   = "asia-northeast3-a"
   apis   = toset(["compute.googleapis.com", "container.googleapis.com", "certificatemanager.googleapis.com", "secretmanager.googleapis.com", "logging.googleapis.com", "monitoring.googleapis.com"])
+  cluster_iam_resource_names = flatten([
+    for project in [var.project_id, data.google_project.current.number] : [
+      "projects/${project}/zones/${local.zone}/clusters/${local.name}",
+      "projects/${project}/locations/${local.zone}/clusters/${local.name}"
+    ]
+  ])
+}
+data "google_project" "current" {
+  project_id = var.project_id
 }
 resource "google_project_service" "required" {
   for_each           = local.apis
@@ -171,9 +180,11 @@ resource "google_project_iam_member" "argocd" {
   member  = "serviceAccount:${google_service_account.argocd.email}"
   condition {
     title = "workload-only"
-    # GKE documents zones for zonal IAM resources; accept only this cluster's
-    # zones/locations aliases, since the Container API uses locations as well.
-    expression = "resource.name in ['projects/${var.project_id}/zones/${local.zone}/clusters/${local.name}', 'projects/${var.project_id}/locations/${local.zone}/clusters/${local.name}']"
+    # The DNS endpoint uses the project number; both aliases identify this cluster.
+    expression = "resource.name in ${jsonencode(local.cluster_iam_resource_names)}"
+  }
+  lifecycle {
+    create_before_destroy = true
   }
 }
 resource "google_service_account" "ecr" {
