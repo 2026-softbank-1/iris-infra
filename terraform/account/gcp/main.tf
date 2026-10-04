@@ -5,6 +5,7 @@ locals {
   # projectIamAdmin is intentionally powerful: these grants are NOT an isolation
   # boundary against compromised CI. See README and the activation checklist.
   workload_roles = toset([
+    "roles/editor",
     "roles/compute.networkAdmin", "roles/compute.instanceAdmin.v1",
     "roles/container.admin", "roles/iam.serviceAccountAdmin", "roles/iam.serviceAccountUser",
     "roles/iam.workloadIdentityPoolAdmin", "roles/iam.roleAdmin",

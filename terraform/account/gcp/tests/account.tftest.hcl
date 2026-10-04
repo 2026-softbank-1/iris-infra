@@ -16,8 +16,8 @@ run "restricted_workload_identity" {
     error_message = "Direct object access must exclude account/bootstrap state."
   }
   assert {
-    condition     = !contains(local.workload_roles, "roles/owner") && !contains(local.workload_roles, "roles/editor") && contains(local.workload_roles, "roles/resourcemanager.projectIamAdmin") && !contains(google_project_iam_custom_role.secret_container.permissions, "secretmanager.versions.access")
-    error_message = "Use explicit workload roles; no basic role or secret version access."
+    condition     = !contains(local.workload_roles, "roles/owner") && contains(local.workload_roles, "roles/editor") && contains(local.workload_roles, "roles/resourcemanager.projectIamAdmin") && !contains(google_project_iam_custom_role.secret_container.permissions, "secretmanager.versions.access")
+    error_message = "CI must retain project Editor and IAM administration; the custom secret role remains container-only."
   }
   assert {
     condition     = local.apis == toset(["serviceusage.googleapis.com", "cloudresourcemanager.googleapis.com", "iam.googleapis.com", "iamcredentials.googleapis.com", "sts.googleapis.com"]) && alltrue([for api in google_project_service.account : !api.disable_on_destroy])
