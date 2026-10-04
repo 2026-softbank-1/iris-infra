@@ -1,0 +1,9 @@
+# Hosts under *.internal.likelion.uk already resolve to the management ALB and are covered by its certificate,
+# so no DNS record or certificate is added. Each host forwards only POST /api/webhook; every other path is 404.
+hosts:
+  server: argocd-webhook.internal.likelion.uk
+  applicationSet: argocd-appset-webhook.internal.likelion.uk
+groupName: iris-platform-external
+# Before the onprem-gateway's *.internal.likelion.uk rule (1000), so these hosts never reach the gateway.
+groupOrder: 900
+certificateArn: ""
