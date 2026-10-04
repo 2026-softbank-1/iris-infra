@@ -57,6 +57,15 @@ spec:
       policies:
         - p, proj:iris-svc-project:iris-log-reader, applications, get, iris-svc-project/*, allow
         - p, proj:iris-svc-project:iris-log-reader, logs, get, iris-svc-project/*, allow
+    # Console Gateway opens shells in user service Pods through the Argo CD terminal (iris-was ADR 0035, infra ADR 0008).
+    # `exec, create` lets Argo exec into any Pod of any Application in this project, on every destination cluster it
+    # manages for it: the on-prem servers (the ServiceAccount ClusterRole grants pods/exec) and, because Argo's EKS access
+    # entry is cluster-admin, also the AWS workload cluster. Argo itself only accepts Pods that belong to the named
+    # Application's resource tree; the Gateway fixes app, namespace and container from the signed ticket.
+    - name: iris-console
+      policies:
+        - p, proj:iris-svc-project:iris-console, applications, get, iris-svc-project/*, allow
+        - p, proj:iris-svc-project:iris-console, exec, create, iris-svc-project/*, allow
 ---
 apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet

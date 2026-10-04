@@ -72,7 +72,7 @@
     },
     "configs": {
       "cm": {
-        "exec.enabled": "false",
+        "exec.enabled": "true",
         "resource.customizations.health.argoproj.io_Application": "hs = {}\nhs.status = \"Progressing\"\nhs.message = \"Waiting for child Application\"\nif obj.status ~= nil and obj.status.health ~= nil then\n  hs.status = obj.status.health.status\n  hs.message = obj.status.health.message or \"\"\nend\nreturn hs\n"
       },
       "params": {
