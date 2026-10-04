@@ -41,7 +41,7 @@ metadata:
   name: iris-onprem-ecr-renewer-28
   namespace: iris-platform
 spec:
-  schedule: 0 * * * *
+  schedule: "* * * * *"
   timeZone: Asia/Seoul
   suspend: false
   concurrencyPolicy: Forbid
@@ -76,7 +76,7 @@ spec:
             - /code/refresh.py
             env:
             - name: MODE
-              value: ecr
+              value: ecr-all
             - name: POD_NAMESPACE
               valueFrom:
                 fieldRef:
@@ -359,13 +359,6 @@ spec:
       podSelector:
         matchLabels:
           app.kubernetes.io/name: iris-onprem-ecr-renewer-28
-          iris.dev/auth-renewal: ecr
-    - namespaceSelector:
-        matchLabels:
-          kubernetes.io/metadata.name: iris-platform
-      podSelector:
-        matchLabels:
-          app.kubernetes.io/name: iris-onprem-ecr-renewer
           iris.dev/auth-renewal: ecr
     - namespaceSelector:
         matchLabels:

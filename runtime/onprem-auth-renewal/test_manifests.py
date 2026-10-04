@@ -12,25 +12,31 @@ def documents(path):
 
 
 class ManifestTests(unittest.TestCase):
-    def test_job_is_staged_with_own_credentials_and_reachable_proxy(self):
-        docs = documents('runtime/onprem-auth-renewal/all-services.yaml')
-        job = next(d for d in docs if d['kind'] == 'CronJob')
-        self.assertTrue(job['spec']['suspend'])
+    def test_existing_job_reuses_credentials_and_proxy_without_new_bootstrap(self):
+        docs = documents('runtime/onprem-auth-renewal/kubernetes.yaml')
+        jobs = [d for d in docs if d['kind'] == 'CronJob']
+        self.assertEqual(len(jobs), 2)  # existing ECR and Argo jobs only
+        job = next(d for d in jobs if d['metadata']['name'] == 'iris-onprem-ecr-renewer-28')
+        self.assertFalse(job['spec']['suspend'])
         self.assertEqual(job['spec']['schedule'], '* * * * *')
         self.assertEqual(job['spec']['concurrencyPolicy'], 'Forbid')
         pod = job['spec']['jobTemplate']['spec']['template']['spec']
-        self.assertEqual(pod['serviceAccountName'], 'iris-onprem-ecr-renewer')
+        self.assertEqual(pod['serviceAccountName'], 'iris-onprem-ecr-renewer-28')
         env = {e['name']: e.get('value') for e in pod['containers'][0]['env']}
         self.assertEqual(env['MODE'], 'ecr-all')
-        self.assertEqual(env['AUTH_SECRET'], 'iris-onprem-ecr-renew-auth')
-        role = next(d for d in docs if d['kind'] == 'Role')
+        self.assertEqual(env['AUTH_SECRET'], 'iris-onprem-ecr-renew-auth-28')
+        role = next(d for d in docs if d['kind'] == 'Role' and d['metadata']['name'] == 'iris-onprem-ecr-renewer-28')
         self.assertEqual(role['rules'], [{'apiGroups': [''], 'resources': ['secrets'],
-            'resourceNames': ['iris-onprem-ecr-renew-auth'], 'verbs': ['get', 'patch']}])
-        ingress = next(d for d in documents('runtime/onprem-auth-renewal/kubernetes.yaml')
-                       if d['kind'] == 'NetworkPolicy' and d['metadata']['name'] == 'iris-onprem-auth-renewal-api')
+            'resourceNames': ['iris-onprem-ecr-renew-auth-28'], 'verbs': ['get', 'patch']}])
+        ingress = next(d for d in docs if d['kind'] == 'NetworkPolicy'
+                       and d['metadata']['name'] == 'iris-onprem-auth-renewal-api')
         allowed = ingress['spec']['ingress'][0]['from']
-        self.assertTrue(any(p['podSelector']['matchLabels']['app.kubernetes.io/name'] == 'iris-onprem-ecr-renewer'
+        self.assertTrue(any(p['podSelector']['matchLabels']['app.kubernetes.io/name'] == 'iris-onprem-ecr-renewer-28'
                             for p in allowed))
+        self.assertFalse(any(p['podSelector']['matchLabels']['app.kubernetes.io/name'] == 'iris-onprem-ecr-renewer'
+                             for p in allowed))
+        self.assertEqual(documents('runtime/onprem-auth-renewal/kustomization.yaml')[0]['resources'], ['kubernetes.yaml'])
+        self.assertFalse((ROOT / 'runtime/onprem-auth-renewal/all-services.yaml').exists())
 
     def test_namespace_rbac_does_not_grant_secret_listing_or_namespace_writes(self):
         docs = documents('clusters/onprem-workload/ecr-all-rbac.yaml')
@@ -41,9 +47,9 @@ class ManifestTests(unittest.TestCase):
             {'apiGroups': [''], 'resources': ['secrets'], 'resourceNames': ['iris-ecr-pull'], 'verbs': ['get', 'patch']},
             {'apiGroups': [''], 'resources': ['secrets'], 'verbs': ['create']}])
         self.assertFalse(any(set(r['verbs']) & {'bind', 'escalate', 'impersonate', '*'} for r in rules))
-        token_role = next(d for d in docs if d['kind'] == 'Role')
-        self.assertEqual(token_role['rules'], [{'apiGroups': [''], 'resources': ['serviceaccounts/token'],
-            'resourceNames': ['iris-ecr-renewer'], 'verbs': ['create']}])
+        self.assertEqual([d['kind'] for d in docs], ['ClusterRole', 'ClusterRoleBinding'])
+        binding = docs[-1]
+        self.assertEqual(binding['subjects'], [{'kind': 'ServiceAccount', 'name': 'iris-ecr-renewer', 'namespace': 'svc-28'}])
 
     def test_every_write_type_has_actor_scoped_deny_policy(self):
         docs = documents('clusters/onprem-workload/ecr-all-admission.yaml')
@@ -57,7 +63,7 @@ class ManifestTests(unittest.TestCase):
             self.assertEqual(spec['failurePolicy'], 'Fail')
             self.assertEqual(bindings[name]['spec']['validationActions'], ['Deny'])
             self.assertEqual(spec['matchConditions'][0]['expression'],
-                "request.userInfo.username == 'system:serviceaccount:iris-system:iris-ecr-renewer'")
+                "request.userInfo.username == 'system:serviceaccount:svc-28:iris-ecr-renewer'")
             self.assertEqual(spec['validations'][0]['expression'], "request.namespace.matches('^svc-[1-9][0-9]*$')")
             rule = spec['matchConstraints']['resourceRules'][0]
             kinds.update(rule['resources'])

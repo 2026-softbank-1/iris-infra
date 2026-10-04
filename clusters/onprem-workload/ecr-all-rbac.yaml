@@ -1,30 +1,5 @@
-# Bootstrap on the on-prem VM only, AFTER ecr-all-admission.yaml has been checked.
-# Keep the ClusterRoleBinding last; do not grant it on unsupported K3s versions.
-apiVersion: v1
-kind: Namespace
-metadata: {name: iris-system}
----
-apiVersion: v1
-kind: ServiceAccount
-metadata: {name: iris-ecr-renewer, namespace: iris-system}
-automountServiceAccountToken: false
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata: {name: iris-ecr-renewer-self-token, namespace: iris-system}
-rules:
-  - apiGroups: [""]
-    resources: [serviceaccounts/token]
-    resourceNames: [iris-ecr-renewer]
-    verbs: [create]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata: {name: iris-ecr-renewer-self-token, namespace: iris-system}
-roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: iris-ecr-renewer-self-token}
-subjects:
-  - {kind: ServiceAccount, name: iris-ecr-renewer, namespace: iris-system}
----
+# Extend the EXISTING svc-28 renewal identity; no SA or API token bootstrap.
+# Validate ecr-all-admission.yaml before granting the last binding.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata: {name: iris-onprem-ecr-renewer}
@@ -60,4 +35,4 @@ kind: ClusterRoleBinding
 metadata: {name: iris-onprem-ecr-renewer}
 roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: iris-onprem-ecr-renewer}
 subjects:
-  - {kind: ServiceAccount, name: iris-ecr-renewer, namespace: iris-system}
+  - {kind: ServiceAccount, name: iris-ecr-renewer, namespace: svc-28}

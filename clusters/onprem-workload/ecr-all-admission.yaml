@@ -19,7 +19,7 @@ spec:
       - secrets
   matchConditions:
   - name: reconciler-only
-    expression: request.userInfo.username == 'system:serviceaccount:iris-system:iris-ecr-renewer'
+    expression: request.userInfo.username == 'system:serviceaccount:svc-28:iris-ecr-renewer'
   validations:
   - expression: request.namespace.matches('^svc-[1-9][0-9]*$')
     message: ECR reconciler writes must target a numeric service namespace
@@ -54,7 +54,7 @@ spec:
       - serviceaccounts
   matchConditions:
   - name: reconciler-only
-    expression: request.userInfo.username == 'system:serviceaccount:iris-system:iris-ecr-renewer'
+    expression: request.userInfo.username == 'system:serviceaccount:svc-28:iris-ecr-renewer'
   validations:
   - expression: request.namespace.matches('^svc-[1-9][0-9]*$')
     message: ECR reconciler writes must target a numeric service namespace
@@ -97,7 +97,7 @@ spec:
       - pods
   matchConditions:
   - name: reconciler-only
-    expression: request.userInfo.username == 'system:serviceaccount:iris-system:iris-ecr-renewer'
+    expression: request.userInfo.username == 'system:serviceaccount:svc-28:iris-ecr-renewer'
   validations:
   - expression: request.namespace.matches('^svc-[1-9][0-9]*$')
     message: ECR reconciler writes must target a numeric service namespace

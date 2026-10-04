@@ -126,7 +126,7 @@ class Api:
     def run(self, identity=None):
         with httpx.Client(base_url='https://kubernetes.default.svc', transport=httpx.MockTransport(self.local)) as local:
             with httpx.Client(transport=httpx.MockTransport(self.remote)) as remote:
-                return generic.run_all('iris-platform', 'iris-onprem-ecr-renew-auth', local, remote,
+                return generic.run_all('iris-platform', 'iris-onprem-ecr-renew-auth-28', local, remote,
                     identity=identity or {'Arn': generic.ISSUER + 'job'}, sts=self,
                     ecr_factory=self.ecr_factory, now=self.now)
 
@@ -158,6 +158,16 @@ class AllServicesTests(unittest.TestCase):
             {f'arn:aws:ecr:{generic.REGION}:{generic.ACCOUNT}:repository/iris/services/{sid}' for sid in ('28', '33')})
         self.assertTrue(all(s['RoleArn'] == generic.PULL_ROLE and s['DurationSeconds'] == 3600 for s in api.sessions))
         self.assertNotIn('NEVER_PRINT', json.dumps(result))
+
+    def test_reuses_existing_bootstrap_and_self_token_path(self):
+        api = Api()
+        api.bootstrap['data']['token'] = encode(token(generic.SUBJECT) + '\n')
+        self.assertTrue(api.run()['ok'])
+        token_calls = [r for r in api.calls if r.url.path.endswith('/iris-ecr-renewer/token')]
+        self.assertEqual(len(token_calls), 1)
+        self.assertEqual(token_calls[0].url.path, '/api/v1/namespaces/svc-28/serviceaccounts/iris-ecr-renewer/token')
+        self.assertEqual(generic.ISSUER, 'arn:aws:sts::187069338876:assumed-role/iris-dev-onprem-ecr-svc-28/')
+        self.assertEqual(generic.PULL_ROLE, 'arn:aws:iam::187069338876:role/iris-dev-onprem-ecr-pull')
 
     def test_next_new_namespace_is_discovered_and_valid_secrets_not_rewritten(self):
         api = Api()
@@ -258,7 +268,7 @@ class AllServicesTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             api.run({'Arn': 'arn:aws:sts::187069338876:assumed-role/Administrator/job'})
         self.assertEqual(api.calls, [])
-        api.bootstrap['data']['token'] = encode(token('system:serviceaccount:svc-28:iris-ecr-renewer'))
+        api.bootstrap['data']['token'] = encode(token('system:serviceaccount:iris-system:iris-ecr-renewer'))
         with self.assertRaises(ValueError):
             api.run()
         self.assertEqual(api.calls, [])
