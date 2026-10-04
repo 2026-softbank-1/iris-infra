@@ -6,7 +6,7 @@
 
 | 타깃 | chart pin (`helm/gitops/values.yaml`) | 앱 리소스 | 배포 방식 |
 |---|---|---|---|
-| AWS workload | `services.chartRevision` = `iris-service-0.7.1` | `Rollout` | 롤링·카나리·블루그린 |
+| AWS workload | `services.chartRevision` = `iris-service-0.9.0` | `Rollout` | 롤링·카나리·블루그린 |
 | on-prem | `services.onprem.chartRevision` = `iris-service-0.6.0` | `Deployment` | 롤링만 |
 
 - on-prem 에는 Argo Rollouts controller 를 설치하지 않습니다. on-prem ApplicationSet 은 자기 chart pin 으로 Deployment 기반 0.6.0 을 계속 씁니다. `make helm-check` 가 AWS pin = 현재 chart tag, on-prem pin = `iris-service-0.6.0` 을 검사합니다.

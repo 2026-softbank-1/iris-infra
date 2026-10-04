@@ -33,6 +33,11 @@ spec:
     - {group: argoproj.io, kind: Rollout}
     - {group: apps, kind: Deployment}
     - {group: apps, kind: ReplicaSet}
+    # 개발용 데이터베이스(chart 0.9.0 workload.kind database). PVC·ControllerRevision 은 StatefulSet controller 가
+    # 만들며 Argo 리소스 트리 표시용입니다.
+    - {group: apps, kind: StatefulSet}
+    - {group: apps, kind: ControllerRevision}
+    - {group: "", kind: PersistentVolumeClaim}
     - {group: "", kind: Pod}
     - {group: "", kind: Service}
     - {group: networking.k8s.io, kind: Ingress}

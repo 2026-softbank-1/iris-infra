@@ -37,14 +37,14 @@
 | `database.initScripts` | | chart 0.9.0 부터. `[{name, content\|binaryContent}]` 최대 20개, name `^[0-9]{2}-[A-Za-z0-9._-]+\.(sql\|sql\.gz\|js)$`(postgres·mysql: sql/sql.gz, mongodb: js, redis: 거절). ConfigMap `app-initdb` -> `/docker-entrypoint-initdb.d`, **데이터 디렉터리가 비어 있는 첫 기동에서만 실행** |
 
 `workload.kind: database` 면 `image`·`command` 를 거절하고 `projectId`·`database` 가 필수입니다. `route`·`health`·`containerPort`·`deploymentStrategy`·`iris`
-는 받아들이되 쓰지 않습니다. 자격 증명은 `variables`(엔진 공식 env 이름)로 넣습니다. 0.9.0 키는 이전 chart schema 가 거절하므로 0.9.0 을 쓰는 타깃(AWS)에만 씁니다.
-자세한 렌더링은 [chart README](../helm/charts/iris-service/README.md#프로젝트-내부-통신-080) 를 봅니다.
+는 받아들이되 쓰지 않습니다. 자격 증명은 `variables`(엔진 공식 env 이름)로 넣습니다. 0.9.0 키는 이전 chart schema 가 거절하므로 0.9.0 을 쓰는 타깃(AWS)에만 씁니다. **on-prem 은 `iris-service-0.6.0` 이라 데이터베이스·별칭·projectId 를 쓰지 않습니다**(WAS 가 거절). 사용자 등록 서버(`onprem-{serverKey}`)도 `onpremServers.chartRevision`(0.8.0)이라 마찬가지입니다.
+자세한 렌더링은 [chart README](../helm/charts/iris-service/README.md#프로젝트-내부-통신-090) 를 봅니다.
 
 ## chart 기본값 (배포별 values 에 넣지 않음)
 
 `replicas`, `resources`, `service.port`, `database.storageClassName`·`database.resources`, `route.className`(`alb`)·`route.groupName`(`iris-service-external`), `networkPolicy.allowedCidrs`·`egressDeniedCidrs`·`egressAllowed`.
 타겟마다 다르면 ApplicationSet 의 Helm 값으로 덮어씁니다.
-chart 버전도 타깃마다 고정합니다: AWS `services.chartRevision`(현재 `iris-service-0.7.1`, Rollout), on-prem `services.onprem.chartRevision`(`iris-service-0.6.0`, Deployment·롤링만).
+chart 버전도 타깃마다 고정합니다: AWS `services.chartRevision`(현재 `iris-service-0.9.0`, Rollout·프로젝트 내부 통신·개발용 DB), on-prem `services.onprem.chartRevision`(`iris-service-0.6.0`, Deployment·롤링만).
 
 ## 규칙
 
