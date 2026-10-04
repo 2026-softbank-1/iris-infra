@@ -125,6 +125,8 @@
       "endpoint": "https://0123456789ABCDEF0123456789ABCDEF.gr7.ap-northeast-2.eks.amazonaws.com",
       "ca": "Y2VydA=="
     },
+    "argocdTerminal": true,
+    "argocdTokenSecret": "iris-console-argocd-token",
     "allowedOrigins": [
       "https://app.example.com"
     ],

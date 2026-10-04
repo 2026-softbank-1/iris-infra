@@ -10,8 +10,11 @@
 {{- /* WAS 프로젝트 내부 통신(관리형 DB·호스트 별칭·참조 변수). iris-service chart 0.9.0 pin 뒤에만 켠다. */}}
 {{- if .Values.was.projectNetworkingEnabled }}{{- range $c := list "api" "build-worker" "deploy-worker" }}{{- $_ := set (index $configs $c) "PROJECT_NETWORKING_ENABLED" "true" }}{{- end }}{{- end }}
 {{- if .Values.errorAgent.enabled }}{{- $_ := set $configs "error-agent" (merge (dict "LLM_MODEL" .Values.errorAgent.model) (.Values.errorAgent.env | default dict)) }}{{- end }}
-{{- /* Console Gateway: no DB, no secret. The ticket verification key and the workload cluster endpoint/CA are public values. */}}
+{{- /* Console Gateway: no DB. The ticket verification key and the workload cluster endpoint/CA are public values; the only secret is the optional Argo CD role token (Deployment env). */}}
 {{- if .Values.consoleGateway.enabled }}{{- $_ := set $configs "console-gateway" (dict "LOG_LEVEL" .Values.was.logLevel "AWS_REGION" .Values.awsRegion "CONSOLE_TICKET_PUBLIC_KEY" .Values.consoleGateway.ticketPublicKey "CONSOLE_AWS_CLUSTER_NAME" .Values.consoleGateway.awsCluster.name "CONSOLE_AWS_CLUSTER_ENDPOINT" .Values.consoleGateway.awsCluster.endpoint "CONSOLE_AWS_CLUSTER_CA" .Values.consoleGateway.awsCluster.ca "CONSOLE_ALLOWED_ORIGINS" (join "," .Values.consoleGateway.allowedOrigins) "CONSOLE_IDLE_TIMEOUT_SECONDS" .Values.consoleGateway.idleTimeoutSeconds "CONSOLE_MAX_SESSION_SECONDS" .Values.consoleGateway.maxSessionSeconds "CONSOLE_MAX_SESSIONS_PER_USER" .Values.consoleGateway.maxSessionsPerUser) }}{{- end }}
+{{- /* On-prem shells go through the Argo CD terminal (iris-was ADR 0035, infra ADR 0008): same server URL and CA bundle as the Deploy Worker
+     (the bundle also carries the public roots, so the Gateway's other TLS clients keep working). The role token stays in a Secret. */}}
+{{- if and .Values.consoleGateway.enabled .Values.consoleGateway.argocdTerminal }}{{- $_ := set (index $configs "console-gateway") "CONSOLE_ARGOCD_SERVER_URL" .Values.deployWorker.argocdUrl }}{{- $_ := set (index $configs "console-gateway") "SSL_CERT_FILE" "/etc/iris-argocd/ca-bundle.pem" }}{{- end }}
 {{- range $component, $data := $configs }}
 ---
 apiVersion: v1
