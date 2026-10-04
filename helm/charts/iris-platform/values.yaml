@@ -17,6 +17,7 @@
     "replicas": 1,
     "host": "",
     "buildLogGroup": "",
+    "argocdLogs": false,
     "resources": {
       "requests": {
         "cpu": "100m",

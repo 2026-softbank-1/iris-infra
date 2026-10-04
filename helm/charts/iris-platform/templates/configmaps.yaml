@@ -1,6 +1,9 @@
 {{- $api := dict "LOG_LEVEL" .Values.was.logLevel }}
 {{- /* Control API reads build logs only when a log group is set; an empty value would count as configured. */}}
 {{- if .Values.api.buildLogGroup }}{{- $api = merge $api (dict "AWS_REGION" .Values.awsRegion "BUILD_LOG_GROUP" .Values.api.buildLogGroup) }}{{- end }}
+{{- /* On-prem runtime logs through the Argo pod-log API (iris-was ADR 0034). Same server URL and CA bundle as the Deploy Worker;
+     the bundle also carries the public roots, so the API's other TLS clients keep working. The token stays in the WAS env Secret. */}}
+{{- if .Values.api.argocdLogs }}{{- $api = merge $api (dict "ARGOCD_SERVER_URL" .Values.deployWorker.argocdUrl "SSL_CERT_FILE" "/etc/iris-argocd/ca-bundle.pem") }}{{- end }}
 {{- /* The API hands out the Console Gateway address only once a Gateway digest is deployed. The Gateway shares the API host (path routing). */}}
 {{- if and .Values.consoleGateway.enabled .Values.consoleGateway.digest }}{{- $api = merge $api (dict "CONSOLE_GATEWAY_HTTP_URL" (printf "https://%s" .Values.api.host) "CONSOLE_GATEWAY_WS_URL" (printf "wss://%s" .Values.api.host)) }}{{- end }}
 {{- $configs := dict "api" $api "build-worker" (dict "LOG_LEVEL" .Values.was.logLevel "AWS_REGION" .Values.awsRegion "CODEBUILD_PROJECT" .Values.buildWorker.codebuildProject "ARTIFACT_BUCKET" .Values.buildWorker.artifactBucket) "deploy-worker" (dict "LOG_LEVEL" .Values.was.logLevel "AWS_REGION" .Values.awsRegion "BASE_DOMAIN" .Values.deployWorker.baseDomain "GITOPS_REPOSITORY" .Values.deployWorker.gitopsRepository "ARGOCD_SERVER_URL" .Values.deployWorker.argocdUrl "SSL_CERT_FILE" "/etc/iris-argocd/ca-bundle.pem") }}

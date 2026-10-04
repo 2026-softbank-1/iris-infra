@@ -51,6 +51,12 @@ spec:
     - name: iris-deploy-reader
       policies:
         - p, proj:iris-svc-project:iris-deploy-reader, applications, get, iris-svc-project/*, allow
+    # Control API reads on-prem runtime logs through the Argo pod-log API (iris-was ADR 0034). Read-only; Argo CD 3.x
+    # always enforces the logs permission, so it is granted explicitly.
+    - name: iris-log-reader
+      policies:
+        - p, proj:iris-svc-project:iris-log-reader, applications, get, iris-svc-project/*, allow
+        - p, proj:iris-svc-project:iris-log-reader, logs, get, iris-svc-project/*, allow
 ---
 apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet

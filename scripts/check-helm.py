@@ -754,6 +754,17 @@ def check_platform(directory, targets, bootstrap):
     command('lint','--strict',chart,'-f',cluster,'-f',only_api,'--kube-version',VERSIONS['kubernetes']+'.0','--namespace','iris-platform')
     docs=[x for x in yaml.safe_load_all(command('template','iris-platform',chart,'-f',cluster,'-f',only_api,'-f',agent,'--kube-version',VERSIONS['kubernetes']+'.0','--namespace','iris-platform')) if x]
     assert {d['metadata']['name'] for d in docs if d['kind'] in {'Deployment','Job','Ingress'}}=={'iris-platform-api','iris-platform-migration','iris-platform-error-agent'}, 'Only components with a digest deploy.'
+    platform_values = json.loads(cluster.read_text())
+    assert platform_values['api']['argocdLogs'] is True
+    api = next(d for d in docs if d['kind']=='Deployment' and d['metadata']['name']=='iris-platform-api')['spec']['template']['spec']
+    api_config = next(d for d in docs if d['kind']=='ConfigMap' and d['metadata']['name']=='iris-platform-api')['data']
+    assert api_config['ARGOCD_SERVER_URL']==platform_values['deployWorker']['argocdUrl'] and api_config['SSL_CERT_FILE']=='/etc/iris-argocd/ca-bundle.pem'
+    assert {'name':'argocd-ca','mountPath':'/etc/iris-argocd','readOnly':True} in api['containers'][0]['volumeMounts']
+    assert next(v for v in api['volumes'] if v['name']=='argocd-ca')['configMap']['name']==platform_values['deployWorker']['caConfigMap'], 'Same CA bundle as the Deploy Worker.'
+    assert not any(e['name'].startswith('ARGOCD_') and 'valueFrom' in e for e in api['containers'][0]['env']), 'The logs token comes from the WAS env Secret, never the Deploy Worker Argo Secret.'
+    api_argo = next(d for d in docs if d['kind']=='NetworkPolicy' and d['metadata']['name']=='iris-platform-api-argocd')['spec']
+    assert api_argo['podSelector']['matchLabels']['app.kubernetes.io/component']=='api' and api_argo['policyTypes']==['Egress']
+    assert api_argo['egress']==[{'to':[{'namespaceSelector':{'matchLabels':{'kubernetes.io/metadata.name':'argocd'}},'podSelector':{'matchLabels':{'app.kubernetes.io/name':'argocd-server'}}}],'ports':[{'protocol':'TCP','port':8080}]}]
     # Console Gateway: invalid inputs fail before deployment; the digest (written by iris-was into was.yaml) is the release switch.
     gateway_good=json.loads((chart/'ci/console-gateway-values.yaml').read_text())
     pem_private='-----BEGIN '+PRIVATE_PEM_KIND+'-----\nAAAA\n-----END '+PRIVATE_PEM_KIND+'-----\n'
@@ -850,7 +861,10 @@ def main():
         assert {('apps', 'ReplicaSet'), ('', 'Pod')} <= {(w['group'], w['kind']) for w in services['namespaceResourceWhitelist']}, 'Argo resource trees need ReplicaSet and Pod permission for workload children and logs.'
         assert services['destinations']==[{'server':targets['workload']['endpoint'],'namespace':'svc-*'}] and services['clusterResourceWhitelist']==[{'group':'','kind':'Namespace'}]
         assert next(d for d in gitops if d['kind']=='ApplicationSet')['metadata']['name']=='iris-svc-appset' and appset['template']['spec']['project']=='iris-svc-project'
-        assert [r['name'] for r in services['roles']]==['iris-deploy-reader']
+        assert services['roles']==[
+            {'name':'iris-deploy-reader','policies':['p, proj:iris-svc-project:iris-deploy-reader, applications, get, iris-svc-project/*, allow']},
+            {'name':'iris-log-reader','policies':['p, proj:iris-svc-project:iris-log-reader, applications, get, iris-svc-project/*, allow',
+                                                  'p, proj:iris-svc-project:iris-log-reader, logs, get, iris-svc-project/*, allow']}], 'Project roles are read-only: no sync, update, delete or exec.'
         service_docs = render(ROOT/'helm/charts/iris-service', ROOT/'helm/charts/iris-service/ci/aws-values.yaml', namespace='svc-12')
         ingress = next(d for d in service_docs if d['kind']=='Ingress')
         assert not any(d['kind']=='Deployment' for d in service_docs), 'Since 0.7.0 the app runs only as a Rollout.'

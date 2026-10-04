@@ -17,6 +17,7 @@
     "replicas": 1,
     "host": "api.likelion.uk",
     "buildLogGroup": "/aws/codebuild/iris-dev-build",
+    "argocdLogs": true,
     "resources": {
       "requests": {
         "cpu": "100m",
