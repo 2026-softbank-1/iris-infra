@@ -53,7 +53,7 @@ def check_images(docs):
 ONPREM_CHART_REVISION = 'iris-service-0.6.0'
 
 # Cluster-scoped kinds Argo must be allowed to create through the addon AppProjects.
-CLUSTER_SCOPED = {'Namespace','StorageClass','ClusterRole','ClusterRoleBinding','MutatingWebhookConfiguration','ValidatingWebhookConfiguration','CustomResourceDefinition','APIService','IngressClass','IngressClassParams','PriorityClass','PersistentVolume','CSIDriver','RuntimeClass'}
+CLUSTER_SCOPED = {'Namespace','StorageClass','ClusterRole','ClusterRoleBinding','MutatingWebhookConfiguration','ValidatingWebhookConfiguration','ValidatingAdmissionPolicy','ValidatingAdmissionPolicyBinding','CustomResourceDefinition','APIService','IngressClass','IngressClassParams','PriorityClass','PersistentVolume','CSIDriver','RuntimeClass'}
 
 
 def group_kind(doc):
@@ -543,6 +543,26 @@ def check_service_projects(directory):
         assert result.returncode, f'Must fail before deployment: {label}'
 
 
+def check_console_exec(purpose, baseline):
+    """Console Gateway exec permissions exist only on the workload cluster and only as written here."""
+    exec_docs = {(d['kind'], d['metadata']['name']): d for d in baseline if d['metadata'].get('name', '').startswith('iris-console-exec')}
+    if purpose != 'workload':
+        assert not exec_docs, 'Only the workload cluster runs user Pods the Console Gateway may enter.'
+        return
+    assert set(exec_docs) == {('ClusterRole', 'iris-console-exec'), ('ClusterRoleBinding', 'iris-console-exec'), ('ValidatingAdmissionPolicy', 'iris-console-exec-scope'), ('ValidatingAdmissionPolicyBinding', 'iris-console-exec-scope')}
+    role = exec_docs['ClusterRole', 'iris-console-exec']
+    # Read pods and open an exec session; nothing else (no Secret, no deployments, no other subresource).
+    assert role['rules'] == [{'apiGroups': [''], 'resources': ['pods'], 'verbs': ['get', 'list']}, {'apiGroups': [''], 'resources': ['pods/exec'], 'verbs': ['get', 'create']}]
+    binding = exec_docs['ClusterRoleBinding', 'iris-console-exec']
+    assert binding['roleRef'] == {'apiGroup': 'rbac.authorization.k8s.io', 'kind': 'ClusterRole', 'name': 'iris-console-exec'}
+    assert binding['subjects'] == [{'apiGroup': 'rbac.authorization.k8s.io', 'kind': 'Group', 'name': 'iris-console'}], 'Bound to the Access Entry group only, never to a user or ServiceAccount.'
+    policy = exec_docs['ValidatingAdmissionPolicy', 'iris-console-exec-scope']['spec']
+    assert policy['failurePolicy'] == 'Fail' and policy['matchConstraints']['resourceRules'] == [{'apiGroups': [''], 'apiVersions': ['v1'], 'operations': ['CONNECT'], 'resources': ['pods/exec']}]
+    assert [c['expression'] for c in policy['matchConditions']] == ["'iris-console' in request.userInfo.groups"], 'The policy must not affect any other caller (operators, Argo CD).'
+    assert [v['expression'] for v in policy['validations']] == ["request.namespace.startsWith('svc-') && object.container == 'app'"]
+    assert exec_docs['ValidatingAdmissionPolicyBinding', 'iris-console-exec-scope']['spec'] == {'policyName': 'iris-console-exec-scope', 'validationActions': ['Deny']}
+
+
 def check_platform(directory, targets, bootstrap):
     chart=ROOT/'helm/charts/iris-platform'
     for fixture in sorted((chart/'ci').glob('*.yaml')):
@@ -550,13 +570,17 @@ def check_platform(directory, targets, bootstrap):
         values=json.loads(fixture.read_text())
         assert not any(d['kind'] in {'Secret','PersistentVolumeClaim','StatefulSet','Namespace'} for d in docs)
         deployments={d['metadata']['labels']['app.kubernetes.io/component']:d for d in docs if d['kind']=='Deployment'}
-        assert set(deployments)=={'api','build-worker','deploy-worker'} | ({'error-agent'} if values['errorAgent']['enabled'] else set())
+        gateway=values.get('consoleGateway',{}); gateway_on=bool(gateway.get('enabled') and gateway.get('digest'))
+        assert set(deployments)=={'api','build-worker','deploy-worker'} | ({'error-agent'} if values['errorAgent']['enabled'] else set()) | ({'console-gateway'} if gateway_on else set())
         # The API reads CloudWatch build logs only when a log group is set; otherwise it gets neither key.
         api_config=next(d for d in docs if d['kind']=='ConfigMap' and d['metadata']['name']=='iris-platform-api')['data']
+        expected_api_config={'LOG_LEVEL':values['was']['logLevel']}
         if values['api'].get('buildLogGroup'):
-            assert api_config=={'LOG_LEVEL':values['was']['logLevel'],'AWS_REGION':values['awsRegion'],'BUILD_LOG_GROUP':values['api']['buildLogGroup']}
-        else:
-            assert set(api_config)=={'LOG_LEVEL'}, 'An empty build log group must not become an empty BUILD_LOG_GROUP.'
+            expected_api_config.update(AWS_REGION=values['awsRegion'],BUILD_LOG_GROUP=values['api']['buildLogGroup'])
+        # The API learns the Gateway address (same host as the API) only while a Gateway digest is deployed.
+        if gateway_on:
+            expected_api_config.update(CONSOLE_GATEWAY_HTTP_URL='https://'+values['api']['host'],CONSOLE_GATEWAY_WS_URL='wss://'+values['api']['host'])
+        assert api_config==expected_api_config, 'Optional API settings appear only when configured; an empty build log group must not become an empty BUILD_LOG_GROUP.'
         job=next(d for d in docs if d['kind']=='Job')
         notes=job['metadata']['annotations']
         assert notes['argocd.argoproj.io/hook']=='Sync' and notes['argocd.argoproj.io/sync-wave']=='-1'
@@ -570,10 +594,24 @@ def check_platform(directory, targets, bootstrap):
             pod=doc['spec']['template']['spec']; container=pod['containers'][0]
             assert pod['automountServiceAccountToken'] is False and pod['securityContext']['runAsNonRoot'] is True
             assert container['securityContext']['allowPrivilegeEscalation'] is False and container['securityContext']['capabilities']['drop']==['ALL']
-            env={e['name']:e for e in container['env']}
+            env={e['name']:e for e in container.get('env',[])}
             if component=='error-agent':
                 assert container['command']==['python','-m','ai_error_check_agent.api','--host','0.0.0.0','--port','8001']
                 assert set(env)=={'LLM_API_KEY','AGENT_API_KEY'} and not pod.get('initContainers')
+                continue
+            if component=='console-gateway':
+                assert container['image']==values['was']['image']['repository']+'@'+gateway['digest'] and pod['securityContext']['runAsUser']==1001
+                assert container['command']==['uvicorn','app.console_gateway.main:app','--host','0.0.0.0','--port','8080']
+                assert container['ports']==[{'name':'http','containerPort':8080}]
+                assert container['readinessProbe']['httpGet']=={'path':'/readyz','port':'http'} and container['livenessProbe']['httpGet']=={'path':'/healthz','port':'http'}
+                # No database, no Secret, no AWS key: ticket verification uses the public key in the ConfigMap, AWS access is Pod Identity.
+                assert 'env' not in container and not pod.get('initContainers') and not pod.get('volumes')
+                assert container['envFrom']==[{'configMapRef':{'name':'iris-platform-console-gateway'}}] and 'iris.dev/database-client' not in doc['spec']['template']['metadata']['labels']
+                assert pod['serviceAccountName']=='console-gateway', 'Foundation trusts and management binds Pod Identity for iris-platform/console-gateway.'
+                assert doc['spec']['replicas']==1 and doc['spec']['strategy']=={'type':'Recreate'}, 'One-time ticket use is remembered in memory: never two Gateways at once.'
+                config=next(d for d in docs if d['kind']=='ConfigMap' and d['metadata']['name']=='iris-platform-console-gateway')['data']
+                assert config=={'LOG_LEVEL':values['was']['logLevel'],'AWS_REGION':values['awsRegion'],'CONSOLE_TICKET_PUBLIC_KEY':gateway['ticketPublicKey'],'CONSOLE_AWS_CLUSTER_NAME':gateway['awsCluster']['name'],'CONSOLE_AWS_CLUSTER_ENDPOINT':gateway['awsCluster']['endpoint'],'CONSOLE_AWS_CLUSTER_CA':gateway['awsCluster']['ca'],'CONSOLE_ALLOWED_ORIGINS':','.join(gateway['allowedOrigins']),'CONSOLE_IDLE_TIMEOUT_SECONDS':str(gateway['idleTimeoutSeconds']),'CONSOLE_MAX_SESSION_SECONDS':str(gateway['maxSessionSeconds']),'CONSOLE_MAX_SESSIONS_PER_USER':str(gateway['maxSessionsPerUser'])}
+                assert 'PRIVATE KEY-----' not in json.dumps(docs), 'A private key must never appear in a rendered manifest.'
                 continue
             was=image_of[component]
             refs=[e['secretRef']['name'] for e in container.get('envFrom',[]) if 'secretRef' in e]
@@ -590,7 +628,11 @@ def check_platform(directory, targets, bootstrap):
                 assert container['command']==['alembic','upgrade','head']
                 assert pod['serviceAccountName']=='iris-platform-migration' and pod['restartPolicy']=='Never'
             elif component=='api':
-                assert pod['serviceAccountName']=='iris-platform-api' and set(env)=={'DATABASE_URL','PGSSLMODE','PGSSLROOTCERT'}
+                assert pod['serviceAccountName']=='iris-platform-api' and set(env)=={'DATABASE_URL','PGSSLMODE','PGSSLROOTCERT'} | ({'CONSOLE_TICKET_PRIVATE_KEY'} if gateway_on else set())
+                if gateway_on:
+                    # Only the API holds the signing key, and it stays optional until the operator creates the Secret.
+                    assert env['CONSOLE_TICKET_PRIVATE_KEY']['valueFrom']['secretKeyRef']=={'name':gateway['ticketSigningSecret'],'key':'CONSOLE_TICKET_PRIVATE_KEY','optional':True}
+                assert ('checksum/console' in doc['spec']['template']['metadata']['annotations'])==gateway_on, 'Only an API with the Gateway enabled gets the console checksum; Workers never do.'
                 assert container['ports']==[{'name':'http','containerPort':8000}]
                 assert container['readinessProbe']['httpGet']=={'path':'/readyz','port':'http'}
                 assert container['livenessProbe']['httpGet']=={'path':'/healthz','port':'http'}
@@ -610,7 +652,24 @@ def check_platform(directory, targets, bootstrap):
                     assert next(v for v in pod['volumes'] if v['name']=='argocd-ca')['configMap']['name']==values['deployWorker']['caConfigMap']
         prep=[d for d in docs if d['kind'] in {'ServiceAccount','ConfigMap','NetworkPolicy'}]
         assert all(d['metadata']['annotations']['argocd.argoproj.io/sync-wave']=='-2' for d in prep)
-        ingress=next(d for d in docs if d['kind']=='Ingress'); notes=ingress['metadata']['annotations']
+        ingress=next(d for d in docs if d['kind']=='Ingress' and d['metadata']['name']=='iris-platform-api'); notes=ingress['metadata']['annotations']
+        assert [r['http']['paths'] for r in ingress['spec']['rules']]==[[{'path':'/','pathType':'Prefix','backend':{'service':{'name':'iris-platform-api','port':{'name':'http'}}}}]], 'The API Ingress keeps only the catch-all rule; Gateway paths live in their own Ingress.'
+        gateway_ingresses=[d for d in docs if d['kind']=='Ingress' and d['metadata']['name']=='iris-platform-console-gateway']
+        if gateway_on:
+            [gw]=gateway_ingresses; gnotes=gw['metadata']['annotations']
+            assert gnotes['alb.ingress.kubernetes.io/group.name']=='iris-platform-external' and gnotes['alb.ingress.kubernetes.io/target-type']=='ip'
+            # The API owns `/` of the same host; the Gateway's exact paths must be evaluated first (lower group.order).
+            assert int(gnotes['alb.ingress.kubernetes.io/group.order'])<0 and 'alb.ingress.kubernetes.io/group.order' not in notes
+            assert gnotes['alb.ingress.kubernetes.io/healthcheck-path']=='/readyz' and gnotes['alb.ingress.kubernetes.io/success-codes']=='200-299'
+            assert not any(key in gnotes for key in ('alb.ingress.kubernetes.io/certificate-arn','alb.ingress.kubernetes.io/scheme')), 'Shared settings belong to baseline anchor.'
+            assert json.loads(gnotes['alb.ingress.kubernetes.io/listen-ports'])==[{'HTTP':80},{'HTTPS':443}]
+            backend={'service':{'name':'iris-platform-console-gateway','port':{'name':'http'}}}
+            assert gw['spec']['rules']==[{'host':values['api']['host'],'http':{'paths':[{'path':'/v1/pods','pathType':'Exact','backend':backend},{'path':'/v1/exec','pathType':'Exact','backend':backend}]}}], 'Only the two Gateway paths on the API host reach the Gateway.'
+            gservice=next(d for d in docs if d['kind']=='Service' and d['metadata']['name']=='iris-platform-console-gateway')['spec']
+            assert gservice['type']=='ClusterIP' and gservice['ports']==[{'name':'http','port':8080,'targetPort':'http'}]
+        else:
+            assert not gateway_ingresses and not any(d['metadata']['name'].startswith('iris-platform-console-gateway') for d in docs if d['kind'] in {'Service','NetworkPolicy','Deployment'})
+        assert any(d['kind']=='ServiceAccount' and d['metadata']['name']=='console-gateway' for d in docs)==bool(gateway.get('enabled')), 'The fixed-name Gateway service account exists only while the Gateway is enabled.'
         assert notes['alb.ingress.kubernetes.io/group.name']=='iris-platform-external' and notes['alb.ingress.kubernetes.io/target-type']=='ip'
         assert notes['alb.ingress.kubernetes.io/healthcheck-path']=='/readyz' and notes['alb.ingress.kubernetes.io/success-codes']=='204'
         assert not any(key in notes for key in ('alb.ingress.kubernetes.io/certificate-arn','alb.ingress.kubernetes.io/scheme')), 'Shared settings belong to baseline anchor.'
@@ -625,6 +684,11 @@ def check_platform(directory, targets, bootstrap):
         assert rds['podSelector']['matchLabels']['iris.dev/database-client']=='true' and rds['egress'][0]['ports']==[{'protocol':'TCP','port':5432}]
         assert [e['ipBlock']['cidr'] for e in rds['egress'][0]['to']]==values['network']['rdsSubnetCidrs']
         assert argo['egress'][0]['ports']==[{'protocol':'TCP','port':8080}]
+        if gateway_on:
+            gwp=policies['iris-platform-console-gateway-alb']
+            assert gwp['policyTypes']==['Ingress'] and gwp['podSelector']['matchLabels']['app.kubernetes.io/component']=='console-gateway'
+            assert gwp['ingress'][0]['ports']==[{'protocol':'TCP','port':8080}] and [e['ipBlock']['cidr'] for e in gwp['ingress'][0]['from']]==values['network']['albSubnetCidrs']
+            assert not any(p['podSelector']['matchLabels'].get('app.kubernetes.io/component')=='console-gateway' for n,p in policies.items() if n!='iris-platform-console-gateway-alb' and 'matchLabels' in p['podSelector']), 'The Gateway matches no RDS/Argo/observability policy.'
         obs=policies['iris-platform-api-observability']
         assert obs['podSelector']['matchLabels']['app.kubernetes.io/component']=='api'
         assert [(r['to'][0]['podSelector']['matchLabels']['app.kubernetes.io/name'],r['ports']) for r in obs['egress']]==[('loki',[{'protocol':'TCP','port':3100}]),('prometheus',[{'protocol':'TCP','port':9090}])], 'API reads only Loki and Prometheus in observability.'
@@ -649,6 +713,37 @@ def check_platform(directory, targets, bootstrap):
     command('lint','--strict',chart,'-f',cluster,'-f',only_api,'--kube-version',VERSIONS['kubernetes']+'.0','--namespace','iris-platform')
     docs=[x for x in yaml.safe_load_all(command('template','iris-platform',chart,'-f',cluster,'-f',only_api,'-f',agent,'--kube-version',VERSIONS['kubernetes']+'.0','--namespace','iris-platform')) if x]
     assert {d['metadata']['name'] for d in docs if d['kind'] in {'Deployment','Job','Ingress'}}=={'iris-platform-api','iris-platform-migration','iris-platform-error-agent'}, 'Only components with a digest deploy.'
+    # Console Gateway: invalid inputs fail before deployment; the digest (written by iris-was into was.yaml) is the release switch.
+    gateway_good=json.loads((chart/'ci/console-gateway-values.yaml').read_text())
+    pem_private='-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VwBCIEIA==\n-----END PRIVATE KEY-----\n'
+    gateway_mutations=[lambda v:v['consoleGateway'].update(unknown=True),lambda v:v['consoleGateway'].update(replicas=2),lambda v:v['consoleGateway'].update(digest='latest'),
+        lambda v:v['consoleGateway'].update(ticketPublicKey=pem_private),lambda v:v['consoleGateway'].update(ticketPublicKey=''),lambda v:v['consoleGateway'].update(ticketSigningSecret=''),
+        lambda v:v['consoleGateway']['awsCluster'].update(endpoint='http://insecure.example.com'),lambda v:v['consoleGateway']['awsCluster'].update(endpoint=''),lambda v:v['consoleGateway']['awsCluster'].update(ca=''),lambda v:v['consoleGateway']['awsCluster'].update(name=''),
+        lambda v:v['consoleGateway'].update(allowedOrigins=[]),lambda v:v['consoleGateway'].update(allowedOrigins=['*']),lambda v:v['consoleGateway'].update(allowedOrigins=['https://app.example.com/path']),
+        lambda v:v['consoleGateway'].update(maxSessionsPerUser=0),lambda v:v['consoleGateway'].update(idleTimeoutSeconds=5)]
+    for change in gateway_mutations:
+        values=copy.deepcopy(gateway_good);change(values);bad.write_text(json.dumps(values))
+        result=subprocess.run([HELM,'template','iris-platform',str(chart),'-f',str(bad),'--kube-version',VERSIONS['kubernetes']+'.0','--namespace','iris-platform'],capture_output=True)
+        assert result.returncode, 'Invalid Console Gateway inputs must fail before deployment.'
+    def render_gateway(change, **kwargs):
+        values=copy.deepcopy(gateway_good);change(values);(directory/'gateway-variant.json').write_text(json.dumps(values))
+        return render(chart, directory/'gateway-variant.json', release='iris-platform', namespace='iris-platform', **kwargs)
+    # Enabled without a digest: only the service account and settings exist; the API does not advertise a Gateway yet.
+    docs=render_gateway(lambda v:v['consoleGateway'].update(digest=''))
+    assert not any(d['metadata']['name'].startswith('iris-platform-console-gateway') for d in docs if d['kind'] in {'Deployment','Service','Ingress','NetworkPolicy'})
+    assert any(d['kind']=='ServiceAccount' and d['metadata']['name']=='console-gateway' for d in docs) and any(d['kind']=='ConfigMap' and d['metadata']['name']=='iris-platform-console-gateway' for d in docs)
+    assert set(next(d for d in docs if d['kind']=='ConfigMap' and d['metadata']['name']=='iris-platform-api')['data'])<={'LOG_LEVEL','AWS_REGION','BUILD_LOG_GROUP'}
+    assert 'checksum/console' not in next(d for d in docs if d['kind']=='Deployment' and d['metadata']['name']=='iris-platform-api')['spec']['template']['metadata']['annotations']
+    # A digest without enabled changes nothing.
+    docs=render_gateway(lambda v:v['consoleGateway'].update(enabled=False))
+    assert not any('console-gateway' in d['metadata']['name'] for d in docs)
+    # The real cluster values accept the Gateway once an operator fills the key and workload cluster endpoint/CA.
+    overlay=directory/'console-gateway-enable.json'
+    overlay.write_text(json.dumps({'consoleGateway':{'enabled':True,'digest':digest,'ticketPublicKey':gateway_good['consoleGateway']['ticketPublicKey'],'awsCluster':{'name':'iris-dev-workload','endpoint':gateway_good['consoleGateway']['awsCluster']['endpoint'],'ca':'Y2VydA=='}}}))
+    command('lint','--strict',chart,'-f',cluster,'-f',only_api,'-f',overlay,'--kube-version',VERSIONS['kubernetes']+'.0','--namespace','iris-platform')
+    docs=[x for x in yaml.safe_load_all(command('template','iris-platform',chart,'-f',cluster,'-f',only_api,'-f',overlay,'--kube-version',VERSIONS['kubernetes']+'.0','--namespace','iris-platform')) if x]
+    assert {d['metadata']['name'] for d in docs if d['kind'] in {'Deployment','Job','Ingress'}}=={'iris-platform-api','iris-platform-migration','iris-platform-console-gateway'}
+    assert next(d for d in docs if d['kind']=='ConfigMap' and d['metadata']['name']=='iris-platform-api')['data']['CONSOLE_GATEWAY_WS_URL']=='wss://api.likelion.uk'
     enabled=directory/'gitops-platform.json';enabled.write_text(json.dumps({'revision':'a'*40,'targets':targets,'platform':{'enabled':True},'services':{'onprem':{'enabled':False}},'onpremGateway':{'enabled':False},'onpremServers':{'enabled':False}}))
     docs=render(ROOT/'helm/gitops', enabled, namespace='argocd')
     assert sum(d['kind']=='Application' for d in docs)==15 and sum(d['kind']=='AppProject' for d in docs)==4
@@ -814,6 +909,7 @@ def main():
             sc = next(d for d in baseline if d['kind']=='StorageClass')
             assert sc['volumeBindingMode']=='WaitForFirstConsumer' and sc['parameters']=={'type':'gp3','encrypted':'true'}
             assert any(d['kind']=='NetworkPolicy' for d in baseline)
+            check_console_exec(purpose, baseline)
             anchor = next(d for d in baseline if d['kind']=='Ingress')
             notes = anchor['metadata']['annotations']
             group = {'management':'iris-platform-external','workload':'iris-service-external'}[purpose]
