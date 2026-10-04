@@ -38,7 +38,7 @@ flowchart LR
 이 변경을 main 에 merge 합니다. `onpremServers.enabled` 는 false 라 서버 경로는 아직 꺼져 있고, 바로 반영되는 것은 다음입니다.
 
 - management Sealed Secrets controller(새 addon)
-- 게이트웨이 0.3.0: `-{serverKey}` host 라우팅, ProxyClass `iris-onprem-api`. 기존 host(`-숫자` 로 끝남)는 지금 upstream 그대로입니다
+- 게이트웨이 0.3.0: `-{serverKey}` host 라우팅, 새 ProxyClass `iris-onprem-server-api`. 기존 host(`-숫자` 로 끝남)는 지금 upstream 그대로이고, 기존 VM 의 손으로 만든 API 프록시(ProxyClass `iris-onprem-api`, NetworkPolicy `iris-onprem-api-ingress`)는 건드리지 않습니다. 게이트웨이 Pod 는 설정이 바뀌어 한 번 롤링 재시작합니다
 - Deploy Worker 의 선택 env `ARGOCD_PROBE_TOKEN`(Secret 에 키가 없으면 비어 있음)
 
 live root 가 SHA 에 고정돼 있으면 merge SHA 로 `make bootstrap CLUSTER=aws-dev-management` 를 다시 실행합니다([eks-access](eks-access.md)). `iris-management-sealed-secrets`·`iris-onprem-gateway` 가 Synced/Healthy 인지 봅니다. 기존 온프레미스 서비스 URL 이 계속 응답하는지도 봅니다.
@@ -121,7 +121,7 @@ kubectl $M -n argocd get sealedsecret cluster-onprem-$KEY          # SYNCED True
 kubectl $M -n argocd get secret cluster-onprem-$KEY -o jsonpath='{.metadata.labels}{"\n"}{.data.server}' ; echo   # config 는 출력하지 않습니다
 kubectl $M -n argocd get svc iris-onprem-api-$KEY -o jsonpath='{.spec.externalName}'; echo
 kubectl $M -n onprem-gateway get svc iris-onprem-apps-$KEY -o jsonpath='{.spec.externalName}'; echo
-kubectl $M -n tailscale get pods -l 'iris.dev/proxy in (onprem-api,onprem-http)'
+kubectl $M -n tailscale get pods -l 'iris.dev/proxy in (onprem-server-api,onprem-http)'
 argocd cluster get onprem-$KEY        # Connection Status: Successful
 ```
 
@@ -135,7 +135,7 @@ argocd cluster get onprem-$KEY        # Connection Status: Successful
 | 증상 | 확인 |
 |---|---|
 | SealedSecret `no key could decrypt secret` | WAS 가 workload 인증서로 봉인했거나 키를 잃었습니다. `PLATFORM_SEALED_SECRETS_CERT` 를 확인하고 서버에서 설치 명령을 다시 실행합니다 |
-| probe `ComparisonError`·`connection refused`·timeout | API 프록시 Pod(`iris.dev/proxy=onprem-api`) 준비, tailnet grant(6443), 서버 K3s `--tls-san` 에 tailnet FQDN, 서버 방화벽 |
+| probe `ComparisonError`·`connection refused`·timeout | API 프록시 Pod(`iris.dev/proxy=onprem-server-api`) 준비, tailnet grant(6443), 서버 K3s `--tls-san` 에 tailnet FQDN, 서버 방화벽 |
 | probe `x509` 오류 | 봉인한 `config` 의 `tlsClientConfig.serverName` 이 tailnet FQDN 인지, `caData` 가 서버 K3s CA 인지 |
 | probe `forbidden` | 서버의 `iris-system` 에서 `iris-argocd` SA 의 ConfigMap 권한(install.sh 5단계). probe 는 ConfigMap 하나만 만들고 Namespace 는 만들지 않습니다 |
 | `iris-onprem-server-*` 렌더 실패 | data 파일의 key·디렉터리·clusterName·FQDN 이 맞지 않습니다(chart 가 거절). Worker 출력 확인 |

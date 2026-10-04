@@ -14,7 +14,7 @@ management 공유 ALB → Nginx → Tailscale HTTP 프록시 → 온프레미스
 
 사용자가 등록한 서버([온프레미스 서버 등록](../../../docs/runbooks/onprem-server-registration.md))는 Host 의 `-{serverKey}` 8자만 뽑아 `iris-onprem-apps-{serverKey}.<namespace>.svc.cluster.local:80` 으로 보냅니다. 이 egress Service 는 서버마다 `iris-onprem-server` chart 가 만들고, 게이트웨이는 서버를 추가해도 바뀌지 않습니다. 등록되지 않은 key 는 이름을 풀지 못해 502 이며 기존 VM 으로 가지 않습니다. Host 의 나머지는 upstream 이름에 들어가지 않습니다.
 
-이 chart 는 on-prem 공용 Tailscale 설정도 가집니다: 앱 HTTP 프록시용 `iris-onprem-http`, 서버별 Kubernetes API 프록시용 `iris-onprem-api` ProxyClass 와 각 NetworkPolicy(HTTP 는 게이트웨이에서 TCP 80, API 는 `argocd` namespace 에서 TCP 6443 만).
+이 chart 는 on-prem 공용 Tailscale 설정도 가집니다: 앱 HTTP 프록시용 `iris-onprem-http`, 서버별 Kubernetes API 프록시용 `iris-onprem-server-api` ProxyClass 와 각 NetworkPolicy(HTTP 는 게이트웨이에서 TCP 80, API 는 Argo CD application controller·server 에서 TCP 6443 만). 기존 VM 의 손으로 만든 `iris-onprem-api`(ProxyClass·Service·NetworkPolicy `iris-onprem-api-ingress`)는 이 chart 가 소유하지 않고 바꾸지 않습니다.
 
 게이트웨이 Pod는 non-root/read-only root filesystem으로 실행하고 `fsGroup: 101`인 64Mi emptyDir에 임시 파일을 씁니다. 이미지 entrypoint 대신 nginx를 직접 실행합니다. HTTP ProxyClass와 `tailscale`의 HTTP 전용 NetworkPolicy를 포함하므로 기존 operator/CRD와 management AppProject 권한이 필요합니다. Tailscale 정책 추가 파일은 기존 정책에 병합하는 조각이며 자동 적용되지 않습니다.
 

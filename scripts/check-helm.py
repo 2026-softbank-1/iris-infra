@@ -150,14 +150,20 @@ def check_onprem_gateway(directory, targets, baseline):
                         'ports':[{'protocol':'TCP','port':80}]}]}
         # Per-server HTTP egress Services use the same ProxyClass, so the gateway egress rule above and this
         # ingress rule already cover them without listing servers.
-        api_np = resources['NetworkPolicy','iris-onprem-api']
+        # The legacy VM's hand-made API proxy objects (ProxyClass/Service iris-onprem-api, NetworkPolicy
+        # iris-onprem-api-ingress, label onprem-api) are not Argo-managed; the chart must never render them.
+        for legacy in (('ProxyClass','iris-onprem-api'),('NetworkPolicy','iris-onprem-api'),('NetworkPolicy','iris-onprem-api-ingress'),('Service','iris-onprem-api')):
+            assert legacy not in resources, legacy
+        assert not any(d['kind']!='NetworkPolicy' and 'onprem-api' in json.dumps(d.get('spec',{})) for d in docs)
+        api_np = resources['NetworkPolicy','iris-onprem-server-api']
         assert api_np['metadata']['namespace']=='tailscale'
-        assert api_np['spec']=={'podSelector':{'matchLabels':{'iris.dev/proxy':'onprem-api'}}, 'policyTypes':['Ingress'],
-            'ingress':[{'from':[{'namespaceSelector':{'matchLabels':{'kubernetes.io/metadata.name':'argocd'}}}],
+        assert api_np['spec']=={'podSelector':{'matchLabels':{'iris.dev/proxy':'onprem-server-api'}}, 'policyTypes':['Ingress'],
+            'ingress':[{'from':[{'namespaceSelector':{'matchLabels':{'kubernetes.io/metadata.name':'argocd'}},
+                                 'podSelector':{'matchExpressions':[{'key':'app.kubernetes.io/name','operator':'In','values':['argocd-application-controller','argocd-server']}]}}],
                         'ports':[{'protocol':'TCP','port':6443}]}]}
-        api_proxy = resources['ProxyClass','iris-onprem-api']
+        api_proxy = resources['ProxyClass','iris-onprem-server-api']
         assert 'namespace' not in api_proxy['metadata'] and api_proxy['metadata']['annotations']['argocd.argoproj.io/sync-wave']=='-1'
-        assert api_proxy['spec']['statefulSet']['pod']['labels']=={'iris.dev/proxy':'onprem-api'}
+        assert api_proxy['spec']['statefulSet']['pod']['labels']=={'iris.dev/proxy':'onprem-server-api'}
         proxy = resources['ProxyClass','iris-onprem-http']
         assert 'namespace' not in proxy['metadata'] and proxy['metadata']['annotations']['argocd.argoproj.io/sync-wave']=='-1'
         assert proxy['spec']['statefulSet']['pod']=={'labels':{'iris.dev/proxy':'onprem-http'},
@@ -325,7 +331,7 @@ def check_onprem_servers(directory, targets, baseline):
         assert secret['data']=={'name':'onprem-'+key,'server':f'https://iris-onprem-api-{key}.argocd.svc.cluster.local:6443'}
         api, apps = resources['Service','iris-onprem-api-'+key], resources['Service','iris-onprem-apps-'+key]
         assert api['metadata']['namespace']=='argocd' and apps['metadata']['namespace']=='onprem-gateway'
-        for service, proxy_class, hostname, tag, port in ((api,'iris-onprem-api','iris-mgmt-onprem-api-'+key,'tag:iris-onprem-api',6443),
+        for service, proxy_class, hostname, tag, port in ((api,'iris-onprem-server-api','iris-mgmt-onprem-api-'+key,'tag:iris-onprem-api',6443),
                                                           (apps,'iris-onprem-http','iris-mgmt-onprem-http-'+key,'tag:iris-onprem-apps',80)):
             notes = service['metadata']['annotations']
             assert {k: v for k, v in notes.items() if k.startswith('tailscale.com/')}=={'tailscale.com/proxy-class':proxy_class,

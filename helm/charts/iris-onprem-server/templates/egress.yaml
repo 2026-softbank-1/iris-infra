@@ -11,7 +11,7 @@ metadata:
     {{- include "iris-onprem-server.labels" . | nindent 4 }}
   annotations:
     argocd.argoproj.io/sync-wave: "-1"
-    tailscale.com/proxy-class: iris-onprem-api
+    tailscale.com/proxy-class: iris-onprem-server-api
     tailscale.com/hostname: iris-mgmt-onprem-api-{{ $key }}
     tailscale.com/tailnet-fqdn: {{ .Values.server.tailnetFqdn | quote }}
     tailscale.com/tags: "tag:iris-onprem-api"
