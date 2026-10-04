@@ -1,0 +1,5 @@
+apiVersion: v2
+name: gcp-workload
+description: GCP shared Gateway and ECR pull credential reconciler
+type: application
+version: 0.1.0

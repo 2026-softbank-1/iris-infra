@@ -1,0 +1,39 @@
+{{- if .Values.registryPull.enabled }}
+{{- if ne .Values.route.mode "gateway" }}{{ fail "registryPull is reserved for the GCP gateway mode" }}{{ end }}
+{{- if eq (dig "name" "" (default dict .Values.variables)) .Values.registryPull.secretName }}
+{{- fail "variables.name conflicts with the reserved registry pull Secret" }}
+{{- end }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ .Values.registryPull.secretName }}
+  labels:
+    iris.dev/registry-pull: gcp
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+type: kubernetes.io/dockerconfigjson
+data:
+  .dockerconfigjson: {{ "{\"auths\":{}}" | b64enc | quote }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: iris-ecr-pull
+  annotations: {argocd.argoproj.io/sync-wave: "-1"}
+rules:
+  - apiGroups: [""]
+    resources: [secrets]
+    resourceNames: [{{ .Values.registryPull.secretName }}]
+    verbs: [get, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: iris-ecr-pull
+  annotations: {argocd.argoproj.io/sync-wave: "-1"}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: iris-ecr-pull}
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Values.registryPull.controllerServiceAccount }}
+    namespace: {{ .Values.registryPull.controllerNamespace }}
+{{- end }}

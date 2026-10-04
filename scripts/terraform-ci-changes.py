@@ -14,12 +14,14 @@ CHECKS = ("tf_check", "collector_check", "helm_check", "platform_check", "ops_ch
 APPLY_HELPERS = {".terraform-version", "scripts/tf-ci.sh", "scripts/common.sh",
                  "scripts/check-foundation-plan.py"}
 TF_CHECK_INPUTS = APPLY_HELPERS | {
+    ".github/workflows/gcp-terraform.yml", ".github/workflows/gcp-ecr-credentials.yml",
     "Makefile", ".github/workflows/terraform-check.yml",
     "scripts/tf-stack.sh", "scripts/terraform-check.sh", "scripts/terraform-test.sh",
     "scripts/terraform-ci-changes.py", "scripts/collector-ci-changes.py",
     "scripts/tests/test-tf-ci.py", "scripts/tests/test-terraform-ci-changes.py",
 }
 HELM_INPUTS = {
+    "scripts/check-gcp.py",
     "scripts/check-helm.py", "scripts/helm-check.sh", "scripts/check-alb-traffic.py",
     "scripts/tests/test-alb-traffic.py",
 }
@@ -29,6 +31,8 @@ PLATFORM_INPUTS = {
     "scripts/tests/test-build-push-ecr.py", "terraform/config/platform-ecr-repositories.json",
 }
 OPS_INPUTS = {
+    "scripts/gcp-ci.py", "scripts/gcp-image-ci.py", "scripts/gcp-setup.py", "scripts/tests/test-gcp-ci.py",
+    "scripts/gcp-ops.py", "scripts/gcp-terraform.py", "scripts/tests/test-gcp.py",
     "scripts/eks-ops.py", "scripts/check-eks-ci-permissions.py",
     "scripts/tests/test-eks-ops.py", "scripts/tests/test-eks-ci-permissions.py",
     "scripts/bootstrap-cluster.sh", "scripts/eks-api-tunnel.sh", "scripts/eks-preflight.sh",
@@ -43,6 +47,9 @@ def documentation(path):
 
 
 def apply_input(path):
+    # This cross-cloud trust stack is admin-only, never the AWS CI apply role.
+    if path.startswith(("terraform/environments/aws/dev/gcp-access/", "terraform/config/gcp/")):
+        return False
     if path in APPLY_HELPERS:
         return True
     if not path.startswith(RUNTIME_PREFIXES) or documentation(path):
@@ -63,7 +70,7 @@ def select(paths):
         collector = CI.test_input(path)
         helm = path.startswith(("helm/", "clusters/")) or path in HELM_INPUTS or contract
         platform = path in PLATFORM_INPUTS
-        ops = path in OPS_INPUTS or contract or path.startswith("runtime/onprem-auth-renewal/")
+        ops = path in OPS_INPUTS or contract or path.startswith(("runtime/gcp-ecr-credentials/", "runtime/onprem-auth-renewal/"))
         tf = path.startswith("terraform/") or path in TF_CHECK_INPUTS
         known = tf or collector or helm or platform or ops
         if path.startswith("scripts/") and not known:

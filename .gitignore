@@ -65,3 +65,6 @@ local/k3d.yaml
 # Python test/import caches
 __pycache__/
 *.pyc
+
+# Ephemeral GitHub Google auth action ADC files
+gha-creds-*.json

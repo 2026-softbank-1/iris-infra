@@ -1,0 +1,166 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://iris.likelion.uk/contracts/gcp-target.schema.json",
+  "title": "GCP target metadata v1 (separate from AWS target v1)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "id",
+    "project_id",
+    "location",
+    "region",
+    "name",
+    "endpoint",
+    "kube_context",
+    "network",
+    "subnet",
+    "denied_cidrs",
+    "base_domain",
+    "ip_address",
+    "address_name",
+    "certificate_map",
+    "certificate_name",
+    "dns_authorization",
+    "argocd_service_account",
+    "wif_provider",
+    "ecr_service_account",
+    "ecr_service_account_id",
+    "ecr_audience",
+    "sealed_key_secret"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "const": "gcp-dev-workload"
+    },
+    "project_id": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[a-z][a-z0-9-]{4,28}[a-z0-9]$"
+    },
+    "location": {
+      "type": "string",
+      "minLength": 1,
+      "const": "asia-northeast3-a"
+    },
+    "region": {
+      "type": "string",
+      "minLength": 1,
+      "const": "asia-northeast3"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "const": "gcp-dev-workload"
+    },
+    "endpoint": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^https://[a-z0-9.-]+\\.gke\\.goog$"
+    },
+    "kube_context": {
+      "type": "string",
+      "minLength": 1,
+      "const": "iris-gcp-dev-workload"
+    },
+    "network": {
+      "type": "string",
+      "minLength": 1,
+      "const": "gcp-dev-workload"
+    },
+    "subnet": {
+      "type": "string",
+      "minLength": 1,
+      "const": "gcp-dev-workload"
+    },
+    "base_domain": {
+      "type": "string",
+      "minLength": 1
+    },
+    "ip_address": {
+      "type": "string",
+      "minLength": 1
+    },
+    "address_name": {
+      "type": "string",
+      "minLength": 1,
+      "const": "iris-gcp-apps"
+    },
+    "certificate_map": {
+      "type": "string",
+      "minLength": 1,
+      "const": "iris-gcp-apps"
+    },
+    "certificate_name": {
+      "type": "string",
+      "minLength": 1,
+      "const": "iris-gcp-apps"
+    },
+    "argocd_service_account": {
+      "type": "string",
+      "minLength": 1
+    },
+    "wif_provider": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^projects/[0-9]+/locations/global/workloadIdentityPools/iris-argocd/providers/management-eks$"
+    },
+    "ecr_service_account": {
+      "type": "string",
+      "minLength": 1
+    },
+    "ecr_service_account_id": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[0-9]{21}$"
+    },
+    "ecr_audience": {
+      "type": "string",
+      "minLength": 1
+    },
+    "sealed_key_secret": {
+      "type": "string",
+      "minLength": 1,
+      "const": "iris-gcp-sealed-secrets-key"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "denied_cidrs": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[0-9.]+/[0-9]+$"
+      }
+    },
+    "dns_authorization": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "type",
+          "data"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "type": {
+            "const": "CNAME"
+          },
+          "data": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,63 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "gateway",
+    "credentials"
+  ],
+  "properties": {
+    "gateway": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "addressName",
+        "certificateMap",
+        "baseDomain"
+      ],
+      "properties": {
+        "addressName": {
+          "type": "string"
+        },
+        "certificateMap": {
+          "type": "string"
+        },
+        "baseDomain": {
+          "type": "string"
+        }
+      }
+    },
+    "credentials": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "enabled"
+      ],
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "image": {
+          "type": "string"
+        },
+        "serviceAccountEmail": {
+          "type": "string"
+        },
+        "serviceAccountId": {
+          "type": "string"
+        },
+        "awsAccountId": {
+          "type": "string"
+        },
+        "roleArn": {
+          "type": "string"
+        },
+        "audience": {
+          "type": "string"
+        },
+        "kubeApiCidr": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

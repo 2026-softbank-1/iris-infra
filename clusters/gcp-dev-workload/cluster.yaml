@@ -1,0 +1,7 @@
+id: gcp-dev-workload
+purpose: workload
+provider: gcp
+region: asia-northeast3
+location: asia-northeast3-a
+terraformPath: terraform/environments/gcp/dev/workload
+kubeContext: iris-gcp-dev-workload

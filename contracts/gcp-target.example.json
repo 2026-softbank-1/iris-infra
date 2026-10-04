@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "id": "gcp-dev-workload",
+  "project_id": "iris-fixture-project",
+  "location": "asia-northeast3-a",
+  "region": "asia-northeast3",
+  "name": "gcp-dev-workload",
+  "endpoint": "https://gke-fixture.asia-northeast3.gke.goog",
+  "kube_context": "iris-gcp-dev-workload",
+  "network": "gcp-dev-workload",
+  "subnet": "gcp-dev-workload",
+  "denied_cidrs": [
+    "10.60.0.0/20",
+    "10.64.0.0/16",
+    "172.22.0.0/20",
+    "169.254.0.0/16"
+  ],
+  "base_domain": "gcp.likelion.uk",
+  "ip_address": "203.0.113.10",
+  "address_name": "iris-gcp-apps",
+  "certificate_map": "iris-gcp-apps",
+  "certificate_name": "iris-gcp-apps",
+  "dns_authorization": [
+    {
+      "name": "_acme-challenge.gcp.likelion.uk.",
+      "type": "CNAME",
+      "data": "fixture.authorize.certificatemanager.goog."
+    }
+  ],
+  "argocd_service_account": "iris-gcp-argocd@iris-fixture-project.iam.gserviceaccount.com",
+  "wif_provider": "projects/123456789012/locations/global/workloadIdentityPools/iris-argocd/providers/management-eks",
+  "ecr_service_account": "iris-gcp-ecr@iris-fixture-project.iam.gserviceaccount.com",
+  "ecr_service_account_id": "123456789012345678901",
+  "ecr_audience": "iris-gcp-ecr-pull",
+  "sealed_key_secret": "iris-gcp-sealed-secrets-key"
+}

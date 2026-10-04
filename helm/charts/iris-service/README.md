@@ -6,6 +6,7 @@ GitOps 저장소의 `services/{service_id}/prod/values.yaml`(Deploy Worker 작�
 | 리소스 | 이름 | 내용 |
 |---|---|---|
 | Rollout(`argoproj.io/v1alpha1`) | `app` | `deploymentStrategy` 에 따른 배포 방식(아래), `automountServiceAccountToken: false`, readiness probe, Pod 종료 대기(preStop `sleep` 15초, `terminationGracePeriodSeconds` 45, 0.7.1). Argo Rollouts controller 가 필요합니다 |
+| Deployment(`apps/v1`) | `app` | GCP `route.mode=gateway` 전용. ROLLING만 지원하며 Rollouts controller가 필요하지 않습니다 |
 | Service | `app` | ClusterIP `service.port` → `http`(containerPort) |
 | Ingress | `app` | `route.className: alb` 면 ALB group 공유·target-type ip·HTTPS redirect·health check 설정 |
 | NetworkPolicy | `allow-load-balancer` | `networkPolicy.allowedCidrs` 가 있을 때만. 그 CIDR 에서 containerPort 로만 허용 |
@@ -16,7 +17,7 @@ GitOps 저장소의 `services/{service_id}/prod/values.yaml`(Deploy Worker 작�
 | Service(ExternalName) | `hostAliases[].name` | `hostAliases` 가 있을 때(0.9.0). `{name}` → `target`(`app.svc-{id}.svc.cluster.local`) |
 | StatefulSet | `app` | `workload.kind: database` 일 때(0.9.0) Rollout·Ingress 대신. 아래 [데이터베이스](#데이터베이스-workloadkind-database-090) |
 
-`imagePullSecrets` 가 있으면 Pod spec 에 그대로 넣습니다(0.8.0, 0.9.0 부터 database StatefulSet 도, 사용자가 등록한 온프레미스 서버의 ECR pull Secret `iris-ecr-pull`).
+`imagePullSecrets` 가 있으면 Pod spec 에 넣습니다(0.8.0, 0.9.0 부터 database StatefulSet 도). 앱은 `registryPull.enabled=true`의 Secret과 중복 없이 합칩니다. 사용자가 등록한 온프레미스 서버는 ECR pull Secret `iris-ecr-pull`을 씁니다.
 
 컨테이너는 `variables` 가 있으면 그 Secret 을 `envFrom` 으로 읽고, `iris.*` 가 있으면 `IRIS_SERVICE_NAME`·`IRIS_TARGET_NAME`·`IRIS_DEPLOYMENT_ID` env 를 갖습니다. env 가 envFrom 보다 우선합니다([ADR 0004](../../../docs/decisions/0004-user-variables-sealed-secrets.md)).
 
@@ -113,3 +114,18 @@ database:
 - 스크립트 하나가 실패하면 엔진이 초기화 중 종료해 Pod 가 CrashLoop 됩니다. ConfigMap 은 1 MiB 제한이라 합계가 그 안이어야 합니다(schema 는 항목당 1 MiB 만 막습니다. 합계 검사는 Deploy Worker 가 합니다).
 - 파일은 mode 0444 로 mount 되어 non-root uid 가 읽고, mongodb 는 `.js` 를 `mongosh` 로, postgres 는 `psql`, mysql 은 `mysql`(`.sql.gz` 는 압축을 풀어) 로 실행합니다.
 
+
+## GCP 0.10.0 옵션
+
+Ingress 경로의 Rollout과 기존 AWS `0.9.0`, 레거시 on-prem `0.6.0`, 등록 서버
+`0.8.0` pin은 유지합니다. GCP는 새 `0.10.0` tag를 사용하고 `route.mode=gateway`, GCP parent Gateway/baseDomain,
+`registryPull.enabled=true`, `tenantBudget.enabled=true`를 opt-in합니다.
+`workload.kind`는 `app`만 지원합니다. GCP는 DB용 storage·권한 계약이 없어
+`route.mode=gateway`와 `workload.kind=database`의 조합을 schema가 거부합니다.
+Gateway 경로는 Deployment의 RollingUpdate(maxSurge 1·maxUnavailable 0)로 렌더링합니다.
+`deploymentStrategy`는 생략하거나 `ROLLING`만 허용하며 `CANARY`·`BLUE_GREEN`은 거부합니다.
+Deployment는 진행 기한 초과를 표시하지만 Rollout처럼 자동 abort하지 않습니다.
+HTTPRoute와 같은 Service를 대상으로 한 HealthCheckPolicy를 생성하며 health는
+인증 없이 HTTP 200이어야 합니다. `iris-ecr-pull`은 변수 Secret 이름으로 예약됩니다.
+GCP Application은 credential data/expiry만 ignore하고 나머지는 계속 관리합니다.
+자세한 [handoff](../../../contracts/gcp-target.md), [런북](../../../docs/runbooks/gcp-workload.md).

@@ -11,6 +11,10 @@ esac
 stack="${STACK:-}"
 dir="$(stack_directory "$stack")"
 
+if [[ "$stack" == bootstrap/gcp || "$stack" == account/gcp || "$stack" == gcp/dev/workload ]]; then
+  exec python3 "$REPO_ROOT/scripts/gcp-terraform.py" "$action" --stack "$stack"
+fi
+
 if [[ "$action" != init && -f "$dir/.scaffold" ]]; then
   fail "$stack: 리소스가 없는 scaffold입니다. 구현·검증 후 .scaffold를 제거하세요."
 fi

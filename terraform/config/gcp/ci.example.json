@@ -1,0 +1,14 @@
+{
+  "project_id": "",
+  "project_number": "",
+  "state_bucket": "",
+  "state_prefix": "gcp/dev/workload",
+  "service_account": "",
+  "workload_identity_provider": "",
+  "github_repository_id": "",
+  "github_owner_id": "",
+  "management_oidc_issuer": "",
+  "region": "asia-northeast3",
+  "zone": "asia-northeast3-a",
+  "base_domain": "gcp.likelion.uk"
+}

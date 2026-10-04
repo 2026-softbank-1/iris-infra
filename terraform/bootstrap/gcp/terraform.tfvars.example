@@ -1,0 +1,2 @@
+project_id        = "replace-project-id"
+state_bucket_name = "replace-project-id-iris-tfstate"

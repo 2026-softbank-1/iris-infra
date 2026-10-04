@@ -1,0 +1,19 @@
+{{- if .Values.tenantBudget.enabled }}
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: application-budget
+spec:
+  hard:
+    {{- toYaml .Values.tenantBudget.quota | nindent 4 }}
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: application-defaults
+spec:
+  limits:
+    - type: Container
+      defaultRequest: {cpu: 100m, memory: 128Mi}
+      default: {cpu: 500m, memory: 512Mi}
+{{- end }}
