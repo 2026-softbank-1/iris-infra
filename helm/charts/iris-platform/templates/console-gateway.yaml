@@ -55,14 +55,35 @@ spec:
           readinessProbe:
             httpGet: {path: /readyz, port: http}
             periodSeconds: 5
-          # No DATABASE_URL, no Secret: ticket verification needs only the public key in the ConfigMap.
+          # No DATABASE_URL: ticket verification needs only the public key in the ConfigMap.
           envFrom:
             - configMapRef:
                 name: {{ .Release.Name }}-console-gateway
+          {{- if .Values.consoleGateway.argocdTerminal }}
+          # On-prem shells: the Argo CD project role token `iris-console` (exec + applications get on iris-svc-project).
+          # Optional, so the AWS path works before the token exists; on-prem requests then fail with CLUSTER_UNAVAILABLE.
+          # The value is read at start: after rotating the Secret, restart the Gateway.
+          env:
+            - name: CONSOLE_ARGOCD_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.consoleGateway.argocdTokenSecret | quote }}
+                  key: CONSOLE_ARGOCD_TOKEN
+                  optional: true
+          volumeMounts:
+            - {name: argocd-ca, mountPath: /etc/iris-argocd, readOnly: true}
+          {{- end }}
           securityContext:
             {{- include "iris-platform.security" . | nindent 12 }}
           resources:
             {{- toYaml .Values.consoleGateway.resources | nindent 12 }}
+      {{- if .Values.consoleGateway.argocdTerminal }}
+      volumes:
+        # The same CA bundle ConfigMap the Deploy Worker and the API use for argocd-server's TLS.
+        - name: argocd-ca
+          configMap:
+            name: {{ .Values.deployWorker.caConfigMap | quote }}
+      {{- end }}
 ---
 apiVersion: v1
 kind: Service

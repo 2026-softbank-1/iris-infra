@@ -15,7 +15,7 @@
 | --- | --- | --- |
 | iris-web | PR #39, main `cf3e59f`; ONPREM 선택·명시적 타깃 전송·미조회 차단 | PR revert. Amplify us-east-2, 앱 `d1c22f0apcqx7i`, main 배포 41 성공 |
 | iris-infra | PR #69, main `ae7d333`; ONPREM ApplicationSet·svc-* 목적지·공개 게이트웨이·기존 ACM 연결 | GitOps revert와 [게이트웨이 롤백](onprem-gateway.md) 절차. Ingress는 prune=false라 잔여 규칙 확인 필요 |
-| K3s RBAC | `iris-onprem-service-deployer` ClusterRole·Binding → 기존 `iris-onprem-test/iris-argocd` SA | [매니페스트](../../clusters/onprem-workload/argocd-service-deployer.yaml). 리소스 조회·Namespace 생성·앱 리소스 쓰기 허용. RBAC 변경·Pod exec·Secret 쓰기 불허 |
+| K3s RBAC | `iris-onprem-service-deployer` ClusterRole·Binding → 기존 `iris-onprem-test/iris-argocd` SA | [매니페스트](../../clusters/onprem-workload/argocd-service-deployer.yaml). 리소스 조회·Namespace 생성·앱 리소스 쓰기 허용. RBAC 변경·Secret 쓰기 불허. Pod exec 는 이 기록 시점(2026-10-03)에는 불허였고 서비스 콘솔을 위해 `pods/exec`(get·create)가 추가됨([ADR 0008](../decisions/0008-onprem-console-via-argocd-terminal.md)) |
 | Argo 클러스터 등록 | 기존 onprem 접속 인증 유지. namespaces 제한 해제, clusterResources=true | 기존 `namespaces=[iris-onprem-test]`, `clusterResources=false`로 복원. 앱 삭제·원복을 먼저 완료한 뒤 권한 축소 |
 | AWS IAM | 역할 `iris-dev-onprem-ecr-svc-28`, inline policy `PullServiceImage` | 수동 생성 리소스. trust는 `arn:aws:iam::187069338876:user/iris-woo-hyun-kim` 한 명. 토큰 발급 및 `iris/services/28` 이미지 pull만 허용. 사용 종료 시 policy·role 삭제 |
 | K3s 이미지 인증 | `svc-28/iris-ecr-pull` Secret과 default SA의 imagePullSecrets 연결 | AWS 영구 키를 서버에 보관하지 않음. 갱신 명령은 아래. 제거 시 Secret과 해당 SA 참조만 제거 |

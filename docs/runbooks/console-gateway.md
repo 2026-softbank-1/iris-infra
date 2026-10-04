@@ -1,6 +1,6 @@
 # 서비스 콘솔(Console Gateway)
 
-사용자가 서비스 화면에서 실행 중인 Pod 의 `app` 컨테이너에 셸을 여는 경로의 인프라 쪽 절차입니다. 레포 간 계약은 iris-was `docs/console-api.md`, 결정 배경은 iris-was ADR 0033 입니다. 대상은 **AWS 타깃(workload EKS)만**이고 온프레미스 타깃은 다음 라운드입니다. 아래 확인 명령은 적용 후 실행하는 절차이며 `make helm-check`·`make tf-test` 의 렌더·mock 검사는 실제 클러스터·IAM·ALB 동작을 보장하지 않습니다. 첫 적용 때 결과를 이 문서에 반영합니다.
+사용자가 서비스 화면에서 실행 중인 Pod 의 `app` 컨테이너에 셸을 여는 경로의 인프라 쪽 절차입니다. 레포 간 계약은 iris-was `docs/console-api.md`, 결정 배경은 iris-was ADR 0033 입니다. 이 문서의 앞부분(AWS 타깃, workload EKS)은 운영 반영과 실검증을 마쳤고, 온프레미스 타깃은 [아래 절](#온프레미스-셸argo-cd-터미널)과 [ADR 0008](../decisions/0008-onprem-console-via-argocd-terminal.md)이 다룹니다. 아래 확인 명령은 적용 후 실행하는 절차이며 `make helm-check`·`make tf-test` 의 렌더·mock 검사는 실제 클러스터·IAM·ALB 동작을 보장하지 않습니다. 첫 적용 때 결과를 이 문서에 반영합니다.
 
 ```mermaid
 flowchart LR
@@ -187,10 +187,138 @@ kubectl --kubeconfig $KM -n iris-platform logs deploy/iris-platform-console-gate
 | 콘솔이 배포·재시작 때 끊김 | 정상(`Recreate`, 단일 replica). 사용자가 다시 연결 |
 | `TOKEN_REUSED`·`TOKEN_EXPIRED` | ticket 60초·1회. 화면이 연결마다 새 ticket 을 받는지, 시계 오차 |
 | API 가 `NOT_CONFIGURED` | Secret `iris-console-ticket-signer`, API ConfigMap 의 두 URL, Gateway digest 존재 |
+| 온프레미스 요청이 `CLUSTER_UNAVAILABLE` | Gateway 의 `CONSOLE_ARGOCD_TOKEN`(Secret `iris-console-argocd-token` 없음·만료·교체 후 재시작 안 함), `argocd-cm` 의 `exec.enabled`(꺼져 있으면 `/terminal` 이 404), NetworkPolicy `…-console-gateway-argocd`, CA bundle 마운트 |
+| `/terminal` 이 400 `Auth cookie not found` | 정상(쿠키 없음). 토큰은 `Authorization` 이 아니라 쿠키 `argocd.token` 으로 보내야 함 |
+| `/terminal` 이 401 `Invalid token` | 토큰 만료·삭제(`argocd proj role list-tokens`), Secret 값에 개행이 섞임(`tr -d '\n'`) |
+| `/terminal` 이 400 `Pod doesn't belong to specified app` | 정상 거절(Application 트리 밖 Pod 또는 이름 오류). `appName`=`svc-{id}`·`namespace`=`svc-{id}` 인지 |
+| `/terminal` 이 400 `Failed to exec container` | 셸 없는 이미지(Gateway 는 `SHELL_NOT_FOUND`), 또는 서버 SA 에 `pods/exec` 권한 없음(서버 ClusterRole 갱신 전) |
+
+## 온프레미스 셸(Argo CD 터미널)
+
+결정과 위험은 [ADR 0008](../decisions/0008-onprem-console-via-argocd-terminal.md), 앱 쪽 계약은 iris-was ADR 0035 입니다. 대상은 공용 `onprem` 과 사용자가 등록한 `onprem-{serverKey}` 서버의 서비스입니다. 이 PR 이 merge 돼도 아래 2~4단계(운영자 작업)를 하기 전에는 온프레미스 콘솔이 열리지 않습니다. AWS 콘솔은 영향이 없습니다.
+
+```mermaid
+flowchart LR
+  B[브라우저] -->|WS /v1/exec · ticket cluster=onprem| GW[Console Gateway]
+  GW -->|Cookie argocd.token = 프로젝트 role 토큰 · 8080| AS[argocd-server /terminal]
+  AS -->|cluster Secret 의 서버 SA 토큰 · tailnet| K[사용자 서버 K3s API]
+  K -->|pods/exec, svc-N 의 app| P[사용자 Pod]
+```
+
+| 구성 | 위치 | 비고 |
+|---|---|---|
+| Gateway 의 Argo 배선 | `helm/charts/iris-platform` 의 `consoleGateway.argocdTerminal`(운영 값 `true`), `argocdTokenSecret` | ConfigMap `CONSOLE_ARGOCD_SERVER_URL`·`SSL_CERT_FILE`, Deploy Worker 와 같은 CA bundle 마운트, optional `secretKeyRef` 환경변수 `CONSOLE_ARGOCD_TOKEN`, NetworkPolicy `…-console-gateway-argocd`(argocd-server 8080 egress). 토큰 Secret 이 없어도 Gateway 는 뜹니다(AWS 정상, 온프레미스 요청만 `CLUSTER_UNAVAILABLE`) |
+| 프로젝트 role `iris-console` | `helm/gitops/templates/services.yaml`(AppProject `iris-svc-project`) | `applications, get` + `exec, create`, 대상 `iris-svc-project/*`. 토큰은 Git 밖 |
+| Argo CD 터미널 | `helm/bootstrap/values.yaml` 의 `configs.cm."exec.enabled": "true"` | Argo CD 자체는 bootstrap Helm release 라 병합만으로 반영되지 않습니다(2단계) |
+| 공용 `onprem` 서버 ClusterRole | `clusters/onprem-workload/argocd-service-deployer.yaml` | `pods/exec`(get·create) 추가. 서버에 직접 적용합니다(4단계 A) |
+| 등록한 서버 ClusterRole | iris-was `app/assets/onprem/install.sh` | 같은 규칙. 새 서버는 설치 때 받고, 이미 연결된 서버는 4단계 B |
+
+### 범위와 위험(운영자가 알고 켭니다)
+
+- `iris-console` 토큰은 `iris-svc-project` 의 **모든 Application** 의 Pod 에 exec 할 수 있습니다. 정책 객체가 `<project>/<app>` 이라 클러스터로 좁힐 수 없습니다. 그 project 에는 AWS workload 와 온프레미스 서버가 같이 있고 Argo 의 workload Access Entry 는 cluster-admin 이라, 토큰이 있으면 **AWS 사용자 Pod 에도** Argo 를 거쳐 exec 할 수 있습니다(AWS 쪽 ValidatingAdmissionPolicy 는 이 경로를 막지 않습니다). 정상 흐름에서 Gateway 는 티켓의 `cluster=onprem` 일 때만 이 토큰을 쓰고 app·namespace·container 를 티켓에서 고정합니다. 이 틈은 ADR 0008 에 위험으로 적었고 후속 과제(workload 에 Argo role 의 exec 거절 정책, 또는 on-prem 서비스의 별도 AppProject)로 남깁니다.
+- 토큰은 Gateway 의 Secret 한 곳에만 둡니다. 값은 로그·Git·메신저에 남기지 않고 90일 이하로 만료시킵니다.
+- 터미널을 켜면 Argo CD `admin` 도 터미널을 쓸 수 있습니다. Argo 는 ClusterIP 이고 관리자만 port-forward 로 접근합니다.
+
+### 적용 순서
+
+선행 조건: iris-was 의 온프레미스 콘솔 구현(ADR 0035)이 main 에 있고 Deploy platform 으로 `api`·`consoleGateway` 가 배포돼 있어야 합니다. 이전 이미지의 Gateway 는 새 설정을 무시하고 온프레미스 요청을 거절합니다(AWS 는 계속 동작).
+
+**1. 이 변경 merge → root 자동 sync**
+
+root 는 `main` 을 추적합니다(AWS 절 3단계 확인). 반영되는 것: AppProject `iris-svc-project` 의 role, Gateway Deployment 의 새 환경변수·마운트·NetworkPolicy(**Gateway Pod 가 한 번 재시작되어 열린 콘솔이 끊깁니다**), 공용 on-prem 매니페스트 파일(서버에는 아직 적용 안 됨).
+
+```bash
+M="--kubeconfig .generated/kubeconfig-aws-dev-management.json"
+kubectl $M -n argocd get appproject iris-svc-project -o jsonpath='{.spec.roles[*].name}{"\n"}'
+# → iris-deploy-reader iris-log-reader iris-console
+kubectl $M -n iris-platform get networkpolicy iris-platform-console-gateway-argocd
+kubectl $M -n iris-platform get deploy iris-platform-console-gateway \
+  -o jsonpath='{.spec.template.spec.containers[0].env[*].name}{"\n"}'   # CONSOLE_ARGOCD_TOKEN
+```
+
+**2. Argo CD 터미널 켜기(라이브 `argocd-cm` 패치, 사람이 직접)**
+
+`make bootstrap` 은 직접 돌리지 않습니다(Argo CD 를 helm 으로 다시 설치하고 Git 토큰 파일이 필요합니다). 같은 값을 `helm/bootstrap/values.yaml` 에도 넣었으므로 라이브 패치와 일치하고, 다음 bootstrap 에서도 값이 유지됩니다. `exec.enabled` 는 요청마다 설정을 읽으므로 argocd-server 재시작이 필요 없습니다(Argo CD v3.5.3 소스 확인, 운영 미확인). 다음 bootstrap 때에는 chart 가 management 클러스터의 `argocd-server` ClusterRole·Role 에도 `pods/exec`(create)를 더합니다. `iris-console` 이 management 의 Application 을 가리키지 않아 쓰이지 않지만 알고 있어야 합니다.
+
+```bash
+M="--kubeconfig .generated/kubeconfig-aws-dev-management.json"
+kubectl $M -n argocd get cm argocd-cm -o jsonpath='{.data.exec\.enabled}{"\n"}'      # 현재 값(false)
+kubectl $M -n argocd patch cm argocd-cm --type merge -p '{"data":{"exec.enabled":"true"}}'
+# 확인: 터미널 경로가 404(꺼짐)에서 인증 요청(400 Auth cookie not found)으로 바뀌어야 합니다.
+kubectl $M -n argocd port-forward service/argocd-server 8080:443 --address=127.0.0.1 &
+curl -sk -i https://127.0.0.1:8080/terminal | head -1     # HTTP/1.1 400 Bad Request (이전: 404)
+```
+
+**3. 토큰 생성·Secret·Gateway 재시작(사람이 직접, 값은 출력하지 않음)**
+
+2단계의 port-forward 와 `argocd login 127.0.0.1:8080 --insecure`(관리자) 상태에서 실행합니다. 토큰은 파이프로만 넘기고 개행을 제거합니다(쿠키 값에 개행이 있으면 401).
+
+```bash
+argocd proj role create-token iris-svc-project iris-console --token-only --expires-in 2160h \
+  | tr -d '\n' \
+  | kubectl $M -n iris-platform create secret generic iris-console-argocd-token \
+      --from-file=CONSOLE_ARGOCD_TOKEN=/dev/stdin
+kubectl $M -n iris-platform rollout restart deploy/iris-platform-console-gateway   # 환경변수는 시작할 때 읽습니다(열린 콘솔이 끊깁니다)
+# 토큰이 통하는지(값 출력 없이): 인증·RBAC 이 통과하면 존재하지 않는 Pod 이름에 400 "Pod doesn't belong to specified app"
+T=$(kubectl $M -n iris-platform get secret iris-console-argocd-token -o jsonpath='{.data.CONSOLE_ARGOCD_TOKEN}' | base64 -d)
+curl -sk -H "Cookie: argocd.token=$T" \
+  'https://127.0.0.1:8080/terminal?pod=does-not-exist&container=app&appName=svc-1&projectName=iris-svc-project&namespace=svc-1&appNamespace=argocd'
+unset T
+```
+
+**4. 서버의 Argo SA 에 `pods/exec` 주기(사람이 직접)**
+
+규칙은 `{apiGroups: [""], resources: [pods/exec], verbs: [get, create]}` 하나입니다. 서버의 첫 규칙(`*/*` get·list·watch)이 이미 `get` 을 갖고 있어, `get` 만으로 WebSocket exec 가 되는 K3s 도 있을 수 있습니다(미확인). 하지만 SPDY 대체와 새 API 서버는 `create` 도 요구하므로 규칙을 더하는 것을 기본으로 합니다.
+
+A. **공용 `onprem` 서버(`iris-onprem-01`, SA `iris-onprem-test/iris-argocd`)**: 이 서버의 K3s 에 접속할 수 있는 운영자가 매니페스트를 서버로 가져가 적용합니다(`runtime/onprem-auth-renewal/README.md` 와 같은 방식).
+
+```bash
+# 서버에서 (이 저장소의 clusters/onprem-workload/argocd-service-deployer.yaml 를 가져온 뒤)
+sudo k3s kubectl diff -f argocd-service-deployer.yaml            # 추가되는 규칙은 pods/exec 하나여야 합니다
+sudo k3s kubectl apply -f argocd-service-deployer.yaml
+sudo k3s kubectl auth can-i create pods --subresource=exec -n svc-28 \
+  --as=system:serviceaccount:iris-onprem-test:iris-argocd         # yes
+sudo k3s kubectl auth can-i delete pods -n svc-28 \
+  --as=system:serviceaccount:iris-onprem-test:iris-argocd         # no
+```
+
+B. **사용자가 등록한 서버(`onprem-{serverKey}`, SA `iris-system/iris-argocd`)**: 새로 등록하는 서버는 갱신된 `install.sh` 가 규칙을 만듭니다. **이미 `CONNECTED` 인 서버는 `install.sh` 를 다시 실행할 수 없습니다**(등록 토큰 재발급과 bootstrap·connect 는 `PENDING`·`REGISTERING`·`FAILED` 에서만 받습니다). 먼저 규칙 없이 시험하고(5단계), `Forbidden`/`Failed to exec container` 이면 서버 소유자가 서버에서 한 번만 규칙을 더합니다. `kubectl patch --type=json` 의 `add` 는 규칙을 중복해서 쌓으므로 한 번만 실행하고, 실행 전에 이미 있는지 확인합니다.
+
+```bash
+# 서버 소유자가 서버에서
+sudo k3s kubectl get clusterrole iris-onprem-service-deployer -o jsonpath='{.rules[*].resources}'
+sudo k3s kubectl patch clusterrole iris-onprem-service-deployer --type=json \
+  -p='[{"op":"add","path":"/rules/-","value":{"apiGroups":[""],"resources":["pods/exec"],"verbs":["get","create"]}}]'
+sudo k3s kubectl auth can-i create pods --subresource=exec -n svc-1 \
+  --as=system:serviceaccount:iris-system:iris-argocd               # yes
+```
+
+**5. 검증**
+
+1. 화면에서 온프레미스 서비스의 콘솔을 열어 `ls`·`exit`, 25초 이상 유휴(Argo 가 5초마다 WebSocket ping 을 보내고 화면이 25초마다 ping), 같은 ticket 재사용(`TOKEN_REUSED`), 셸이 없는 이미지(`SHELL_NOT_FOUND`)를 확인합니다.
+2. 다른 서비스의 Pod 이름으로 `/terminal` 을 부르면 Argo 가 400 으로 거절하는지(위 3단계의 curl 에서 `appName` 만 바꿔서) 확인합니다.
+3. Gateway 로그에 `console_session_started`·`ended` 가 남고 토큰·입출력이 없는지 봅니다.
+4. 서버가 `DISCONNECTED` 이면 Control API 가 ticket 을 주지 않습니다(`TARGET_NOT_CONNECTED`).
+
+### 끄기와 롤백
+
+- **빠른 차단(온프레미스만)**: Secret `iris-console-argocd-token` 을 지우고 Gateway 를 재시작하면 온프레미스 요청이 `CLUSTER_UNAVAILABLE` 이 됩니다(AWS 콘솔은 그대로). 또는 `argocdTerminal: false` PR.
+- **터미널 끄기**: `kubectl $M -n argocd patch cm argocd-cm --type merge -p '{"data":{"exec.enabled":"false"}}'`(재시작 불필요). `helm/bootstrap/values.yaml` 도 `false` 로 되돌리는 PR 이 필요합니다.
+- **토큰 폐기·교체**: `argocd proj role list-tokens iris-svc-project iris-console` 로 `iat` 를 확인해 `argocd proj role delete-token iris-svc-project iris-console <iat>`. 교체는 새 토큰을 만들어 Secret 을 갱신하고(`--dry-run=client -o yaml | kubectl apply -f -`) Gateway 를 재시작한 뒤 이전 토큰을 지웁니다.
+- **role 제거**: `services.yaml` 의 `iris-console` role 을 지우는 PR(발급된 토큰은 role 이 없으면 쓸 수 없습니다).
+- **서버 규칙 되돌리기**: 공용 서버는 이전 매니페스트를 다시 `apply`(규칙 목록이 바뀐 목록으로 교체됩니다). 등록한 서버는 서버 소유자가 `iris-onprem-service-deployer` 에서 `pods/exec` 규칙을 지웁니다.
+
+### 사람이 직접 하는 단계(온프레미스)
+
+1. 2단계 `argocd-cm` 라이브 패치와 확인
+2. 3단계 토큰 생성·Secret·Gateway 재시작(관리자 `argocd login` 필요, 값은 어디에도 출력·기록하지 않음)
+3. 4단계 A: 공용 `onprem` 서버에 매니페스트 적용(서버 접속 권한이 있는 운영자)
+4. 4단계 B: 이미 연결된 사용자 서버는 5단계 시험 후 필요한 서버 소유자가 규칙 추가
+5. 5단계 화면 검증
 
 ## 한계
 
-- 이 라운드는 AWS 타깃만입니다. 온프레미스는 서버별 exec 전용 SA·토큰 보관·tailnet 경로가 필요해 별도 작업입니다.
+- 온프레미스 셸은 Argo CD 터미널을 거칩니다(위 절). AWS 셸과 달리 Gateway 가 클러스터에 직접 붙지 않으므로 AWS 쪽 ValidatingAdmissionPolicy 가 적용되지 않습니다.
 - Gateway 는 단일 replica 이고 한 번 쓴 ticket 을 메모리로만 기억합니다. 고가용성이 필요하면 jti 저장소를 공유해야 합니다.
 - ALB idle timeout(60초)은 ping 으로 넘깁니다. 그룹 공통 속성이라 이 변경에서 바꾸지 않았습니다.
 - 사용자 Pod 는 SA 토큰 미마운트·NetworkPolicy·PSA baseline 이라 exec 가 새로 여는 권한은 앱 코드가 이미 가진 범위를 넘지 않습니다. 셸 입출력은 어디에도 기록하지 않고 접속 사실만 남깁니다.

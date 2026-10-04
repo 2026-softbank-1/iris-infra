@@ -17,7 +17,7 @@
 
 ## 검토한 대안
 
-- **Argo CD 터미널 프록시**: 코드는 적지만 `/terminal` 이 UI 내부 엔드포인트라 안정 API 가 아니고, Argo 의 넓은 권한에 exec 까지 얹힌다. Control API 가 Argo 를 부르지 않는 원칙(iris-was ADR 0029)도 깨진다. 제외.
+- **Argo CD 터미널 프록시**: 코드는 적지만 `/terminal` 이 UI 내부 엔드포인트라 안정 API 가 아니고, Argo 의 넓은 권한에 exec 까지 얹힌다. Control API 가 Argo 를 부르지 않는 원칙(iris-was ADR 0029)도 깨진다. 제외. (온프레미스 타깃에 한해서는 Control API 가 아니라 Gateway 가 이 경로를 쓴다: [0008](0008-onprem-console-via-argocd-terminal.md).)
 - **Control API 에 클러스터 접근 부여**: iris-was 설계 문서 §7 의 컴포넌트별 권한 경계를 무너뜨린다. 제외.
 - **namespace 별 RoleBinding**(서비스 chart 가 `svc-N` 에 만듦): 권한이 가장 좁지만 모든 사용자 서비스의 chart 버전을 올려야 하고 AppProject 허용 kind 와 배포 경로가 함께 바뀐다. ClusterRole + admission policy 로 같은 효과를 한 곳에서 낸다. 서비스 수가 늘어 Pod 목록 읽기 범위가 문제가 되면 다시 검토한다.
 - **별도 호스트(`console.likelion.uk` 등)**: 경로 접두가 필요 없지만 DNS 가 Cloudflare 수동 작업이고 CORS·인증서 설정이 하나 더 는다. 같은 host 의 정확한 경로로 충분해서 제외.

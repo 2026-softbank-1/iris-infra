@@ -155,4 +155,32 @@ spec:
         {{- end }}
       ports:
         - {protocol: TCP, port: 8080}
+{{- if .Values.consoleGateway.argocdTerminal }}
+---
+# On-prem shells: the Gateway opens the Argo CD terminal WebSocket on argocd-server (role token, exec on user services).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-console-gateway-argocd
+  labels:
+    {{- include "iris-platform.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name | quote }}
+      app.kubernetes.io/component: console-gateway
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: argocd
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: argocd-server
+      ports:
+        - {protocol: TCP, port: 8080}
+{{- end }}
 {{- end }}

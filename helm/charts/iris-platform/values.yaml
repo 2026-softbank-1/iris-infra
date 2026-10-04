@@ -100,6 +100,8 @@
       "endpoint": "",
       "ca": ""
     },
+    "argocdTerminal": false,
+    "argocdTokenSecret": "iris-console-argocd-token",
     "allowedOrigins": [],
     "idleTimeoutSeconds": 900,
     "maxSessionSeconds": 3600,
