@@ -6,14 +6,18 @@ variables {
 run "control_api_deployment_boundary" {
   command = plan
   assert {
-    condition = length(aws_iam_policy.control_api.policy) <= 6144 && length(jsondecode(aws_iam_policy.control_api.policy).Statement) == 2 && alltrue([
+    condition = length(aws_iam_policy.control_api.policy) <= 6144 && length(jsondecode(aws_iam_policy.control_api.policy).Statement) == 3 && alltrue([
       for s in jsondecode(aws_iam_policy.control_api.policy).Statement : !contains(s.Action, "iam:*") && !contains(s.Action, "iam:AttachRolePolicy")
     ])
     error_message = "CI may administer the Control API roles only with inline policies and without attaching managed policies."
   }
   assert {
-    condition     = one([for s in jsondecode(aws_iam_policy.control_api.policy).Statement : s if s.Sid == "ControlApiRole"]).Resource == ["arn:aws:iam::123456789012:role/iris-dev-control-api", "arn:aws:iam::123456789012:role/iris-dev-onprem-ecr-pull"]
-    error_message = "CI may administer only the Control API role and the on-prem ECR pull role it assumes."
+    condition     = one([for s in jsondecode(aws_iam_policy.control_api.policy).Statement : s if s.Sid == "ControlApiRole"]).Resource == ["arn:aws:iam::123456789012:role/iris-dev-control-api", "arn:aws:iam::123456789012:role/iris-dev-onprem-ecr-pull", "arn:aws:iam::123456789012:role/iris-dev-onprem-ecr-renewer", "arn:aws:iam::123456789012:role/iris-dev-onprem-ecr-renewal-pull"]
+    error_message = "CI may administer only the four reviewed Control API/on-prem credential roles."
+  }
+  assert {
+    condition     = one([for s in jsondecode(aws_iam_policy.control_api.policy).Statement : s if s.Sid == "PassOnpremEcrRenewerRole"]).Resource == "arn:aws:iam::123456789012:role/iris-dev-onprem-ecr-renewer" && jsonencode(one([for s in jsondecode(aws_iam_policy.control_api.policy).Statement : s if s.Sid == "PassOnpremEcrRenewerRole"]).Condition) == jsonencode({ StringEquals = { "iam:PassedToService" = "pods.eks.amazonaws.com" } }) && one([for s in jsondecode(aws_iam_policy.control_api.policy).Statement : s if s.Sid == "PassOnpremEcrRenewerRole"]).Action == ["iam:PassRole"]
+    error_message = "Only the on-prem issuer may be passed to Pod Identity; its pull role must never be passed."
   }
   assert {
     condition     = one([for s in jsondecode(aws_iam_policy.control_api.policy).Statement : s if s.Sid == "PassControlApiRole"]).Resource == "arn:aws:iam::123456789012:role/iris-dev-control-api" && one([for s in jsondecode(aws_iam_policy.control_api.policy).Statement : s if s.Sid == "PassControlApiRole"]).Action == ["iam:PassRole"] && jsonencode(one([for s in jsondecode(aws_iam_policy.control_api.policy).Statement : s if s.Sid == "PassControlApiRole"]).Condition) == jsonencode({ StringEquals = { "iam:PassedToService" = "pods.eks.amazonaws.com" } })

@@ -30,6 +30,7 @@ override_data {
     loki_role_arn                           = "arn:aws:iam::123456789012:role/loki"
     build_worker_role_arn                   = "arn:aws:iam::123456789012:role/build-worker"
     control_api_role_arn                    = "arn:aws:iam::123456789012:role/control-api"
+    onprem_ecr_renewer_role_arn             = "arn:aws:iam::123456789012:role/onprem-ecr-renewer"
   } }
 }
 variables {
@@ -66,6 +67,14 @@ run "control_api_identity" {
   assert {
     condition     = aws_eks_pod_identity_association.control_api.role_arn != aws_eks_pod_identity_association.build_worker.role_arn && aws_eks_pod_identity_association.control_api.role_arn != aws_eks_pod_identity_association.deploy_worker.role_arn
     error_message = "Control API must not share a role with the Build or Deploy Worker."
+  }
+}
+
+run "onprem_ecr_renewer_identity" {
+  command = plan
+  assert {
+    condition     = aws_eks_pod_identity_association.onprem_ecr_renewer.namespace == "iris-platform" && aws_eks_pod_identity_association.onprem_ecr_renewer.service_account == "iris-onprem-ecr-renewer" && aws_eks_pod_identity_association.onprem_ecr_renewer.role_arn == data.terraform_remote_state.foundation.outputs.onprem_ecr_renewer_role_arn
+    error_message = "The generic legacy on-prem reconciler must use only its dedicated management Pod Identity."
   }
 }
 

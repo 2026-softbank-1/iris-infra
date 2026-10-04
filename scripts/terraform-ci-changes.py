@@ -63,7 +63,7 @@ def select(paths):
         collector = CI.test_input(path)
         helm = path.startswith(("helm/", "clusters/")) or path in HELM_INPUTS or contract
         platform = path in PLATFORM_INPUTS
-        ops = path in OPS_INPUTS or contract
+        ops = path in OPS_INPUTS or contract or path.startswith("runtime/onprem-auth-renewal/")
         tf = path.startswith("terraform/") or path in TF_CHECK_INPUTS
         known = tf or collector or helm or platform or ops
         if path.startswith("scripts/") and not known:
