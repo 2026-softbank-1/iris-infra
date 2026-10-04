@@ -1,0 +1,23 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["hosts", "groupName", "groupOrder", "certificateArn"],
+  "properties": {
+    "hosts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["server", "applicationSet"],
+      "properties": {
+        "server": { "type": "string", "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.internal\\.likelion\\.uk$" },
+        "applicationSet": { "type": "string", "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.internal\\.likelion\\.uk$" }
+      }
+    },
+    "groupName": { "type": "string", "minLength": 1 },
+    "groupOrder": { "type": "integer", "minimum": 1, "maximum": 999 },
+    "certificateArn": {
+      "type": "string",
+      "pattern": "^arn:aws:acm:ap-northeast-2:[0-9]{12}:certificate/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    }
+  }
+}

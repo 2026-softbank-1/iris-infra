@@ -362,6 +362,13 @@ spec:
           iris.dev/auth-renewal: ecr
     - namespaceSelector:
         matchLabels:
+          kubernetes.io/metadata.name: iris-platform
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/name: iris-onprem-ecr-renewer
+          iris.dev/auth-renewal: ecr
+    - namespaceSelector:
+        matchLabels:
           kubernetes.io/metadata.name: argocd
       podSelector:
         matchLabels:

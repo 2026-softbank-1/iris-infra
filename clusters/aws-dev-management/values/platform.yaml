@@ -4,7 +4,8 @@
       "repository": "187069338876.dkr.ecr.ap-northeast-2.amazonaws.com/iris/was"
     },
     "logLevel": "INFO",
-    "envSecret": "iris-platform-was-env"
+    "envSecret": "iris-platform-was-env",
+    "projectNetworkingEnabled": true
   },
   "database": {
     "secret": "iris-platform-was-env",

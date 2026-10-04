@@ -1,15 +1,13 @@
 {
   "tagOwners": {
-    "tag:iris-onprem-apps": ["tag:iris-operator"],
-    "tag:iris-onprem-api": ["tag:iris-operator"]
+    "tag:iris-onprem-apps": ["tag:iris-operator"]
   },
   "grants": [
-    {"src": ["tag:iris-onprem-apps"], "dst": ["tag:iris-onprem"], "ip": ["tcp:80"]},
-    {"src": ["tag:iris-onprem-api"], "dst": ["tag:iris-onprem"], "ip": ["tcp:6443"]}
+    {"src": ["tag:iris-onprem-apps"], "dst": ["tag:iris-onprem"], "ip": ["tcp:80"]}
   ],
   "tests": [
     {"src": "tag:iris-onprem-apps", "accept": ["tag:iris-onprem:80"], "deny": ["tag:iris-onprem:6443"]},
-    {"src": "tag:iris-onprem-api", "accept": ["tag:iris-onprem:6443"], "deny": ["tag:iris-onprem:80", "tag:iris-onprem:22"]},
-    {"src": "tag:iris-onprem", "deny": ["tag:iris-onprem:80", "tag:iris-onprem:6443", "tag:iris-onprem:22", "tag:iris-operator:443", "tag:iris-onprem-api:6443", "tag:iris-onprem-apps:80"]}
+    {"src": "tag:iris-mgmt-egress", "accept": ["tag:iris-onprem:6443"]},
+    {"src": "tag:iris-onprem", "deny": ["tag:iris-onprem:80", "tag:iris-onprem:6443", "tag:iris-onprem:22", "tag:iris-operator:443", "tag:iris-mgmt-egress:6443", "tag:iris-onprem-apps:80"]}
   ]
 }

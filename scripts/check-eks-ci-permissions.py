@@ -109,6 +109,14 @@ def matrix(c):
     add("Pass ALB collector", "iam", "PassRole", alb_collector, {"iam:PassedToService": "pods.eks.amazonaws.com"})
     for service in ("ec2.amazonaws.com", "eks.amazonaws.com"):
         add("Reject ALB collector passed service", "iam", "PassRole", alb_collector, {"iam:PassedToService": service}, False)
+    onprem_issuer = iam + f"role/{c.stem}-onprem-ecr-renewer"
+    onprem_pull = iam + f"role/{c.stem}-onprem-ecr-renewal-pull"
+    add("On-prem ECR renewal roles", "iam", "CreateRole GetRole UpdateAssumeRolePolicy UpdateRole UpdateRoleDescription DeleteRole ListRolePolicies ListAttachedRolePolicies ListInstanceProfilesForRole PutRolePolicy GetRolePolicy DeleteRolePolicy TagRole UntagRole ListRoleTags", [onprem_issuer, onprem_pull])
+    add("Pass on-prem ECR issuer", "iam", "PassRole", onprem_issuer, {"iam:PassedToService": "pods.eks.amazonaws.com"})
+    for service in ("ec2.amazonaws.com", "eks.amazonaws.com"):
+        add("Reject on-prem ECR issuer passed service", "iam", "PassRole", onprem_issuer, {"iam:PassedToService": service}, False)
+    add("Reject passing on-prem ECR pull role", "iam", "PassRole", onprem_pull, {"iam:PassedToService": "pods.eks.amazonaws.com"}, False)
+    add("Reject attaching on-prem ECR policies", "iam", "AttachRolePolicy", [onprem_issuer, onprem_pull], {"iam:PolicyARN": "arn:aws:iam::aws:policy/AdministratorAccess"}, False)
     alb_bucket = f"arn:aws:s3:::{c.stem}-alb-access-logs-{c.account}-{c.region}"
     add("ALB bucket configuration", "s3", "ListBucket ListBucketVersions GetBucketLocation GetBucketPolicy GetBucketTagging GetBucketPublicAccessBlock GetBucketNotification GetBucketVersioning GetBucketLogging GetAccelerateConfiguration GetEncryptionConfiguration GetLifecycleConfiguration GetReplicationConfiguration GetBucketObjectLockConfiguration", alb_bucket)
     add("ALB bucket lifecycle", "s3", "CreateBucket DeleteBucket PutBucketTagging PutEncryptionConfiguration PutBucketPublicAccessBlock PutLifecycleConfiguration PutBucketPolicy DeleteBucketPolicy PutBucketNotification", alb_bucket)

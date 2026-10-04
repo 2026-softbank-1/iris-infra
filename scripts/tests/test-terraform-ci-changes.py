@@ -113,6 +113,17 @@ class InfrastructureChangesTest(unittest.TestCase):
         self.assertTrue(flags["tf_check"])
         self.assertFalse(flags["tf_apply"])
 
+    def test_onprem_runtime_selects_credential_tests_without_apply(self):
+        for path in ('runtime/onprem-auth-renewal/all_services.py', 'runtime/onprem-auth-renewal/all-services.yaml'):
+            flags = CI.select([path])
+            self.assertTrue(flags['ops_check'])
+            self.assertFalse(flags['tf_apply'])
+            self.assertFalse(flags['tf_check'])
+        step = named_step('Test on-prem namespace ECR reconciliation without cloud credentials')
+        self.assertTrue(evaluate(condition(step, 8), CI.select(['runtime/onprem-auth-renewal/all_services.py'])))
+        self.assertIn('httpx==0.28.1 PyYAML==6.0.3', step)
+        self.assertIn('unittest discover -s runtime/onprem-auth-renewal', step)
+
     def test_docs_skip_all_expensive_checks(self):
         paths = ["README.md", "terraform/modules/eks/README.md", "scripts/README.md",
                  "collectors/alb-access-logs/README.md", "helm/charts/iris-service/README.md",

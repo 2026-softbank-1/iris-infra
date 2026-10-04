@@ -1,0 +1,2 @@
+# Validation fixture only; this ARN does not identify a provisioned certificate.
+certificateArn: arn:aws:acm:ap-northeast-2:123456789012:certificate/00000000-0000-0000-0000-000000000000

@@ -1,0 +1,43 @@
+{{- /* One Ingress per backend: the backend protocol and health check differ. Only the exact path /api/webhook is
+     forwarded; a catch-all on the same host answers 404 at the ALB, so the Argo UI/API is never reachable. Both
+     endpoints verify the GitHub HMAC with argocd-secret webhook.github.secret (docs/runbooks/argocd-webhook.md). */}}
+{{- $notFound := dict "type" "fixed-response" "fixedResponseConfig" (dict "contentType" "text/plain" "statusCode" "404" "messageBody" "not found") | toJson }}
+{{- $backends := list
+      (dict "name" "argocd-webhook" "host" .Values.hosts.server "service" "argocd-server" "port" "https"
+            "notes" (dict "alb.ingress.kubernetes.io/backend-protocol" "HTTPS" "alb.ingress.kubernetes.io/healthcheck-path" "/healthz"))
+      (dict "name" "argocd-appset-webhook" "host" .Values.hosts.applicationSet "service" "argocd-applicationset-controller" "port" "http-webhook"
+            "notes" (dict "alb.ingress.kubernetes.io/backend-protocol" "HTTP" "alb.ingress.kubernetes.io/healthcheck-port" "8081" "alb.ingress.kubernetes.io/healthcheck-path" "/healthz")) }}
+{{- range $i, $b := $backends }}
+{{- if $i }}
+---
+{{- end }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ $b.name }}
+  annotations:
+    alb.ingress.kubernetes.io/group.name: {{ $.Values.groupName | quote }}
+    alb.ingress.kubernetes.io/group.order: {{ $.Values.groupOrder | quote }}
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+    alb.ingress.kubernetes.io/certificate-arn: {{ $.Values.certificateArn | quote }}
+    alb.ingress.kubernetes.io/actions.not-found: {{ $notFound | quote }}
+    {{- range $key, $value := $b.notes }}
+    {{ $key }}: {{ $value | quote }}
+    {{- end }}
+spec:
+  ingressClassName: alb
+  rules:
+    - host: {{ $b.host | quote }}
+      http:
+        paths:
+          - path: /api/webhook
+            pathType: Exact
+            backend:
+              service: {name: {{ $b.service }}, port: {name: {{ $b.port }}}}
+          - path: /
+            pathType: Prefix
+            backend:
+              service: {name: not-found, port: {name: use-annotation}}
+{{- end }}

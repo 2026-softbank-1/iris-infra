@@ -210,22 +210,59 @@ def check_onprem_gateway(directory, targets, baseline):
         result = subprocess.run([HELM,'template','check',str(chart),'-f',str(bad_values)],capture_output=True)
         assert result.returncode, f'Invalid gateway values must fail: {override}'
     policy = json.loads((ROOT/'clusters/aws-dev-management/onprem/tailnet-policy-additions.json').read_text())
-    assert policy['tagOwners']=={'tag:iris-onprem-apps':['tag:iris-operator'],'tag:iris-onprem-api':['tag:iris-operator']}
-    # Each egress proxy reaches only its port; on-prem servers (tag:iris-onprem) are destinations only.
-    assert policy['grants']==[{'src':['tag:iris-onprem-apps'],'dst':['tag:iris-onprem'],'ip':['tcp:80']},
-                              {'src':['tag:iris-onprem-api'],'dst':['tag:iris-onprem'],'ip':['tcp:6443']}]
+    assert policy['tagOwners']=={'tag:iris-onprem-apps':['tag:iris-operator']}
+    # The apps proxy reaches only TCP 80; on-prem servers (tag:iris-onprem) are destinations only. API proxies use the
+    # operator default tag (tag:iris-mgmt-egress) whose 6443 grant already exists in the live policy; the test pins it.
+    assert policy['grants']==[{'src':['tag:iris-onprem-apps'],'dst':['tag:iris-onprem'],'ip':['tcp:80']}]
     assert not any('tag:iris-onprem' in grant['src'] for grant in policy['grants'])
     tests = {t['src']: t for t in policy['tests']}
     assert tests['tag:iris-onprem-apps']=={'src':'tag:iris-onprem-apps','accept':['tag:iris-onprem:80'],'deny':['tag:iris-onprem:6443']}
-    assert tests['tag:iris-onprem-api']['accept']==['tag:iris-onprem:6443'] and 'tag:iris-onprem:80' in tests['tag:iris-onprem-api']['deny']
+    assert tests['tag:iris-mgmt-egress']=={'src':'tag:iris-mgmt-egress','accept':['tag:iris-onprem:6443']}
     assert 'accept' not in tests['tag:iris-onprem'] and {'tag:iris-onprem:80','tag:iris-onprem:6443','tag:iris-operator:443'} <= set(tests['tag:iris-onprem']['deny'])
-    # The chart's egress Services must use exactly the tags this fragment grants.
+    # Services that set tags must use exactly the tags this fragment grants; the per-server API Service sets none.
     proxy_tags = set()
     for chart, fixture in (('iris-onprem-gateway', ROOT/'clusters/aws-dev-management/values/onprem-gateway.yaml'), ('iris-onprem-server', ROOT/'helm/charts/iris-onprem-server/ci/server-values.yaml')):
         rendered = yaml.safe_load_all(command('template', 'check', ROOT/'helm/charts'/chart, '-f', fixture, '--namespace', 'onprem-gateway'))
         proxy_tags |= {d['metadata']['annotations']['tailscale.com/tags'] for d in rendered if d and d['kind']=='Service' and 'tailscale.com/tags' in d['metadata'].get('annotations', {})}
     assert proxy_tags=={src for grant in policy['grants'] for src in grant['src']}
     # These are fragment assertions, not evaluation of the live/merged Tailscale policy.
+
+
+def check_argocd_webhook(gitops):
+    """Only POST /api/webhook of the two Argo webhook receivers is public; everything else on those hosts is 404."""
+    indexed = {(d['kind'], d['metadata']['name']): d for d in gitops}
+    project = indexed['AppProject','iris-argocd-webhook']['spec']
+    endpoint = project['destinations'][0]['server']
+    assert project['destinations']==[{'server':endpoint,'namespace':'argocd'}] and project['clusterResourceWhitelist']==[]
+    assert project['namespaceResourceWhitelist']==[{'group':'networking.k8s.io','kind':'Ingress'}], 'The webhook project may only create Ingresses.'
+    app = indexed['Application','iris-argocd-webhook']['spec']
+    assert app['project']=='iris-argocd-webhook' and app['source']['path']=='helm/charts/iris-argocd-webhook' and app['destination']=={'server':endpoint,'namespace':'argocd'}
+    chart = ROOT/'helm/charts/iris-argocd-webhook'
+    gateway = command('template','check',ROOT/'helm/charts/iris-onprem-gateway','-f',ROOT/'clusters/aws-dev-management/values/onprem-gateway.yaml','--namespace','onprem-gateway')
+    gateway_order = int(next(d for d in yaml.safe_load_all(gateway) if d and d['kind']=='Ingress')['metadata']['annotations']['alb.ingress.kubernetes.io/group.order'])
+    gateway_values = yaml.safe_load((ROOT/'clusters/aws-dev-management/values/onprem-gateway.yaml').read_text())
+    for fixture in (ROOT/'clusters/aws-dev-management/values/argocd-webhook.yaml', chart/'ci/webhook-values.yaml'):
+        docs = render(chart, fixture, release='argocd-webhook', namespace='argocd')
+        assert {group_kind(d) for d in docs} <= {(w['group'], w['kind']) for w in project['namespaceResourceWhitelist']}
+        ingresses = {d['metadata']['name']: d for d in docs}
+        assert set(ingresses)=={'argocd-webhook','argocd-appset-webhook'}
+        for name, service, port in (('argocd-webhook','argocd-server','https'),('argocd-appset-webhook','argocd-applicationset-controller','http-webhook')):
+            ingress = ingresses[name]; notes = ingress['metadata']['annotations']
+            assert notes['alb.ingress.kubernetes.io/group.name']=='iris-platform-external' and notes['alb.ingress.kubernetes.io/target-type']=='ip'
+            assert int(notes['alb.ingress.kubernetes.io/group.order']) < gateway_order, 'Must match before the gateway *.internal rule.'
+            assert json.loads(notes['alb.ingress.kubernetes.io/actions.not-found'])=={'type':'fixed-response','fixedResponseConfig':{'contentType':'text/plain','statusCode':'404','messageBody':'not found'}}
+            [rule] = ingress['spec']['rules']
+            assert rule['host'].endswith('.'+gateway_values['host'].removeprefix('*.')) and rule['host'].count('.')==3, 'Covered by the existing *.internal DNS and certificate.'
+            assert rule['http']['paths']==[
+                {'path':'/api/webhook','pathType':'Exact','backend':{'service':{'name':service,'port':{'name':port}}}},
+                {'path':'/','pathType':'Prefix','backend':{'service':{'name':'not-found','port':{'name':'use-annotation'}}}}], 'Only the webhook path reaches Argo.'
+        assert ingresses['argocd-webhook']['metadata']['annotations']['alb.ingress.kubernetes.io/backend-protocol']=='HTTPS'
+        assert ingresses['argocd-appset-webhook']['metadata']['annotations']['alb.ingress.kubernetes.io/healthcheck-port']=='8081'
+    assert yaml.safe_load((ROOT/'clusters/aws-dev-management/values/argocd-webhook.yaml').read_text())['certificateArn']==gateway_values['certificateArn'], 'Same *.internal certificate as the gateway.'
+    bad = Path(tempfile.mkdtemp(prefix='iris-webhook-'))/'bad.json'
+    for override in ({'hosts':{'server':'argocd.likelion.uk','applicationSet':'x.internal.likelion.uk'}}, {'groupOrder':1000}, {'certificateArn':''}, {'extra':1}):
+        bad.write_text(json.dumps({'certificateArn':yaml.safe_load((chart/'ci/webhook-values.yaml').read_text())['certificateArn'], **override}))
+        assert subprocess.run([HELM,'template','check',str(chart),'-f',str(bad)],capture_output=True).returncode, f'Invalid webhook values must fail: {override}'
 
 
 def semver_of(revision):
@@ -333,11 +370,13 @@ def check_onprem_servers(directory, targets, baseline):
         assert secret['data']=={'name':'onprem-'+key,'server':f'https://iris-onprem-api-{key}.argocd.svc.cluster.local:6443'}
         api, apps = resources['Service','iris-onprem-api-'+key], resources['Service','iris-onprem-apps-'+key]
         assert api['metadata']['namespace']=='argocd' and apps['metadata']['namespace']=='onprem-gateway'
-        for service, proxy_class, hostname, tag, port in ((api,'iris-onprem-server-api','iris-mgmt-onprem-api-'+key,'tag:iris-onprem-api',6443),
+        # The API proxy takes the operator default tag (no annotation), as the legacy VM's does.
+        for service, proxy_class, hostname, tag, port in ((api,'iris-onprem-server-api','iris-mgmt-onprem-api-'+key,None,6443),
                                                           (apps,'iris-onprem-http','iris-mgmt-onprem-http-'+key,'tag:iris-onprem-apps',80)):
             notes = service['metadata']['annotations']
-            assert {k: v for k, v in notes.items() if k.startswith('tailscale.com/')}=={'tailscale.com/proxy-class':proxy_class,
-                'tailscale.com/hostname':hostname,'tailscale.com/tailnet-fqdn':data['server']['tailnetFqdn'],'tailscale.com/tags':tag}
+            expected = {'tailscale.com/proxy-class':proxy_class,'tailscale.com/hostname':hostname,'tailscale.com/tailnet-fqdn':data['server']['tailnetFqdn']}
+            if tag: expected['tailscale.com/tags'] = tag
+            assert {k: v for k, v in notes.items() if k.startswith('tailscale.com/')}==expected
             assert service['spec']['type']=='ExternalName' and service['spec']['externalName']=='placeholder' and service['spec']['ports'][0]['port']==port
         probe = resources['Application','iris-onprem-probe-'+key]
         assert probe['metadata']['namespace']=='argocd' and 'finalizers' not in probe['metadata'], 'Deleting a server must not wait on its cluster.'
@@ -746,7 +785,7 @@ def check_platform(directory, targets, bootstrap):
     assert next(d for d in docs if d['kind']=='ConfigMap' and d['metadata']['name']=='iris-platform-api')['data']['CONSOLE_GATEWAY_WS_URL']=='wss://api.likelion.uk'
     enabled=directory/'gitops-platform.json';enabled.write_text(json.dumps({'revision':'a'*40,'targets':targets,'platform':{'enabled':True},'services':{'onprem':{'enabled':False}},'onpremGateway':{'enabled':False},'onpremServers':{'enabled':False}}))
     docs=render(ROOT/'helm/gitops', enabled, namespace='argocd')
-    assert sum(d['kind']=='Application' for d in docs)==15 and sum(d['kind']=='AppProject' for d in docs)==4
+    assert sum(d['kind']=='Application' for d in docs)==16 and sum(d['kind']=='AppProject' for d in docs)==5
     app=next(d for d in docs if d['kind']=='Application' and d['metadata']['name']=='iris-platform')
     assert app['metadata']['finalizers']==['resources-finalizer.argocd.argoproj.io'] and app['spec']['syncPolicy']['automated']=={'prune':True,'selfHeal':True}
     assert app['spec']['destination']=={'server':targets['management']['endpoint'],'namespace':'iris-platform'}
@@ -777,13 +816,13 @@ def main():
         values.write_text(json.dumps({'revision':'a'*40,'targets':targets,'services':{'onprem':{'enabled':False}},'onpremGateway':{'enabled':False},'onpremServers':{'enabled':False}}))
         gitops = render(ROOT/'helm/gitops', values, namespace='argocd')
         # Platform is opt-in at bootstrap (GITOPS_PLATFORM_ENABLED); check_platform covers it.
-        assert sum(d['kind']=='Application' for d in gitops)==14
+        assert sum(d['kind']=='Application' for d in gitops)==15
         for app in (d for d in gitops if d['kind']=='Application' and d['metadata']['name'].endswith('-aws-load-balancer-controller')):
             # Re-sync must not rotate the LBC webhook certificate under running controllers.
             ignored = {(i['kind'],i['name']) for i in app['spec']['ignoreDifferences']}
             assert ignored=={('Secret','aws-load-balancer-tls'),('MutatingWebhookConfiguration','aws-load-balancer-webhook'),('ValidatingWebhookConfiguration','aws-load-balancer-webhook')}
             assert 'RespectIgnoreDifferences=true' in app['spec']['syncPolicy']['syncOptions']
-        assert sum(d['kind']=='AppProject' for d in gitops)==3
+        assert sum(d['kind']=='AppProject' for d in gitops)==4
         # Argo refuses an Application whose chart repository its AppProject does not list (InvalidSpecError).
         project_repos = {d['metadata']['name']: d['spec']['sourceRepos'] for d in gitops if d['kind']=='AppProject'}
         for app in (d for d in gitops if d['kind']=='Application'):
@@ -853,7 +892,7 @@ def main():
         egress = next(d for d in service_docs if d['kind']=='NetworkPolicy' and d['metadata']['name']=='restrict-egress')['spec']
         assert egress['podSelector']=={} and egress['policyTypes']==['Egress'] and {'cidr':'0.0.0.0/0','except':['10.40.0.0/16','169.254.0.0/16']} in [t.get('ipBlock') for r in egress['egress'] for t in r['to']], 'User pods must not reach VPC (collector NLB, nodes) or link-local addresses.'
         assert ingress['metadata']['annotations']['alb.ingress.kubernetes.io/group.name']=='iris-service-external', 'All services share the external ALB group.'
-        rendered_kinds = {(d['apiVersion'].rpartition('/')[0], d['kind']) for fixture in ('aws-values.yaml','database-values.yaml','aliases-values.yaml') for d in render(ROOT/'helm/charts/iris-service', ROOT/'helm/charts/iris-service/ci'/fixture, namespace='svc-12')}
+        rendered_kinds = {(d['apiVersion'].rpartition('/')[0], d['kind']) for fixture in ('aws-values.yaml','database-values.yaml','database-initdb-values.yaml','aliases-values.yaml') for d in render(ROOT/'helm/charts/iris-service', ROOT/'helm/charts/iris-service/ci'/fixture, namespace='svc-12')}
         assert rendered_kinds <= {(w['group'],w['kind']) for w in services['namespaceResourceWhitelist']}, f'iris-svc-project must allow chart kinds: {rendered_kinds}'
         allowed = {p['metadata']['name'].removeprefix('iris-addons-'): {(w['group'],w['kind']) for w in p['spec']['clusterResourceWhitelist']} for p in gitops if p['kind']=='AppProject'}
         tracking = directory/'tracking.json'
@@ -863,7 +902,7 @@ def main():
         tracking_values['revision'] = 'main'
         tracking.write_text(json.dumps(tracking_values))
         tracking_apps = {d['metadata']['name']:d for d in render(ROOT/'helm/gitops', tracking, namespace='argocd') if d['kind']=='Application'}
-        assert tracking_apps.keys()==pinned_apps.keys() and len(tracking_apps)==16
+        assert tracking_apps.keys()==pinned_apps.keys() and len(tracking_apps)==17
         assert {'iris-platform','iris-management-alb-log-collector'} <= tracking_apps.keys()
         infra_repo = json.loads((ROOT/'helm/gitops/values.yaml').read_text())['repoURL']
         for name, app in tracking_apps.items():
@@ -896,6 +935,7 @@ def main():
         assert {'server':'https://onprem.example:6443','namespace':'svc-*'} in project['destinations']
         assert 'iris-svc-onprem-appset' not in {d['metadata']['name'] for d in gitops if d['kind']=='ApplicationSet'}, 'AWS-only fixture disables the on-prem ApplicationSet.'
         check_onprem_gateway(directory, targets, gitops)
+        check_argocd_webhook(gitops)
         check_onprem_servers(directory, targets, gitops)
         check_platform(directory, targets, bootstrap)
         charts = {}

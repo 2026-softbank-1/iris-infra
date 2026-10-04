@@ -81,7 +81,8 @@ elif action.startswith('simulate-'):
    denied=(ctx.get('aws:RequestedRegion')=='us-west-2' or 'iris-permission-audit-unrelated' in r or
     (a in ('sqs:ReceiveMessage','sqs:SendMessage','sqs:DeleteMessage') and '-alb-access-logs' in r) or
     (a in ('s3:GetObject','s3:PutObject','s3:DeleteObject') and '-alb-access-logs-' in r) or
-    (a=='iam:PassRole' and ((r.endswith('build-worker') and ctx.get('iam:PassedToService')=='ec2.amazonaws.com') or (r.endswith(('deploy-worker','alb-log-collector')) and ctx.get('iam:PassedToService')!='pods.eks.amazonaws.com'))) or
+    (a=='iam:PassRole' and ((r.endswith('build-worker') and ctx.get('iam:PassedToService')=='ec2.amazonaws.com') or (r.endswith(('deploy-worker','alb-log-collector','onprem-ecr-renewer')) and ctx.get('iam:PassedToService')!='pods.eks.amazonaws.com') or r.endswith('onprem-ecr-renewal-pull'))) or
+    (a=='iam:AttachRolePolicy' and r.endswith(('onprem-ecr-renewer','onprem-ecr-renewal-pull'))) or
     (a=='eks:CreateCluster' and (ctx.get('eks:endpointPublicAccess')=='true' or ctx.get('aws:RequestTag/Project','').endswith('-other'))) or
     (a=='ec2:RunInstances' and ((':instance/' in r and ctx.get('ec2:InstanceType')!='t3.micro') or
      (':image/' in r and ctx.get('ec2:Owner')!='amazon') or (':volume/' in r and ctx.get('aws:RequestTag/Project','').endswith('-other')))))
@@ -254,6 +255,30 @@ class PermissionAuditTests(unittest.TestCase):
         self.assertIn(("ec2:DescribeInstanceCreditSpecifications", "*"), positive)
         self.assertGreater(sum(len(c.actions) * len(c.resources) for c in cases if c.allow), 440)
         self.assertGreaterEqual(sum(len(c.actions) * len(c.resources) for c in cases if not c.allow), 12)
+
+    def test_onprem_role_boundaries_preserve_policy_document_inventory(self):
+        cases = audit.matrix(C)
+        issuer = f'arn:aws:iam::{ACCOUNT}:role/iris-dev-onprem-ecr-renewer'
+        pull = f'arn:aws:iam::{ACCOUNT}:role/iris-dev-onprem-ecr-renewal-pull'
+        positive = {(a, r) for case in cases if case.allow for a in case.actions for r in case.resources}
+        self.assertIn(('iam:CreateRole', issuer), positive)
+        self.assertIn(('iam:PutRolePolicy', pull), positive)
+        self.assertIn(('iam:PassRole', issuer), positive)
+        self.assertNotIn(('iam:PassRole', pull), positive)
+        self.assertTrue(any(not case.allow and pull in case.resources and 'iam:PassRole' in case.actions for case in cases))
+        plan = plan_fixture()
+        # The existing Control API document is optional in the inventory but is
+        # attached in this account. It must still fit the simulator's quota.
+        policy_arn = f'arn:aws:iam::{ACCOUNT}:policy/iris-dev-control-api-deployment'
+        plan['planned_values']['root_module']['resources'].extend([
+            {'type': 'aws_iam_policy', 'values': {'arn': policy_arn,
+                'name': 'iris-dev-control-api-deployment', 'policy': json.dumps(POLICY)}},
+            {'type': 'aws_iam_role_policy_attachment', 'values': {
+                'role': 'iris-dev-github-terraform', 'policy_arn': policy_arn}},
+        ])
+        documents = audit.plan_policies(plan, ROLE, C)[1]
+        self.assertEqual(len(documents), 10)
+        self.assertEqual(len(documents), 1 + sum(len(names) for names in audit.expected_names(C)))
 
 
 if __name__ == "__main__":

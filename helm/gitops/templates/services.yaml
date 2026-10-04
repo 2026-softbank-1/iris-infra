@@ -38,6 +38,8 @@ spec:
     - {group: apps, kind: StatefulSet}
     - {group: apps, kind: ControllerRevision}
     - {group: "", kind: PersistentVolumeClaim}
+    # DB 초기화 스크립트(database.initScripts) ConfigMap app-initdb.
+    - {group: "", kind: ConfigMap}
     - {group: "", kind: Pod}
     - {group: "", kind: Service}
     - {group: networking.k8s.io, kind: Ingress}

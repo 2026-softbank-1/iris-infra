@@ -164,6 +164,11 @@ jobs:
       - name: Test private API operations and foundation plan protection
         if: needs.changes.outputs.ops_check == 'true'
         run: python3 scripts/tests/test-eks-ops.py
+      - name: Test on-prem namespace ECR reconciliation without cloud credentials
+        if: needs.changes.outputs.ops_check == 'true'
+        run: |
+          python3 -m pip install httpx==0.28.1 PyYAML==6.0.3
+          python3 -m unittest discover -s runtime/onprem-auth-renewal -p 'test_*.py'
       - name: Test IAM permission checker with fake AWS responses
         if: needs.changes.outputs.ops_check == 'true'
         run: python3 scripts/tests/test-eks-ci-permissions.py

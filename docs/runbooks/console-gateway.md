@@ -19,7 +19,7 @@ flowchart LR
 | Pod Identity association | `terraform/environments/aws/dev/management/identity.tf` | SA `console-gateway` |
 | workload EKS Access Entry | `terraform/modules/eks`(`console_gateway_role_arn`, workload root 만) | Kubernetes group `iris-console` 에만 매핑, **access policy 없음** |
 | ClusterRole `iris-console-exec`·Binding·ValidatingAdmissionPolicy | `helm/charts/cluster-baseline` 의 `consoleExec`(workload values 에서 켬) | 권한의 유일한 출처입니다 |
-| CI 의 role 관리 권한 | `terraform/account/aws/ci-console-gateway.tf` | CI 가 이 역할 하나만 만들고 Pod Identity 로만 넘길 수 있게 합니다 |
+| CI 의 role 관리 권한 | `terraform/account/aws/ci-control-api.tf`(기존 `control-api-deployment` 정책 문서의 `ConsoleGatewayRole`·`PassConsoleGatewayRole` 문장) | CI 가 이 역할 하나만 만들고 Pod Identity 로만 넘길 수 있게 합니다(권한 정책 put/attach 는 불가). 새 정책 문서를 만들지 않아 account-plan 검사기의 10개 문서 한도를 유지합니다 |
 
 ## 결정과 근거
 
@@ -56,7 +56,7 @@ Gateway 이미지(`app.console_gateway.main:app`, `/healthz`·`/readyz`)가 iris
 
 ### 1. account(관리자, main merge 전)
 
-`terraform/account/aws` 를 관리자 경로로 적용해 CI 역할에 `iris-dev-console-gateway-deployment` 정책이 붙게 합니다(CI 역할의 임시 `AdministratorAccess` 가 남아 있으면 없어도 apply 는 되지만, 회수한 뒤에는 필수입니다). CI 역할의 관리형 정책 수가 한도(기본 10)를 넘지 않는지 확인합니다.
+`terraform/account/aws` 를 관리자 경로로 적용해 CI 역할의 기존 정책 `iris-dev-control-api-deployment` 에 Console Gateway 문장 2개가 더해지게 합니다(CI 역할의 임시 `AdministratorAccess` 가 남아 있으면 없어도 apply 는 되지만, 회수한 뒤에는 필수입니다). 새 관리형 정책을 붙이지 않으므로 CI 역할의 정책 수는 늘지 않습니다.
 
 ### 2. 이 변경 merge → CI 자동 apply
 

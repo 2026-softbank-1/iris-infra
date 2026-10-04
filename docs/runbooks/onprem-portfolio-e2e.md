@@ -36,6 +36,13 @@
 
 2026-10-04부터 [서버 측 자동 갱신](../../runtime/onprem-auth-renewal/README.md)을 추가했다. ECR 인증은 매시간, Argo 접속 토큰은 6시간마다 갱신한다. 아래 최초 만료 시각은 초기 배포 기록이며, 최신 만료는 갱신 Job 로그와 `iris.dev/*` 만료 annotation에서 확인한다. 수동 명령은 비상 복구용이다.
 
+기존 매시간 ECR Job은 서비스 28 전용이다. 현재 저장소에는 기존 VM의 모든 숫자형
+`svc-*` namespace에 Secret을 생성·갱신하는 범용 Job도 추가되어 있지만, 기본은
+`suspend: true`이며 실제 전환은 별도 배포가 필요하다. [범용 갱신기 전환 절차](../../runtime/onprem-auth-renewal/README.md#deploying-the-generic-reconciler-separate-authorization)에 따라
+IAM·온프렘 admission/RBAC·초기 API 토큰을 준비하고 기존 Job 종료를 확인한 뒤 전환한다.
+서비스 33도 전환 이후 자동 대상이 된다. 기존 28 전용 Job을 실행하는 것만으로 33의
+Secret이나 권한이 갱신되지는 않는다.
+
 최초 ECR 토큰의 응답상 만료는 **2026-10-04 11:38:20 KST**다. 토큰 발급에 사용한 STS 역할 세션은 1시간이다. 실행 중인 컨테이너와 이미지 캐시를 사용하는 재시작은 별도로 계속 동작하지만, 이후 새 이미지 다운로드에는 유효한 인증이 필요하다. 다음 명령은 기존 역할을 사용해 Secret을 갱신하며 IAM 권한·영구 access key·Deployment를 변경하지 않는다.
 
 ```bash

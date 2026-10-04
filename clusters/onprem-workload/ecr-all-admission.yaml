@@ -1,0 +1,134 @@
+# On-prem admin bootstrap only. Separate schemas avoid mixed-resource CEL type-checking.
+# Require all three Fail policies and Deny bindings before granting the ClusterRoleBinding.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: iris-onprem-ecr-renewer-secret
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+    - apiGroups:
+      - ''
+      apiVersions:
+      - v1
+      operations:
+      - CREATE
+      - UPDATE
+      resources:
+      - secrets
+  matchConditions:
+  - name: reconciler-only
+    expression: request.userInfo.username == 'system:serviceaccount:iris-system:iris-ecr-renewer'
+  validations:
+  - expression: request.namespace.matches('^svc-[1-9][0-9]*$')
+    message: ECR reconciler writes must target a numeric service namespace
+  - expression: |-
+      request.resource.resource != 'secrets' || (object.metadata.name == 'iris-ecr-pull' && object.type == 'kubernetes.io/dockerconfigjson')
+    message: ECR reconciler may write only the reserved Docker pull Secret
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: iris-onprem-ecr-renewer-secret
+spec:
+  policyName: iris-onprem-ecr-renewer-secret
+  validationActions:
+  - Deny
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: iris-onprem-ecr-renewer-serviceaccount
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+    - apiGroups:
+      - ''
+      apiVersions:
+      - v1
+      operations:
+      - UPDATE
+      resources:
+      - serviceaccounts
+  matchConditions:
+  - name: reconciler-only
+    expression: request.userInfo.username == 'system:serviceaccount:iris-system:iris-ecr-renewer'
+  validations:
+  - expression: request.namespace.matches('^svc-[1-9][0-9]*$')
+    message: ECR reconciler writes must target a numeric service namespace
+  - expression: |-
+      request.resource.resource != 'serviceaccounts' || (request.operation == 'UPDATE' && object.metadata.name == 'default' &&
+       (has(object.secrets) == has(oldObject.secrets)) &&
+       (!has(object.secrets) || object.secrets == oldObject.secrets) &&
+       (has(object.automountServiceAccountToken) == has(oldObject.automountServiceAccountToken)) &&
+       (!has(object.automountServiceAccountToken) ||
+        object.automountServiceAccountToken == oldObject.automountServiceAccountToken))
+    message: ECR reconciler may connect pull Secrets only on the default ServiceAccount
+  - expression: |-
+      has(object.imagePullSecrets) && object.imagePullSecrets.exists(s, s.name == 'iris-ecr-pull') && (!has(oldObject.imagePullSecrets) || oldObject.imagePullSecrets.all(s, object.imagePullSecrets.exists(n, n.name == s.name))) && object.imagePullSecrets.all(s, s.name == 'iris-ecr-pull' || (has(oldObject.imagePullSecrets) && oldObject.imagePullSecrets.exists(n, n.name == s.name)))
+    message: Existing pull references must be preserved; only iris-ecr-pull may be added
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: iris-onprem-ecr-renewer-serviceaccount
+spec:
+  policyName: iris-onprem-ecr-renewer-serviceaccount
+  validationActions:
+  - Deny
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: iris-onprem-ecr-renewer-pod
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+    - apiGroups:
+      - ''
+      apiVersions:
+      - v1
+      operations:
+      - DELETE
+      resources:
+      - pods
+  matchConditions:
+  - name: reconciler-only
+    expression: request.userInfo.username == 'system:serviceaccount:iris-system:iris-ecr-renewer'
+  validations:
+  - expression: request.namespace.matches('^svc-[1-9][0-9]*$')
+    message: ECR reconciler writes must target a numeric service namespace
+  - expression: |-
+      request.resource.resource != 'pods' || (oldObject.status.phase == 'Pending' &&
+       (!has(oldObject.metadata.deletionTimestamp)) &&
+       (!has(oldObject.spec.serviceAccountName) || oldObject.spec.serviceAccountName == 'default') &&
+       (!has(oldObject.spec.imagePullSecrets) ||
+        !oldObject.spec.imagePullSecrets.exists(s, s.name == 'iris-ecr-pull')) &&
+       has(oldObject.metadata.ownerReferences) &&
+       oldObject.metadata.ownerReferences.exists(r,
+         has(r.controller) && r.controller && r.kind == 'ReplicaSet' && r.apiVersion == 'apps/v1') &&
+       ((has(oldObject.status.containerStatuses) &&
+         oldObject.status.containerStatuses.exists(c,
+           has(c.state.waiting) && c.state.waiting.reason in ['ImagePullBackOff', 'ErrImagePull'])) ||
+        (has(oldObject.status.initContainerStatuses) &&
+         oldObject.status.initContainerStatuses.exists(c,
+           has(c.state.waiting) && c.state.waiting.reason in ['ImagePullBackOff', 'ErrImagePull']))))
+    message: ECR reconciler may replace only controlled Pending image-pull-failing Pods without the pull reference
+  - expression: |-
+      oldObject.spec.containers.exists(c, c.image.startsWith('187069338876.dkr.ecr.ap-northeast-2.amazonaws.com/iris/services/' + request.namespace.substring(4) + '@sha256:') || c.image.startsWith('187069338876.dkr.ecr.ap-northeast-2.amazonaws.com/iris/services/' + request.namespace.substring(4) + ':'))
+    message: Recovery is limited to this namespace service repository
+  - expression: |-
+      (!has(oldObject.status.containerStatuses) || oldObject.status.containerStatuses.all(c, !has(c.state.running))) && (!has(oldObject.status.initContainerStatuses) || oldObject.status.initContainerStatuses.all(c, !has(c.state.running)))
+    message: No running application or init container may be interrupted
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: iris-onprem-ecr-renewer-pod
+spec:
+  policyName: iris-onprem-ecr-renewer-pod
+  validationActions:
+  - Deny
