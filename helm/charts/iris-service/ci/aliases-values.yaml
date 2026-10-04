@@ -1,4 +1,4 @@
-# Deploy Worker 가 프로젝트 스택의 APP 서비스에 쓰는 values 모양입니다(0.8.0): 프로젝트 라벨, containerPort 노출, compose 호스트 별칭.
+# Deploy Worker 가 프로젝트 스택의 APP 서비스에 쓰는 values 모양입니다(0.9.0): 프로젝트 라벨, containerPort 노출, compose 호스트 별칭.
 {
   "command": ["node", "dist/main.js"],
   "containerPort": 3000,

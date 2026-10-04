@@ -1,4 +1,4 @@
-# Deploy Worker 가 DATABASE 서비스에 쓰는 values 모양입니다(0.8.0). 빌드가 없어 image 대신 database.image 를 씁니다.
+# Deploy Worker 가 DATABASE 서비스에 쓰는 values 모양입니다(0.9.0). 빌드가 없어 image 대신 database.image 를 씁니다.
 {
   "workload": { "kind": "database" },
   "projectId": "123",

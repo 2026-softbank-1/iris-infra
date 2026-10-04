@@ -11,12 +11,12 @@ GitOps 저장소의 `services/{service_id}/prod/values.yaml`(Deploy Worker 작�
 | NetworkPolicy | `allow-load-balancer` | `networkPolicy.allowedCidrs` 가 있을 때만. 그 CIDR 에서 containerPort 로만 허용 |
 | SealedSecret | `variables.name` | `variables` 가 있을 때만. sync-wave -1. Sealed Secrets controller 가 같은 이름의 Secret 으로 풉니다 |
 | NetworkPolicy | `restrict-egress` | `networkPolicy.egressDeniedCidrs`(기본 VPC·link-local) 를 막고 같은 namespace·DNS·VPC 밖·`egressAllowed`(cidr·port)만 허용 |
-| NetworkPolicy | `allow-project-egress` | `projectId` 가 있고 `restrict-egress` 가 있을 때(0.8.0). 라벨 `iris.io/project-id` 가 같은 Pod 로 namespace 를 넘어 모든 포트 egress 허용 |
-| NetworkPolicy | `allow-project-ingress` | `workload.kind: database` 일 때(0.8.0). 같은 `projectId` Pod 에서만 ingress 허용, 그 외 차단 |
-| Service(ExternalName) | `hostAliases[].name` | `hostAliases` 가 있을 때(0.8.0). `{name}` → `target`(`app.svc-{id}.svc.cluster.local`) |
-| StatefulSet | `app` | `workload.kind: database` 일 때(0.8.0) Rollout·Ingress 대신. 아래 [데이터베이스](#데이터베이스-workloadkind-database-080) |
+| NetworkPolicy | `allow-project-egress` | `projectId` 가 있고 `restrict-egress` 가 있을 때(0.9.0). 라벨 `iris.io/project-id` 가 같은 Pod 로 namespace 를 넘어 모든 포트 egress 허용 |
+| NetworkPolicy | `allow-project-ingress` | `workload.kind: database` 일 때(0.9.0). 같은 `projectId` Pod 에서만 ingress 허용, 그 외 차단 |
+| Service(ExternalName) | `hostAliases[].name` | `hostAliases` 가 있을 때(0.9.0). `{name}` → `target`(`app.svc-{id}.svc.cluster.local`) |
+| StatefulSet | `app` | `workload.kind: database` 일 때(0.9.0) Rollout·Ingress 대신. 아래 [데이터베이스](#데이터베이스-workloadkind-database-090) |
 
-`imagePullSecrets` 가 있으면 Pod spec 에 그대로 넣습니다(0.8.0, 사용자가 등록한 온프레미스 서버의 ECR pull Secret `iris-ecr-pull`).
+`imagePullSecrets` 가 있으면 Pod spec 에 그대로 넣습니다(0.8.0, 0.9.0 부터 database StatefulSet 도, 사용자가 등록한 온프레미스 서버의 ECR pull Secret `iris-ecr-pull`).
 
 컨테이너는 `variables` 가 있으면 그 Secret 을 `envFrom` 으로 읽고, `iris.*` 가 있으면 `IRIS_SERVICE_NAME`·`IRIS_TARGET_NAME`·`IRIS_DEPLOYMENT_ID` env 를 갖습니다. env 가 envFrom 보다 우선합니다([ADR 0004](../../../docs/decisions/0004-user-variables-sealed-secrets.md)).
 
@@ -44,7 +44,7 @@ Pod 라벨 `iris/release-id` 는 로그·메트릭 수집(OTel → Loki `iris_re
 - 바꾸면 `Chart.yaml` version 을 올려 merge 하고, merge commit 에 tag `iris-service-<version>` 을 만든 뒤 별도 PR 로 `helm/gitops/values.yaml` `services.chartRevision` 을 올립니다. tag 보다 chartRevision 이 먼저 main 에 들어가면 모든 서비스 sync 가 실패합니다.
 - namespace 에 `elbv2.k8s.aws/pod-readiness-gate-inject: enabled` 라벨이 있어야 rollout 이 ALB target health 를 기다립니다(ApplicationSet `managedNamespaceMetadata`). 롤링·카나리는 새 Pod 가 Service 에 바로 잡혀 이 gate 를 받고, 블루그린의 새 묶음은 전환 전까지 Service 밖이라 gate 를 받지 않습니다.
 
-## 프로젝트 내부 통신 (0.8.0)
+## 프로젝트 내부 통신 (0.9.0)
 
 같은 프로젝트의 서비스는 namespace(`svc-{id}`)가 달라도 서로 부를 수 있어야 합니다. `restrict-egress` 는 VPC(Pod IP 포함)를 막으므로
 0.7.x 까지는 다른 namespace Pod 로 나갈 수 없었습니다.
@@ -64,7 +64,7 @@ Pod 라벨 `iris/release-id` 는 로그·메트릭 수집(OTel → Loki `iris_re
     같은 프로젝트인지는 WAS 가 확인하고, 다른 프로젝트를 가리켜도 NetworkPolicy 가 막습니다.
   - ExternalName Service 는 ClusterIP 가 없어 docker-link env(`POSTGRES_PORT` 등)를 만들지 않습니다.
 
-## 데이터베이스 (`workload.kind: database`, 0.8.0)
+## 데이터베이스 (`workload.kind: database`, 0.9.0)
 
 개발·데모용 단일 인스턴스입니다. 복제·백업이 없고, 서비스를 지우면 데이터도 지워집니다. 빌드가 없어 `image`·`command` 는 거절하고 `database.image` 를 씁니다.
 

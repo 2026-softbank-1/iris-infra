@@ -23,7 +23,7 @@ helm.sh/chart: iris-service-{{ .Chart.Version }}
 {{- if lt (int .Values.replicas) 2 -}}ROLLING{{- else -}}{{ $strategy }}{{- end -}}
 {{- end }}
 
-{{- /* 0.8.0: app(Rollout·Ingress) 또는 database(StatefulSet·PVC). 키가 없으면 app 입니다. */ -}}
+{{- /* 0.9.0: app(Rollout·Ingress) 또는 database(StatefulSet·PVC). 키가 없으면 app 입니다. */ -}}
 {{- define "iris-service.isDatabase" -}}
 {{- if eq (dig "kind" "app" (.Values.workload | default dict)) "database" -}}true{{- end -}}
 {{- end }}

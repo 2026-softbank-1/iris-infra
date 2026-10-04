@@ -2,7 +2,7 @@
 
 배포 순서: chart 변경이 main 에 들어가 merge commit 에 tag `iris-service-<version>` 이 생긴 뒤 `helm/gitops/values.yaml` 의 chartRevision 을 올립니다.
 
-## 0.8.0
+## 0.9.0
 
 새 값은 모두 선택이고, 쓰지 않으면 0.7.1 과 렌더링이 같습니다(chart 버전 라벨만 다름).
 
@@ -14,6 +14,10 @@
 - `database.initScripts`: 최대 20개 `{name, content|binaryContent}` -> ConfigMap `app-initdb`(data/binaryData), StatefulSet `/docker-entrypoint-initdb.d` readOnly mount.
   이름 `NN-*.{sql,sql.gz,js}`, postgres·mysql 은 sql/sql.gz, mongodb 는 js, redis 는 거절. 데이터 디렉터리가 비어 있는 첫 기동에서만 실행(내용을 바꿔도 재실행 없음). 쓰지 않으면 렌더링 변화 없음.
 - schema: top-level 필수는 `release` 만이고, app 은 `image`·`containerPort`·`health`·`route.host/className`, database 는 `database`·`projectId` 가 필수입니다.
+
+## 0.8.0
+
+- `imagePullSecrets`: Pod spec 에 그대로 넣습니다(사용자가 등록한 온프레미스 서버의 ECR pull Secret `iris-ecr-pull`). 0.9.0 부터 database StatefulSet 도 따릅니다.
 
 ## 0.7.1
 

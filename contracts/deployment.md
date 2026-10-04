@@ -28,16 +28,16 @@
 | `imagePullSecrets` | | `[{name}]`(DNS label, 1~5개). Pod spec `imagePullSecrets`. chart 0.8.0 부터. 사용자가 등록한 온프레미스 서버 타깃(`services/{id}/onprem-{serverKey}`)만 `[{name: iris-ecr-pull}]` 을 씁니다. 이전 chart schema 는 이 키를 거절합니다 |
 | `variables.name` | 변수가 있을 때 | SealedSecret·Secret 이름(DNS label). release 마다 새 이름을 쓴다(예: `vars-r{release_id}`) |
 | `variables.encryptedData` | 변수가 있을 때 | `{변수 이름: 봉인한 값(base64)}`. 이름은 영문·숫자·밑줄, `PORT`·`IRIS_*` 는 거절, 1~100개 |
-| `projectId` | DB ✅ | chart 0.8.0 부터. Pod 라벨 `iris.io/project-id`(문자열 또는 정수). 같은 값의 Pod 끼리 namespace 를 넘어 통신(`allow-project-egress`) |
-| `service.exposeContainerPort` | | chart 0.8.0 부터. `true` 면 app Service 에 containerPort 와 같은 포트(`container`)를 더 엽니다 |
-| `hostAliases` | | chart 0.8.0 부터. `[{name, target}]`. name 은 DNS-1035 label(`app` 금지, 중복 금지, 20개까지), target 은 `app.svc-{id}.svc.cluster.local` 만 |
-| `workload.kind` | | chart 0.8.0 부터. `app`(기본)·`database` |
+| `projectId` | DB ✅ | chart 0.9.0 부터. Pod 라벨 `iris.io/project-id`(문자열 또는 정수). 같은 값의 Pod 끼리 namespace 를 넘어 통신(`allow-project-egress`) |
+| `service.exposeContainerPort` | | chart 0.9.0 부터. `true` 면 app Service 에 containerPort 와 같은 포트(`container`)를 더 엽니다 |
+| `hostAliases` | | chart 0.9.0 부터. `[{name, target}]`. name 은 DNS-1035 label(`app` 금지, 중복 금지, 20개까지), target 은 `app.svc-{id}.svc.cluster.local` 만 |
+| `workload.kind` | | chart 0.9.0 부터. `app`(기본)·`database` |
 | `database.engine`·`database.image` | DB ✅ | `postgres`·`mysql`·`mongodb`·`redis`, 이미지는 엔진별 Docker 공식 리포지토리 + `@sha256:` digest 필수 |
 | `database.storage`·`database.port` | | `1Gi`~`20Gi`(기본 5Gi, 만든 뒤 변경 불가), Service 포트(기본 엔진 포트) |
-| `database.initScripts` | | chart 0.8.0 부터. `[{name, content\|binaryContent}]` 최대 20개, name `^[0-9]{2}-[A-Za-z0-9._-]+\.(sql\|sql\.gz\|js)$`(postgres·mysql: sql/sql.gz, mongodb: js, redis: 거절). ConfigMap `app-initdb` -> `/docker-entrypoint-initdb.d`, **데이터 디렉터리가 비어 있는 첫 기동에서만 실행** |
+| `database.initScripts` | | chart 0.9.0 부터. `[{name, content\|binaryContent}]` 최대 20개, name `^[0-9]{2}-[A-Za-z0-9._-]+\.(sql\|sql\.gz\|js)$`(postgres·mysql: sql/sql.gz, mongodb: js, redis: 거절). ConfigMap `app-initdb` -> `/docker-entrypoint-initdb.d`, **데이터 디렉터리가 비어 있는 첫 기동에서만 실행** |
 
 `workload.kind: database` 면 `image`·`command` 를 거절하고 `projectId`·`database` 가 필수입니다. `route`·`health`·`containerPort`·`deploymentStrategy`·`iris`
-는 받아들이되 쓰지 않습니다. 자격 증명은 `variables`(엔진 공식 env 이름)로 넣습니다. 0.8.0 키는 이전 chart schema 가 거절하므로 0.8.0 을 쓰는 타깃(AWS)에만 씁니다.
+는 받아들이되 쓰지 않습니다. 자격 증명은 `variables`(엔진 공식 env 이름)로 넣습니다. 0.9.0 키는 이전 chart schema 가 거절하므로 0.9.0 을 쓰는 타깃(AWS)에만 씁니다.
 자세한 렌더링은 [chart README](../helm/charts/iris-service/README.md#프로젝트-내부-통신-080) 를 봅니다.
 
 ## chart 기본값 (배포별 values 에 넣지 않음)

@@ -1,4 +1,4 @@
-# DATABASE 서비스에 초기화 스크립트(compose 의 ./db:/docker-entrypoint-initdb.d)를 넣는 values 모양입니다(0.8.0).
+# DATABASE 서비스에 초기화 스크립트(compose 의 ./db:/docker-entrypoint-initdb.d)를 넣는 values 모양입니다(0.9.0).
 # 텍스트는 content, .sql.gz 같은 바이너리는 base64 binaryContent. 데이터 디렉터리가 비어 있는 첫 기동에서만 이름순으로 실행됩니다.
 {
   "workload": { "kind": "database" },

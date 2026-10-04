@@ -36,6 +36,10 @@ spec:
       # 같은 namespace Service 의 docker-link env(APP_PORT 등)가 엔진 설정 env 와 섞이지 않게 합니다.
       enableServiceLinks: false
       terminationGracePeriodSeconds: 60
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       # Pod Security restricted 수준까지 만족합니다(svc-* 는 baseline). 공식 이미지는 root 가 아니어도
       # 엔진 사용자 uid 로 바로 실행되고, fsGroup 이 PVC 를 그 그룹이 쓸 수 있게 합니다.
       securityContext:

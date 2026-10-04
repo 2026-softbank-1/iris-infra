@@ -442,7 +442,7 @@ def ci_values(name):
 
 
 def check_service_projects(directory):
-    """0.8.0: project-internal traffic, compose host aliases and the dev database workload."""
+    """0.9.0: project-internal traffic, compose host aliases and the dev database workload."""
     chart = ROOT/'helm/charts/iris-service'
     by = lambda docs: {(d['kind'], d['metadata']['name']): d for d in docs}
     # Existing Deploy Worker values (no projectId/aliases/kind) must render exactly as before.
