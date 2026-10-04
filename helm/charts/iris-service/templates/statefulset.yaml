@@ -100,6 +100,18 @@ spec:
           volumeMounts:
             - name: data
               mountPath: {{ include "iris-service.databaseMountPath" . }}
+            {{- if $db.initScripts }}
+            - name: initdb
+              mountPath: /docker-entrypoint-initdb.d
+              readOnly: true
+            {{- end }}
+      {{- if $db.initScripts }}
+      volumes:
+        - name: initdb
+          configMap:
+            name: app-initdb
+            defaultMode: 0444
+      {{- end }}
   # volumeClaimTemplates 는 만든 뒤 바꿀 수 없어 chart 버전 라벨을 넣지 않습니다. 용량도 처음 값으로 고정됩니다.
   volumeClaimTemplates:
     - apiVersion: v1

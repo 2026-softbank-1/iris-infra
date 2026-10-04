@@ -485,6 +485,45 @@ def check_service_projects(directory):
         assert container['volumeMounts']==[{'name':'data','mountPath':mount}] and sts['template']['spec']['securityContext']['runAsUser']==uid, engine
         assert sts['volumeClaimTemplates'][0]['spec']['resources']['requests']['storage']=='5Gi'
         if engine=='redis': assert '--appendonly yes' in container['command'][-1] and '--requirepass "$REDIS_PASSWORD"' in container['command'][-1]
+    # initScripts: ConfigMap app-initdb mounted read-only only when scripts exist; the default stays untouched.
+    assert ('ConfigMap','app-initdb') not in docs and 'volumes' not in sts['template']['spec'] and not any(m['name']=='initdb' for m in container['volumeMounts']), 'No initScripts, no ConfigMap, no mount.'
+    init = ci_values('database-initdb-values.yaml')
+    idocs = by(render(chart, chart/'ci/database-initdb-values.yaml', release='demo', namespace='svc-13'))
+    cm = idocs['ConfigMap','app-initdb']
+    texts = {s['name']: s['content'] for s in init['database']['initScripts'] if 'content' in s}; blobs = {s['name']: s['binaryContent'] for s in init['database']['initScripts'] if 'binaryContent' in s}
+    assert cm['data']==texts and cm['binaryData']==blobs, 'content -> data, binaryContent -> binaryData.'
+    isp = next(d for k, d in idocs.items() if k[0]=='StatefulSet')['spec']['template']['spec']
+    assert {'name':'initdb','mountPath':'/docker-entrypoint-initdb.d','readOnly':True} in isp['containers'][0]['volumeMounts'] and isp['volumes']==[{'name':'initdb','configMap':{'name':'app-initdb','defaultMode':292}}]
+    assert {k for k, _ in idocs}=={'StatefulSet','Service','NetworkPolicy','SealedSecret','ConfigMap'}
+    def init_case(engine, image, scripts):
+        data = copy.deepcopy(db); data['database'] = {'engine':engine, 'image':image+'@sha256:'+'a'*64, 'initScripts':scripts}; return data
+    sql = {'name':'00-schema.sql','content':'select 1;'}
+    accepted = {
+        'postgres sql+sql.gz': init_case('postgres','postgres:16-alpine',[sql,{'name':'01-d.sql.gz','binaryContent':'H4sI'}]),
+        'mysql sql.gz': init_case('mysql','mysql:8.4',[{'name':'00-a.sql.gz','binaryContent':'H4sI'}]),
+        'mongodb js': init_case('mongodb','mongo:7',[{'name':'00-a.js','content':'db.c.insertOne({})'}]),
+        'redis with an empty list': init_case('redis','redis:7-alpine',[]),
+        'twenty scripts': init_case('postgres','postgres:16-alpine',[{'name':'%02d-s.sql'%i,'content':'select 1;'} for i in range(20)]),
+    }
+    for label, data in accepted.items():
+        values.write_text(json.dumps(data)); render(chart, values, release='demo', namespace='svc-13')
+    init_rejected = {
+        'initScripts for redis': init_case('redis','redis:7-alpine',[sql]),
+        '.js for postgres': init_case('postgres','postgres:16-alpine',[{'name':'00-a.js','content':'x'}]),
+        '.sql for mongodb': init_case('mongodb','mongo:7',[sql]),
+        '.sh script': init_case('postgres','postgres:16-alpine',[{'name':'00-a.sh','content':'x'}]),
+        'name without order prefix': init_case('postgres','postgres:16-alpine',[{'name':'schema.sql','content':'x'}]),
+        'name with a path': init_case('postgres','postgres:16-alpine',[{'name':'00-a/b.sql','content':'x'}]),
+        'both content and binaryContent': init_case('postgres','postgres:16-alpine',[{'name':'00-a.sql','content':'x','binaryContent':'H4sI'}]),
+        'neither content nor binaryContent': init_case('postgres','postgres:16-alpine',[{'name':'00-a.sql'}]),
+        'binaryContent that is not base64': init_case('postgres','postgres:16-alpine',[{'name':'00-a.sql.gz','binaryContent':'not base64!'}]),
+        'twenty-one scripts': init_case('postgres','postgres:16-alpine',[{'name':'%02d-s.sql'%i,'content':'x'} for i in range(21)]),
+        'unknown script key': init_case('postgres','postgres:16-alpine',[{'name':'00-a.sql','content':'x','mode':'0755'}]),
+    }
+    for label, data in init_rejected.items():
+        values.write_text(json.dumps(data))
+        result = subprocess.run([HELM,'template','demo',str(chart),'-f',str(values),'--kube-version',VERSIONS['kubernetes']+'.0'],capture_output=True)
+        assert result.returncode, f'Must fail before deployment: {label}'
     mutations = {
         'database image outside the engine allowlist': lambda v: v['database'].update(image='evil/postgres@sha256:'+'a'*64),
         'database image without digest': lambda v: v['database'].update(image='postgres:16-alpine'),

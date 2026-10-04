@@ -11,6 +11,8 @@
 - `hostAliases`: ExternalName Service 로 compose 호스트명 별칭(`app.svc-{id}.svc.cluster.local` 만).
 - `workload.kind: database` + `database.*`: 고정 공식 이미지(postgres·mysql·mongodb·redis, digest 필수) StatefulSet·PVC(1–20Gi, gp3),
   같은 프로젝트에서만 받는 `allow-project-ingress`, 서비스 삭제 시 PVC 삭제.
+- `database.initScripts`: 최대 20개 `{name, content|binaryContent}` -> ConfigMap `app-initdb`(data/binaryData), StatefulSet `/docker-entrypoint-initdb.d` readOnly mount.
+  이름 `NN-*.{sql,sql.gz,js}`, postgres·mysql 은 sql/sql.gz, mongodb 는 js, redis 는 거절. 데이터 디렉터리가 비어 있는 첫 기동에서만 실행(내용을 바꿔도 재실행 없음). 쓰지 않으면 렌더링 변화 없음.
 - schema: top-level 필수는 `release` 만이고, app 은 `image`·`containerPort`·`health`·`route.host/className`, database 는 `database`·`projectId` 가 필수입니다.
 
 ## 0.7.1

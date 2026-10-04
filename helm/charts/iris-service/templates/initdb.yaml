@@ -1,0 +1,22 @@
+{{- if and (include "iris-service.isDatabase" .) .Values.database.initScripts }}
+# 데이터 디렉터리가 비어 있는 첫 기동에서만 공식 이미지 entrypoint 가 실행합니다. 이후 내용이 바뀌거나 Pod 가 다시 떠도 다시 실행하지 않습니다.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-initdb
+  labels:
+    {{- include "iris-service.labels" . | nindent 4 }}
+{{- $text := dict }}
+{{- $binary := dict }}
+{{- range .Values.database.initScripts }}
+{{- if hasKey . "binaryContent" }}{{ $_ := set $binary .name .binaryContent }}{{ else }}{{ $_ := set $text .name .content }}{{ end }}
+{{- end }}
+{{- with $text }}
+data:
+  {{- toYaml . | nindent 2 }}
+{{- end }}
+{{- with $binary }}
+binaryData:
+  {{- toYaml . | nindent 2 }}
+{{- end }}
+{{- end }}

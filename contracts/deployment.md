@@ -34,6 +34,7 @@
 | `workload.kind` | | chart 0.8.0 부터. `app`(기본)·`database` |
 | `database.engine`·`database.image` | DB ✅ | `postgres`·`mysql`·`mongodb`·`redis`, 이미지는 엔진별 Docker 공식 리포지토리 + `@sha256:` digest 필수 |
 | `database.storage`·`database.port` | | `1Gi`~`20Gi`(기본 5Gi, 만든 뒤 변경 불가), Service 포트(기본 엔진 포트) |
+| `database.initScripts` | | chart 0.8.0 부터. `[{name, content\|binaryContent}]` 최대 20개, name `^[0-9]{2}-[A-Za-z0-9._-]+\.(sql\|sql\.gz\|js)$`(postgres·mysql: sql/sql.gz, mongodb: js, redis: 거절). ConfigMap `app-initdb` -> `/docker-entrypoint-initdb.d`, **데이터 디렉터리가 비어 있는 첫 기동에서만 실행** |
 
 `workload.kind: database` 면 `image`·`command` 를 거절하고 `projectId`·`database` 가 필수입니다. `route`·`health`·`containerPort`·`deploymentStrategy`·`iris`
 는 받아들이되 쓰지 않습니다. 자격 증명은 `variables`(엔진 공식 env 이름)로 넣습니다. 0.8.0 키는 이전 chart schema 가 거절하므로 0.8.0 을 쓰는 타깃(AWS)에만 씁니다.

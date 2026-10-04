@@ -76,6 +76,7 @@ Pod 라벨 `iris/release-id` 는 로그·메트릭 수집(OTel → Loki `iris_re
 | `database.image` | ✅ | 엔진별 Docker 공식 이미지(`[docker.io/][library/]{postgres,mysql,mongo,redis}[:tag]@sha256:…`)만, digest 필수 |
 | `database.storage` | | `1Gi`~`20Gi`, 기본 `5Gi`. **만든 뒤에는 바꿀 수 없습니다**(StatefulSet volumeClaimTemplates 불변 — 바꾸면 Argo sync 가 실패) |
 | `database.port` | | app Service 포트. 기본은 엔진 포트(5432·3306·27017·6379). 컨테이너는 엔진 기본 포트로 듣습니다 |
+| `database.initScripts` | | 초기화 스크립트 최대 20개 `[{name, content \| binaryContent}]`. 아래 [초기화 스크립트](#초기화-스크립트-databaseinitscripts) |
 | `database.storageClassName`·`database.resources` | | chart·타깃 기본값(gp3, 요청 100m/256Mi·제한 1CPU/1Gi). Deploy Worker 는 넣지 않습니다 |
 | `variables` | | 자격 증명. 엔진 공식 env(`POSTGRES_USER/PASSWORD/DB`, `MYSQL_*`, `MONGO_INITDB_ROOT_*`, `REDIS_PASSWORD`)를 `envFrom` 으로 받습니다 |
 
@@ -90,3 +91,25 @@ Pod 라벨 `iris/release-id` 는 로그·메트릭 수집(OTel → Loki `iris_re
   redis `/data` + `--appendonly yes` + `REDIS_PASSWORD` 가 있으면 `--requirepass`(공식 entrypoint 처럼 `--protected-mode no`).
 - probe: TCP. startup 5초×60(첫 초기화 동안 엔진은 TCP 를 열지 않음), readiness 5초, liveness 10초×6.
 - Pod 라벨 `iris/release-id` 가 release 마다 바뀌어 배포마다 Pod 가 다시 뜹니다(볼륨은 유지). Argo health 는 StatefulSet Ready 로 판정합니다.
+
+### 초기화 스크립트 (`database.initScripts`)
+
+compose 의 `./db:/docker-entrypoint-initdb.d` 와 같은 효과입니다. 값이 있을 때만 ConfigMap `app-initdb` 를 만들고 StatefulSet 에 `/docker-entrypoint-initdb.d` 로 readOnly mount 합니다(없으면 렌더링이 이전과 같습니다).
+
+```yaml
+database:
+  engine: postgres
+  image: postgres:16-alpine@sha256:…
+  initScripts:
+    - name: 00-schema.sql          # content -> ConfigMap data
+      content: "create table jobs (id serial primary key);\n"
+    - name: 01-seed.sql.gz         # binaryContent(base64) -> ConfigMap binaryData
+      binaryContent: H4sI…
+```
+
+- `name`: `^[0-9]{2}-[A-Za-z0-9._-]+\.(sql|sql\.gz|js)$`. 공식 이미지가 이름순으로 실행하므로 앞의 두 자리가 순서입니다. `content` 와 `binaryContent` 중 정확히 하나, 최대 20개.
+- 엔진별 확장자: postgres·mysql 은 `.sql`·`.sql.gz`, mongodb 는 `.js`. `.sh` 는 받지 않습니다. redis 는 스크립트를 넣으면 schema 가 거절합니다(빈 목록은 허용).
+- **첫 기동에서만 실행됩니다.** 공식 이미지는 데이터 디렉터리가 비어 있을 때만 이 디렉터리를 실행하므로, 스크립트 내용을 바꾸거나 Pod/ConfigMap 이 다시 떠도 이미 초기화된 PVC 에는 다시 실행되지 않습니다. 다시 실행하려면 서비스(PVC)를 지우고 새로 만듭니다.
+- 스크립트 하나가 실패하면 엔진이 초기화 중 종료해 Pod 가 CrashLoop 됩니다. ConfigMap 은 1 MiB 제한이라 합계가 그 안이어야 합니다(schema 는 항목당 1 MiB 만 막습니다. 합계 검사는 Deploy Worker 가 합니다).
+- 파일은 mode 0444 로 mount 되어 non-root uid 가 읽고, mongodb 는 `.js` 를 `mongosh` 로, postgres 는 `psql`, mysql 은 `mysql`(`.sql.gz` 는 압축을 풀어) 로 실행합니다.
+
