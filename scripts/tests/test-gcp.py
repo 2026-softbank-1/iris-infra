@@ -153,14 +153,18 @@ class OperationsTest(unittest.TestCase):
             with self.subTest(change=change), self.assertRaises(ValueError):
                 ops.validate({**self.t, **change}, self.t['project_id'])
     def test_preflight_blocks_public_nodes_ip_api_and_wrong_identity(self):
-        cluster = {'status': 'RUNNING', 'name': self.t['name'], 'network': self.t['network'], 'subnetwork': self.t['subnet'], 'privateClusterConfig': {'enablePrivateNodes': True}, 'controlPlaneEndpointsConfig': {'dnsEndpointConfig': {'endpoint': self.t['endpoint'][8:], 'allowExternalTraffic': True}, 'ipEndpointsConfig': {'enabled': False}}, 'datapathProvider': 'ADVANCED_DATAPATH', 'workloadIdentityConfig': {'workloadPool': self.t['project_id']+'.svc.id.goog'}, 'gatewayApiConfig': {'channel': 'CHANNEL_STANDARD'}}
+        cluster = {'status': 'RUNNING', 'name': self.t['name'], 'network': self.t['network'], 'subnetwork': self.t['subnet'], 'privateClusterConfig': {'enablePrivateNodes': True}, 'controlPlaneEndpointsConfig': {'dnsEndpointConfig': {'endpoint': self.t['endpoint'][8:], 'allowExternalTraffic': True}, 'ipEndpointsConfig': {'enabled': False}}, 'networkConfig': {'datapathProvider': 'ADVANCED_DATAPATH', 'gatewayApiConfig': {'channel': 'CHANNEL_STANDARD'}}, 'workloadIdentityConfig': {'workloadPool': self.t['project_id']+'.svc.id.goog'}}
         with patch.object(ops, 'cloud', side_effect=[cluster, {'uniqueId': self.t['ecr_service_account_id']}]):ops.preflight(self.t)
-        for field in ('public_nodes', 'ip_api', 'wrong_sa'):
+        for field in ('public_nodes', 'ip_api', 'wrong_sa', 'wrong_dataplane', 'missing_network_config', 'wrong_gateway', 'missing_gateway_config'):
             bad = copy.deepcopy(cluster)
             sa = self.t['ecr_service_account_id']
             if field == 'public_nodes':bad['privateClusterConfig']['enablePrivateNodes'] = False
             if field == 'ip_api':bad['controlPlaneEndpointsConfig']['ipEndpointsConfig']['enabled'] = True
             if field == 'wrong_sa':sa = '999999999999999999999'
+            if field == 'wrong_dataplane':bad['networkConfig']['datapathProvider'] = 'LEGACY_DATAPATH'
+            if field == 'missing_network_config':bad.pop('networkConfig')
+            if field == 'wrong_gateway':bad['networkConfig']['gatewayApiConfig']['channel'] = 'CHANNEL_DISABLED'
+            if field == 'missing_gateway_config':bad['networkConfig'].pop('gatewayApiConfig')
             with self.subTest(field=field), patch.object(ops, 'cloud', side_effect=[bad, {'uniqueId': sa}]), self.assertRaises(ValueError):ops.preflight(self.t)
     def test_missing_published_image_stops_before_kubernetes_writes(self):
         args = SimpleNamespace(aws_account_id='123456789012', image='123456789012.dkr.ecr.ap-northeast-2.amazonaws.com/iris/gcp-ecr-credentials@sha256:'+('a'*64))

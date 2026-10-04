@@ -184,6 +184,7 @@ resource "google_service_account_iam_member" "ecr" {
   service_account_id = google_service_account.ecr.name
   role               = "roles/iam.workloadIdentityUser"
   member             = "serviceAccount:${var.project_id}.svc.id.goog[iris-system/ecr-credentials]"
+  depends_on         = [google_container_cluster.workload]
 }
 resource "google_secret_manager_secret" "sealed_keys" {
   secret_id = "iris-gcp-sealed-secrets-key"
