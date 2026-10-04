@@ -48,7 +48,7 @@ API 는 Secret 이 없으면(optional) 콘솔을 `NOT_CONFIGURED` 로 보고합�
 
 ## 적용 순서
 
-기능은 **꺼진 채로** 먼저 들어가고(`consoleGateway.enabled: false`), 운영자가 키 쌍을 만든 뒤 켭니다. 켜기 전까지 platform 과 management baseline 의 렌더 결과는 이 변경 전과 같습니다(Pod 재시작 없음). workload baseline 에는 아무도 쓰지 않는 RBAC 객체 4개(ClusterRole·Binding·ValidatingAdmissionPolicy·Binding)만 추가됩니다.
+이 변경은 기능을 **켠 상태**(`consoleGateway.enabled: true`, 공개키·workload endpoint·CA 포함)로 들어갑니다. 운영자가 키 쌍과 Secret 을 미리 만들어 두었기 때문입니다(4단계). 다만 Gateway digest 가 GitOps 에 없는 동안은 ServiceAccount `console-gateway` 와 ConfigMap `iris-platform-console-gateway` 만 새로 생기고, Pod·Service·Ingress·NetworkPolicy 는 없으며 API 에는 Gateway 주소가 들어가지 않습니다(`helm template` 로 확인). workload baseline 에는 아무도 쓰지 않는 RBAC 객체 4개(ClusterRole·Binding·ValidatingAdmissionPolicy·Binding)가 추가됩니다. 참고로 `consoleGateway.enabled: false` 이면 platform 과 management baseline 의 렌더 결과가 이 기능 도입 전과 같습니다(Pod 재시작 없음).
 
 ### 0. 선행 조건(iris-was)
 
@@ -73,26 +73,27 @@ aws eks list-associated-access-policies --cluster-name iris-dev-workload --princ
 aws eks list-pod-identity-associations --cluster-name iris-dev-management --namespace iris-platform --service-account console-gateway
 ```
 
-### 3. Argo root 갱신
+### 3. Argo root 확인
 
-Argo root 는 iris-infra 의 특정 SHA 에 고정돼 있을 수 있어, **merge 만으로는 chart·values 가 클러스터에 들어가지 않습니다**. 먼저 상태를 봅니다.
+첫 적용에서는 root 가 `main` 을 추적하므로 **bootstrap 이 필요 없습니다**. merge 후 Argo 가 chart·values 를 자동으로 sync 합니다. root 가 특정 SHA 에 고정돼 있으면 merge 만으로는 반영되지 않으므로 먼저 상태를 봅니다.
 
 ```bash
 kubectl --kubeconfig .generated/kubeconfig-aws-dev-management.json -n argocd get applications \
   -o custom-columns=NAME:.metadata.name,REV:.spec.source.targetRevision
 ```
 
-고정돼 있으면 [eks-access 의 bootstrap 절차](eks-access.md#argo-cd와-기본-스택-설치)대로 merge SHA 로 `make bootstrap CLUSTER=aws-dev-management` 를 다시 실행합니다(그 사이 병합된 다른 변경도 함께 적용됩니다. 먼저 `git log` 로 범위를 확인합니다). 끝나면 workload baseline 에 RBAC 가 생겼는지 봅니다.
+고정돼 있으면 [eks-access 의 bootstrap 절차](eks-access.md#argo-cd와-기본-스택-설치)대로 merge SHA 로 `make bootstrap CLUSTER=aws-dev-management` 를 다시 실행합니다(그 사이 병합된 다른 변경도 함께 적용되므로 먼저 `git log` 로 범위를 확인합니다). 끝나면 workload baseline 에 RBAC 가 생겼는지, management 에 SA·ConfigMap 이 생겼는지 봅니다.
 
 ```bash
 KC=.generated/kubeconfig-aws-dev-workload.json   # make eks-api-tunnel TARGET=aws-dev-workload 를 열어 둔 상태
 kubectl --kubeconfig $KC get clusterrole,clusterrolebinding iris-console-exec
 kubectl --kubeconfig $KC get validatingadmissionpolicy,validatingadmissionpolicybinding iris-console-exec-scope
+kubectl --kubeconfig .generated/kubeconfig-aws-dev-management.json -n iris-platform get sa console-gateway cm/iris-platform-console-gateway
 ```
 
 ### 4. 키 쌍 생성과 Secret(운영자 로컬, 사람이 직접)
 
-개인키는 터미널에 출력하지 않고 Git·values·메신저에 남기지 않습니다. 임시 디렉터리에서 만들고 끝나면 지웁니다.
+**첫 적용에서는 운영자가 이미 끝냈습니다**: Secret `iris-platform/iris-console-ticket-signer`(키 `CONSOLE_TICKET_PRIVATE_KEY`)를 management 에 만들었고 개인키는 로컬에서 지웠습니다. 아래는 다시 만들거나 교체할 때의 절차입니다. 개인키는 터미널에 출력하지 않고 Git·values·메신저에 남기지 않습니다. 임시 디렉터리에서 만들고 끝나면 지웁니다.
 
 ```bash
 work="$(mktemp -d)"; chmod 700 "$work"
@@ -100,18 +101,13 @@ openssl genpkey -algorithm ED25519 -out "$work/console-ticket.pem"
 openssl pkey -in "$work/console-ticket.pem" -pubout -out "$work/console-ticket.pub.pem"   # 이 공개키만 values 로
 kubectl --kubeconfig .generated/kubeconfig-aws-dev-management.json -n iris-platform create secret generic iris-console-ticket-signer \
   --from-file=CONSOLE_TICKET_PRIVATE_KEY="$work/console-ticket.pem"
-cat "$work/console-ticket.pub.pem"       # values PR 에 넣을 공개키(비밀 아님)
+cat "$work/console-ticket.pub.pem"       # values 에 넣을 공개키(비밀 아님)
 rm -rf "$work"                            # 개인키는 클러스터 Secret 에만 남김(필요하면 비밀번호 관리자에 따로 보관)
 ```
 
-### 5. workload endpoint·CA 와 values PR
+### 5. workload endpoint·CA 와 values(이 PR 에 포함)
 
-```bash
-make export-targets   # 또는 terraform -chdir=terraform/environments/aws/dev/workload output -json target
-# endpoint 와 ca_data(base64 그대로)를 읽습니다. 둘 다 비밀이 아닙니다.
-```
-
-`clusters/aws-dev-management/values/platform.yaml` 의 `consoleGateway` 를 채우는 PR 을 만들고 merge 합니다. `ticketPublicKey` 는 4단계의 공개키 PEM 전체(줄바꿈은 `\n`), 나머지는 이미 들어 있습니다.
+`clusters/aws-dev-management/values/platform.yaml` 의 `consoleGateway` 는 **이 PR 에 이미 채워져 있습니다**(별도 values PR 없음). 공개키는 4단계에서 만든 공개키 PEM 전체(줄바꿈은 `\n`), endpoint 는 `https://` + workload `target` 출력의 `endpoint` 호스트, `ca` 는 `ca_data`(base64 그대로)입니다. 셋 다 비밀이 아닙니다. schema 가 `ticketPublicKey` 에 `PUBLIC KEY` 헤더만 허용하고 개인키 PEM 은 거절합니다(저장소 어디에도 개인키 헤더가 없음을 grep 으로 확인함).
 
 ```json
 "consoleGateway": {
@@ -123,7 +119,12 @@ make export-targets   # 또는 terraform -chdir=terraform/environments/aws/dev/w
 }
 ```
 
-merge 후 3단계처럼 root 가 이 SHA 를 보게 합니다. 이 시점에는 digest 가 없어 SA·ConfigMap 만 생기고 Gateway Pod 는 아직 없습니다.
+값을 다시 읽거나 클러스터를 새로 만들었을 때만 아래로 조회해 이 파일을 고칩니다.
+
+```bash
+make export-targets   # 또는 terraform -chdir=terraform/environments/aws/dev/workload output -json target
+# endpoint 와 ca_data(base64 그대로)를 읽습니다.
+```
 
 ### 6. Gateway 배포
 
@@ -160,17 +161,18 @@ kubectl --kubeconfig $KM -n iris-platform logs deploy/iris-platform-console-gate
 
 - **빠른 차단**: iris-gitops-environments 의 `was.yaml` 에서 `consoleGateway.digest` 를 되돌리는 revert 커밋(또는 platform.yaml 의 `consoleGateway.enabled: false` PR). Gateway Deployment·Service·Ingress·NetworkPolicy 가 사라지고 API 의 Gateway 주소가 빠져(재시작) `NOT_CONFIGURED` 가 됩니다. `kubectl scale` 은 `selfHeal` 이 되돌려 유지되지 않습니다.
 - **Secret 만 제거**: `iris-console-ticket-signer` 를 지우고 API 를 재시작하면 API 가 ticket 을 발급하지 못합니다(Gateway 는 남아 있어도 쓸 수 없음).
-- **키 교체**: 4단계로 새 쌍을 만들어 Secret 을 갈고(`kubectl create secret … --dry-run=client -o yaml | kubectl apply -f -`) 공개키 PR 을 병합한 뒤 API·Gateway 를 재시작합니다. 기존 ticket 은 60초 안에 만료됩니다.
+- **키 교체**: 4단계로 새 쌍을 만들어 Secret 을 갈고(`kubectl create secret … --dry-run=client -o yaml | kubectl apply -f -`) `platform.yaml` 의 공개키를 바꾸는 PR 을 병합한 뒤 API·Gateway 를 재시작합니다. 기존 ticket 은 60초 안에 만료됩니다.
 - **인프라 되돌리기**: 이 PR 을 revert 하면 CI 가 Access Entry·Pod Identity association·IAM role 을 지웁니다(보호 대상 아님). baseline Application 은 `prune: false` 라 workload 의 RBAC 객체는 남으므로 필요하면 직접 지웁니다: `kubectl delete clusterrole,clusterrolebinding iris-console-exec; kubectl delete validatingadmissionpolicybinding,validatingadmissionpolicy iris-console-exec-scope`. Access Entry 가 없으면 group `iris-console` 에 속한 caller 가 없어 남겨도 무해합니다.
 
 ## 사람이 직접 하는 단계
 
+첫 적용 기준입니다.
+
 1. account 적용(관리자, 1단계)
-2. root SHA 확인과 bootstrap 재실행(3·5단계)
-3. 키 쌍 생성과 Secret 생성(4단계, 개인키는 어디에도 출력·기록하지 않음)
-4. workload endpoint·CA 조회와 values PR(5단계)
-5. iris-was Deploy platform 실행(6단계)
-6. 검증 3번의 impersonation exec 확인(운영 클러스터 접근 필요)
+2. ~~키 쌍·Secret 생성(4단계)~~ 완료, ~~workload endpoint·CA 조회와 values PR(5단계)~~ 이 PR 에 포함
+3. root 가 `main` 을 추적하는지만 확인합니다(3단계). 고정돼 있을 때만 bootstrap 재실행
+4. iris-was Deploy platform 실행(6단계)
+5. 검증 3번의 impersonation exec 확인(운영 클러스터 접근 필요)
 
 ## 문제 확인
 

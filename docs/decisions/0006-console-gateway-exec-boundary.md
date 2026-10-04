@@ -13,7 +13,7 @@
 - **ValidatingAdmissionPolicy 로 범위를 한 번 더 좁힌다.** ClusterRole 은 클러스터 전체라서, group `iris-console` 의 exec 는 `svc-*` namespace 의 `app` 컨테이너만 허용한다. Gateway 가 잘못되거나 침해돼도 `kube-system`·`observability`(privileged) 로 번지지 않는다.
 - **API 와 같은 host(`api.likelion.uk`)의 정확한 경로 `/v1/pods`·`/v1/exec` 로 노출한다.** 별도 Ingress 가 `group.order: -1` 로 API 의 `/` 보다 먼저 평가된다. 새 DNS·인증서·CORS origin 이 필요 없다.
 - **Gateway 는 replica 1, `Recreate`.** 1회용 ticket 검사가 메모리라서 두 Pod 가 동시에 있으면 안 된다. chart schema 가 `replicas` 를 1 로 제한한다.
-- **기능은 꺼진 채로 먼저 병합한다**(`consoleGateway.enabled: false`, workload baseline 의 RBAC 만 inert 하게 들어간다). 켜는 것은 키 쌍·workload endpoint/CA 가 준비된 뒤 values PR 로 한다. 이미지 digest 는 다른 플랫폼 컴포넌트처럼 GitOps `was.yaml` 이 정한다.
+- **chart 의 기본값은 꺼짐이고, 클러스터 values 는 켠 채로 병합하되 Pod 는 digest 가 있어야 뜬다.** 운영자가 키 쌍과 Secret(`iris-console-ticket-signer`)을 미리 만들었고 공개키·workload endpoint/CA 는 이 PR 의 values 에 있다. Gateway digest 가 GitOps 에 없는 동안은 SA·ConfigMap 만 생기고 API 에도 Gateway 주소가 들어가지 않는다. workload baseline 에는 RBAC 객체가 inert 하게 먼저 들어간다. 이미지 digest 는 다른 플랫폼 컴포넌트처럼 GitOps `was.yaml` 이 정한다.
 
 ## 검토한 대안
 
