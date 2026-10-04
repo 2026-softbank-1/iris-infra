@@ -45,7 +45,7 @@ spec:
     automated: {prune: false, selfHeal: true}
     syncOptions: [CreateNamespace=true, ServerSideApply=true]
     managedNamespaceMetadata:
-      labels: {pod-security.kubernetes.io/enforce: baseline}
+      labels: {iris.dev/registry-pull: gcp, pod-security.kubernetes.io/enforce: baseline}
 ---
 apiVersion: argoproj.io/v1alpha1
 kind: Application

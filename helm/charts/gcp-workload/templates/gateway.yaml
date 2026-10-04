@@ -31,8 +31,9 @@ kind: HTTPRoute
 metadata:
   name: http-redirect
 spec:
-  parentRefs: [{name: iris-gcp-apps, sectionName: http}]
+  parentRefs: [{group: gateway.networking.k8s.io, kind: Gateway, name: iris-gcp-apps, sectionName: http}]
   rules:
-    - filters:
+    - matches: [{path: {type: PathPrefix, value: /}}]
+      filters:
         - type: RequestRedirect
           requestRedirect: {scheme: https, statusCode: 301}

@@ -56,7 +56,9 @@ def main():
         assert app['ignoreDifferences'] == [{'group': '', 'kind': 'Secret', 'name': 'iris-ecr-pull', 'jsonPointers': ['/data/.dockerconfigjson', '/metadata/annotations/iris.dev~1expires-at']}]
         labels = app['syncPolicy']['managedNamespaceMetadata']['labels']
         assert labels['iris.dev/target'] == 'gcp-dev-workload' and labels['iris.dev/registry-pull'] == 'gcp'
-        values = enabled['Application', 'iris-gcp-workload']['spec']['source']['helm']['valuesObject']
+        addon = enabled['Application', 'iris-gcp-workload']['spec']
+        assert addon['syncPolicy']['managedNamespaceMetadata']['labels'] == {'iris.dev/registry-pull': 'gcp', 'pod-security.kubernetes.io/enforce': 'baseline'}
+        values = addon['source']['helm']['valuesObject']
         workload = render('charts/gcp-workload', values, directory)
         assert not any(k[0] in ('Ingress', 'StorageClass', 'Secret') for k in workload), 'Bootstrap owns the helper pull Secret.'
         gateway = workload['Gateway', 'iris-gcp-apps']
@@ -66,6 +68,9 @@ def main():
         assert gateway['spec']['listeners'][1]['allowedRoutes']['namespaces']['selector']['matchLabels'] == {'iris.dev/target': 'gcp-dev-workload'}
         redirect = workload['HTTPRoute', 'http-redirect']['spec']['rules'][0]['filters'][0]['requestRedirect']
         assert redirect == {'scheme': 'https', 'statusCode': 301}
+        redirect_spec = workload['HTTPRoute', 'http-redirect']['spec']
+        assert redirect_spec['parentRefs'] == [{'group': 'gateway.networking.k8s.io', 'kind': 'Gateway', 'name': 'iris-gcp-apps', 'sectionName': 'http'}]
+        assert redirect_spec['rules'][0]['matches'] == [{'path': {'type': 'PathPrefix', 'value': '/'}}]
         role = workload['Role', 'iris-ecr-pull']['rules'][0]
         assert role == {'apiGroups': [''], 'resources': ['secrets'], 'resourceNames': ['iris-ecr-pull'], 'verbs': ['get', 'patch']}
         assert workload['ClusterRole', 'iris-gcp-ecr-namespaces']['rules'][0]['resources'] == ['namespaces']
