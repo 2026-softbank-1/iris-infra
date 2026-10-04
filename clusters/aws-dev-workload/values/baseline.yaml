@@ -13,5 +13,8 @@
       "bucket": "iris-dev-alb-access-logs-187069338876-ap-northeast-2",
       "prefix": "alb/workload"
     }
+  },
+  "consoleExec": {
+    "enabled": true
   }
 }

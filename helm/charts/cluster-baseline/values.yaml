@@ -22,5 +22,8 @@
     "enabled": false,
     "groupName": "",
     "certificateArn": ""
+  },
+  "consoleExec": {
+    "enabled": false
   }
 }
