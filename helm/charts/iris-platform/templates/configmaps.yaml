@@ -2,6 +2,8 @@
 {{- /* Control API reads build logs only when a log group is set; an empty value would count as configured. */}}
 {{- if .Values.api.buildLogGroup }}{{- $api = merge $api (dict "AWS_REGION" .Values.awsRegion "BUILD_LOG_GROUP" .Values.api.buildLogGroup) }}{{- end }}
 {{- $configs := dict "api" $api "build-worker" (dict "LOG_LEVEL" .Values.was.logLevel "AWS_REGION" .Values.awsRegion "CODEBUILD_PROJECT" .Values.buildWorker.codebuildProject "ARTIFACT_BUCKET" .Values.buildWorker.artifactBucket) "deploy-worker" (dict "LOG_LEVEL" .Values.was.logLevel "AWS_REGION" .Values.awsRegion "BASE_DOMAIN" .Values.deployWorker.baseDomain "GITOPS_REPOSITORY" .Values.deployWorker.gitopsRepository "ARGOCD_SERVER_URL" .Values.deployWorker.argocdUrl "SSL_CERT_FILE" "/etc/iris-argocd/ca-bundle.pem") }}
+{{- /* WAS 프로젝트 내부 통신(관리형 DB·호스트 별칭·참조 변수). iris-service chart 0.9.0 pin 뒤에만 켠다. */}}
+{{- if .Values.was.projectNetworkingEnabled }}{{- range $c := list "api" "build-worker" "deploy-worker" }}{{- $_ := set (index $configs $c) "PROJECT_NETWORKING_ENABLED" "true" }}{{- end }}{{- end }}
 {{- if .Values.errorAgent.enabled }}{{- $_ := set $configs "error-agent" (merge (dict "LLM_MODEL" .Values.errorAgent.model) (.Values.errorAgent.env | default dict)) }}{{- end }}
 {{- range $component, $data := $configs }}
 ---
