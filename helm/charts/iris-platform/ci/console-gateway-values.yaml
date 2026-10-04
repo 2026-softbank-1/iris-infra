@@ -1,0 +1,145 @@
+{
+  "was": {
+    "image": {
+      "repository": "123456789012.dkr.ecr.ap-northeast-2.amazonaws.com/iris/was"
+    },
+    "logLevel": "INFO",
+    "envSecret": "iris-was-env"
+  },
+  "database": {
+    "secret": "iris-was-env",
+    "urlKey": "DATABASE_URL",
+    "caConfigMap": "iris-rds-ca",
+    "caKey": "ca-bundle.pem"
+  },
+  "api": {
+    "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "replicas": 1,
+    "host": "api.example.com",
+    "buildLogGroup": "/aws/codebuild/iris-dev-build",
+    "resources": {
+      "requests": {
+        "cpu": "100m",
+        "memory": "256Mi"
+      },
+      "limits": {
+        "cpu": "500m",
+        "memory": "512Mi"
+      }
+    },
+    "terminationGracePeriodSeconds": 90
+  },
+  "buildWorker": {
+    "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "replicas": 1,
+    "codebuildProject": "iris-dev-build",
+    "artifactBucket": "iris-dev-build-artifacts-123456789012-ap-northeast-2",
+    "githubSecret": "iris-build-github",
+    "resources": {
+      "requests": {
+        "cpu": "100m",
+        "memory": "256Mi"
+      },
+      "limits": {
+        "cpu": "500m",
+        "memory": "512Mi"
+      }
+    },
+    "terminationGracePeriodSeconds": 120
+  },
+  "deployWorker": {
+    "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "replicas": 1,
+    "baseDomain": "example.com",
+    "gitopsRepository": "2026-softbank-1/iris-gitops-environments",
+    "githubSecret": "iris-deploy-github",
+    "argocdUrl": "https://argocd-server.argocd.svc.cluster.local",
+    "argocdSecret": "iris-deploy-argocd",
+    "caConfigMap": "iris-deploy-ca",
+    "caKey": "ca-bundle.pem",
+    "resources": {
+      "requests": {
+        "cpu": "100m",
+        "memory": "256Mi"
+      },
+      "limits": {
+        "cpu": "500m",
+        "memory": "512Mi"
+      }
+    },
+    "terminationGracePeriodSeconds": 60
+  },
+  "errorAgent": {
+    "enabled": false,
+    "image": {
+      "repository": "",
+      "digest": ""
+    },
+    "secret": "",
+    "model": "",
+    "resources": {
+      "requests": {
+        "cpu": "100m",
+        "memory": "256Mi"
+      },
+      "limits": {
+        "cpu": "500m",
+        "memory": "512Mi"
+      }
+    }
+  },
+  "migration": {
+    "resources": {
+      "requests": {
+        "cpu": "100m",
+        "memory": "256Mi"
+      },
+      "limits": {
+        "cpu": "500m",
+        "memory": "512Mi"
+      }
+    },
+    "activeDeadlineSeconds": 600,
+    "backoffLimit": 1
+  },
+  "network": {
+    "albSubnetCidrs": [
+      "10.0.0.0/24",
+      "10.0.1.0/24"
+    ],
+    "rdsSubnetCidrs": [
+      "10.0.16.0/24",
+      "10.0.17.0/24"
+    ]
+  },
+  "awsRegion": "ap-northeast-2",
+  "consoleGateway": {
+    "enabled": true,
+    "digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "replicas": 1,
+    "terminationGracePeriodSeconds": 60,
+    "ticketSigningSecret": "iris-console-ticket-signer",
+    "ticketPublicKey": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAr1DA3NE7z/AWo+pShZEBc0yt/B4kbHbLbsQtRGo9/PY=\n-----END PUBLIC KEY-----\n",
+    "awsCluster": {
+      "name": "iris-dev-workload",
+      "endpoint": "https://0123456789ABCDEF0123456789ABCDEF.gr7.ap-northeast-2.eks.amazonaws.com",
+      "ca": "Y2VydA=="
+    },
+    "allowedOrigins": [
+      "https://app.example.com"
+    ],
+    "idleTimeoutSeconds": 900,
+    "maxSessionSeconds": 3600,
+    "maxSessionsPerUser": 3,
+    "resources": {
+      "requests": {
+        "cpu": "50m",
+        "memory": "128Mi"
+      },
+      "limits": {
+        "cpu": "250m",
+        "memory": "256Mi"
+      }
+    }
+  }
+}

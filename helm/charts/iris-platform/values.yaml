@@ -87,6 +87,33 @@
       }
     }
   },
+  "consoleGateway": {
+    "enabled": false,
+    "digest": "",
+    "replicas": 1,
+    "terminationGracePeriodSeconds": 60,
+    "ticketSigningSecret": "",
+    "ticketPublicKey": "",
+    "awsCluster": {
+      "name": "",
+      "endpoint": "",
+      "ca": ""
+    },
+    "allowedOrigins": [],
+    "idleTimeoutSeconds": 900,
+    "maxSessionSeconds": 3600,
+    "maxSessionsPerUser": 3,
+    "resources": {
+      "requests": {
+        "cpu": "50m",
+        "memory": "128Mi"
+      },
+      "limits": {
+        "cpu": "250m",
+        "memory": "256Mi"
+      }
+    }
+  },
   "migration": {
     "resources": {
       "requests": {

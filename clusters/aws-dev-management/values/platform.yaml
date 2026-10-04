@@ -88,6 +88,19 @@
       "OPENAI_SERVICE_TIER": "fast"
     }
   },
+  "consoleGateway": {
+    "enabled": false,
+    "ticketSigningSecret": "iris-console-ticket-signer",
+    "ticketPublicKey": "",
+    "awsCluster": {
+      "name": "iris-dev-workload",
+      "endpoint": "",
+      "ca": ""
+    },
+    "allowedOrigins": [
+      "https://app.likelion.uk"
+    ]
+  },
   "migration": {
     "resources": {
       "requests": {

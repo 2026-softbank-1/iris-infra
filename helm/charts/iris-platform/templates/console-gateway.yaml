@@ -1,0 +1,121 @@
+{{- /* Digest comes from iris-gitops-environments (iris-was `was.yaml`, component consoleGateway); without it the Gateway is not deployed. */}}
+{{- if and .Values.consoleGateway.enabled .Values.consoleGateway.digest }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-console-gateway
+  labels:
+    {{- include "iris-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: console-gateway
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  replicas: {{ .Values.consoleGateway.replicas }}
+  revisionHistoryLimit: 3
+  # One-time ticket use (jti) is remembered in memory, so two Gateways must never run side by side.
+  # A rollout therefore stops the old Pod first; open consoles end and the user reconnects.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name | quote }}
+      app.kubernetes.io/component: console-gateway
+  template:
+    metadata:
+      annotations:
+        # Gateway settings live in the ConfigMap; the hash restarts the Pod when they change.
+        checksum/config: {{ toJson .Values.consoleGateway | sha256sum | quote }}
+      labels:
+        {{- include "iris-platform.labels" . | nindent 8 }}
+        app.kubernetes.io/component: console-gateway
+    spec:
+      # Pod Identity (not a mounted token) gives the AWS credentials it signs the workload EKS token with.
+      serviceAccountName: console-gateway
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: {{ .Values.consoleGateway.terminationGracePeriodSeconds }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: console-gateway
+          image: {{ include "iris-platform.image" (dict "root" . "digest" .Values.consoleGateway.digest) | quote }}
+          imagePullPolicy: IfNotPresent
+          command: [uvicorn, app.console_gateway.main:app, --host, 0.0.0.0, --port, "8080"]
+          ports:
+            - {name: http, containerPort: 8080}
+          startupProbe:
+            httpGet: {path: /healthz, port: http}
+            periodSeconds: 5
+            failureThreshold: 60
+          livenessProbe:
+            httpGet: {path: /healthz, port: http}
+            periodSeconds: 10
+          readinessProbe:
+            httpGet: {path: /readyz, port: http}
+            periodSeconds: 5
+          # No DATABASE_URL, no Secret: ticket verification needs only the public key in the ConfigMap.
+          envFrom:
+            - configMapRef:
+                name: {{ .Release.Name }}-console-gateway
+          securityContext:
+            {{- include "iris-platform.security" . | nindent 12 }}
+          resources:
+            {{- toYaml .Values.consoleGateway.resources | nindent 12 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-console-gateway
+  labels:
+    {{- include "iris-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: console-gateway
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/instance: {{ .Release.Name | quote }}
+    app.kubernetes.io/component: console-gateway
+  ports:
+    - {name: http, port: 8080, targetPort: http}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ .Release.Name }}-console-gateway
+  labels:
+    {{- include "iris-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: console-gateway
+  annotations:
+    alb.ingress.kubernetes.io/group.name: iris-platform-external
+    # The API Ingress owns the catch-all `/` rule of the same host. LBC evaluates group members by group.order
+    # (lower first), so this Ingress must sort before it or its exact paths would be answered by the API.
+    alb.ingress.kubernetes.io/group.order: "-1"
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
+    alb.ingress.kubernetes.io/healthcheck-protocol: HTTP
+    alb.ingress.kubernetes.io/healthcheck-port: traffic-port
+    alb.ingress.kubernetes.io/healthcheck-path: /readyz
+    # Unlike the API (204 only), accept any 2xx so the Gateway may answer /readyz with 200 or 204.
+    alb.ingress.kubernetes.io/success-codes: "200-299"
+spec:
+  ingressClassName: alb
+  rules:
+    # Same host as the API so the browser needs no new DNS record, certificate or CORS origin.
+    # Only these two exact paths reach the Gateway; ALB speaks WebSocket natively (no extra setting).
+    - host: {{ .Values.api.host | quote }}
+      http:
+        paths:
+          - path: /v1/pods
+            pathType: Exact
+            backend:
+              service:
+                name: {{ .Release.Name }}-console-gateway
+                port: {name: http}
+          - path: /v1/exec
+            pathType: Exact
+            backend:
+              service:
+                name: {{ .Release.Name }}-console-gateway
+                port: {name: http}
+{{- end }}
