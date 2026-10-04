@@ -436,6 +436,111 @@ def check_service_strategies(directory):
         assert result.returncode, f'Unknown deploymentStrategy must fail: {bad!r}'
 
 
+def ci_values(name):
+    chart = ROOT/'helm/charts/iris-service'
+    return json.loads('\n'.join(l for l in (chart/'ci'/name).read_text().splitlines() if not l.startswith('#')))
+
+
+def check_service_projects(directory):
+    """0.9.0: project-internal traffic, compose host aliases and the dev database workload."""
+    chart = ROOT/'helm/charts/iris-service'
+    by = lambda docs: {(d['kind'], d['metadata']['name']): d for d in docs}
+    # Existing Deploy Worker values (no projectId/aliases/kind) must render exactly as before.
+    for fixture in ('aws-values.yaml', 'local-values.yaml'):
+        docs = by(render(chart, chart/'ci'/fixture, release='demo', namespace='svc-12'))
+        assert not {n for k, n in docs if n.startswith('allow-project-')} and not any(d['spec'].get('type')=='ExternalName' for (k, _), d in docs.items() if k=='Service')
+        assert [p['name'] for p in docs['Service','app']['spec']['ports']]==['http'] and 'iris.io/project-id' not in docs['Rollout','app']['spec']['template']['metadata']['labels']
+    # App in a project stack: label, cross-namespace egress to the project, containerPort on the Service, aliases.
+    app = ci_values('aliases-values.yaml')
+    docs = by(render(chart, chart/'ci/aliases-values.yaml', release='demo', namespace='svc-12'))
+    project = {'iris.io/project-id': app['projectId']}
+    assert docs['Rollout','app']['spec']['template']['metadata']['labels']['iris.io/project-id']==app['projectId'] and 'iris.io/project-id' not in docs['Rollout','app']['spec']['selector']['matchLabels'], 'Project label on Pods only; the Rollout selector is immutable.'
+    assert docs['Service','app']['spec']['ports']==[{'name':'http','port':80,'targetPort':'http'},{'name':'container','port':app['containerPort'],'targetPort':'http'}], 'Aliases reach {name}:{containerPort} like compose.'
+    assert docs['NetworkPolicy','allow-project-egress']['spec']=={'podSelector':{},'policyTypes':['Egress'],'egress':[{'to':[{'namespaceSelector':{},'podSelector':{'matchLabels':project}}]}]}, 'Same-project Pods in any namespace, all ports.'
+    assert ('NetworkPolicy','allow-project-ingress') not in docs, 'App ingress stays as before (ALB targets Pod IPs).'
+    for alias in app['hostAliases']:
+        assert docs['Service',alias['name']]['spec']=={'type':'ExternalName','externalName':alias['target']}
+    # Database: StatefulSet + gp3 PVC that is deleted with the service, reachable only from the project.
+    db = ci_values('database-values.yaml')
+    docs = by(render(chart, chart/'ci/database-values.yaml', release='demo', namespace='svc-13'))
+    assert {k for k, _ in docs}=={'StatefulSet','Service','NetworkPolicy','SealedSecret'}, 'A database has no Rollout, Ingress or ALB policy.'
+    sts = docs['StatefulSet','app']['spec']
+    assert sts['replicas']==1 and sts['serviceName']=='app' and sts['persistentVolumeClaimRetentionPolicy']=={'whenDeleted':'Delete','whenScaled':'Retain'}, 'Deleting the service deletes its data.'
+    [claim] = sts['volumeClaimTemplates']
+    assert claim['spec']['storageClassName']=='gp3' and claim['spec']['resources']['requests']['storage']==db['database']['storage'] and 'helm.sh/chart' not in claim['metadata']['labels'], 'volumeClaimTemplates are immutable: no chart version label.'
+    pod = sts['template']['spec']; [container] = pod['containers']
+    assert pod['securityContext']['runAsNonRoot'] is True and pod['securityContext']['fsGroup']==pod['securityContext']['runAsUser'] and pod['automountServiceAccountToken'] is False
+    assert container['securityContext']=={'allowPrivilegeEscalation':False,'capabilities':{'drop':['ALL']}} and container['image']==db['database']['image']
+    assert container['envFrom']==[{'secretRef':{'name':db['variables']['name']}}] and {'startupProbe','readinessProbe','livenessProbe'} <= set(container)
+    assert sts['template']['metadata']['labels']['iris.io/project-id']==db['projectId']
+    assert docs['Service','app']['spec']['ports']==[{'name':'db','port':db['database']['port'],'targetPort':'db'}]
+    assert docs['NetworkPolicy','allow-project-ingress']['spec']=={'podSelector':{'matchLabels':sts['selector']['matchLabels']},'policyTypes':['Ingress'],'ingress':[{'from':[{'namespaceSelector':{},'podSelector':{'matchLabels':{'iris.io/project-id':db['projectId']}}}]}]}
+    # Engine specifics: data directory, uid and redis AOF/password.
+    expected = {'postgres':('postgres:16-alpine','/var/lib/postgresql/data',70), 'mysql':('mysql:8.4','/var/lib/mysql',999), 'mongodb':('mongo:7','/data/db',999), 'redis':('redis:7-alpine','/data',999)}
+    values = directory/'database.json'
+    for engine, (image, mount, uid) in expected.items():
+        data = copy.deepcopy(db); data['database'] = {'engine':engine, 'image':image+'@sha256:'+'a'*64}; values.write_text(json.dumps(data))
+        sts = next(d for d in render(chart, values, release='demo', namespace='svc-13') if d['kind']=='StatefulSet')['spec']
+        container = sts['template']['spec']['containers'][0]
+        assert container['volumeMounts']==[{'name':'data','mountPath':mount}] and sts['template']['spec']['securityContext']['runAsUser']==uid, engine
+        assert sts['volumeClaimTemplates'][0]['spec']['resources']['requests']['storage']=='5Gi'
+        if engine=='redis': assert '--appendonly yes' in container['command'][-1] and '--requirepass "$REDIS_PASSWORD"' in container['command'][-1]
+    # initScripts: ConfigMap app-initdb mounted read-only only when scripts exist; the default stays untouched.
+    assert ('ConfigMap','app-initdb') not in docs and 'volumes' not in sts['template']['spec'] and not any(m['name']=='initdb' for m in container['volumeMounts']), 'No initScripts, no ConfigMap, no mount.'
+    init = ci_values('database-initdb-values.yaml')
+    idocs = by(render(chart, chart/'ci/database-initdb-values.yaml', release='demo', namespace='svc-13'))
+    cm = idocs['ConfigMap','app-initdb']
+    texts = {s['name']: s['content'] for s in init['database']['initScripts'] if 'content' in s}; blobs = {s['name']: s['binaryContent'] for s in init['database']['initScripts'] if 'binaryContent' in s}
+    assert cm['data']==texts and cm['binaryData']==blobs, 'content -> data, binaryContent -> binaryData.'
+    isp = next(d for k, d in idocs.items() if k[0]=='StatefulSet')['spec']['template']['spec']
+    assert {'name':'initdb','mountPath':'/docker-entrypoint-initdb.d','readOnly':True} in isp['containers'][0]['volumeMounts'] and isp['volumes']==[{'name':'initdb','configMap':{'name':'app-initdb','defaultMode':292}}]
+    assert {k for k, _ in idocs}=={'StatefulSet','Service','NetworkPolicy','SealedSecret','ConfigMap'}
+    def init_case(engine, image, scripts):
+        data = copy.deepcopy(db); data['database'] = {'engine':engine, 'image':image+'@sha256:'+'a'*64, 'initScripts':scripts}; return data
+    sql = {'name':'00-schema.sql','content':'select 1;'}
+    accepted = {
+        'postgres sql+sql.gz': init_case('postgres','postgres:16-alpine',[sql,{'name':'01-d.sql.gz','binaryContent':'H4sI'}]),
+        'mysql sql.gz': init_case('mysql','mysql:8.4',[{'name':'00-a.sql.gz','binaryContent':'H4sI'}]),
+        'mongodb js': init_case('mongodb','mongo:7',[{'name':'00-a.js','content':'db.c.insertOne({})'}]),
+        'redis with an empty list': init_case('redis','redis:7-alpine',[]),
+        'twenty scripts': init_case('postgres','postgres:16-alpine',[{'name':'%02d-s.sql'%i,'content':'select 1;'} for i in range(20)]),
+    }
+    for label, data in accepted.items():
+        values.write_text(json.dumps(data)); render(chart, values, release='demo', namespace='svc-13')
+    init_rejected = {
+        'initScripts for redis': init_case('redis','redis:7-alpine',[sql]),
+        '.js for postgres': init_case('postgres','postgres:16-alpine',[{'name':'00-a.js','content':'x'}]),
+        '.sql for mongodb': init_case('mongodb','mongo:7',[sql]),
+        '.sh script': init_case('postgres','postgres:16-alpine',[{'name':'00-a.sh','content':'x'}]),
+        'name without order prefix': init_case('postgres','postgres:16-alpine',[{'name':'schema.sql','content':'x'}]),
+        'name with a path': init_case('postgres','postgres:16-alpine',[{'name':'00-a/b.sql','content':'x'}]),
+        'both content and binaryContent': init_case('postgres','postgres:16-alpine',[{'name':'00-a.sql','content':'x','binaryContent':'H4sI'}]),
+        'neither content nor binaryContent': init_case('postgres','postgres:16-alpine',[{'name':'00-a.sql'}]),
+        'binaryContent that is not base64': init_case('postgres','postgres:16-alpine',[{'name':'00-a.sql.gz','binaryContent':'not base64!'}]),
+        'twenty-one scripts': init_case('postgres','postgres:16-alpine',[{'name':'%02d-s.sql'%i,'content':'x'} for i in range(21)]),
+        'unknown script key': init_case('postgres','postgres:16-alpine',[{'name':'00-a.sql','content':'x','mode':'0755'}]),
+    }
+    for label, data in init_rejected.items():
+        values.write_text(json.dumps(data))
+        result = subprocess.run([HELM,'template','demo',str(chart),'-f',str(values),'--kube-version',VERSIONS['kubernetes']+'.0'],capture_output=True)
+        assert result.returncode, f'Must fail before deployment: {label}'
+    mutations = {
+        'database image outside the engine allowlist': lambda v: v['database'].update(image='evil/postgres@sha256:'+'a'*64),
+        'database image without digest': lambda v: v['database'].update(image='postgres:16-alpine'),
+        'database image of another engine': lambda v: v['database'].update(image='redis:7-alpine@sha256:'+'a'*64),
+        'database storage over 20Gi': lambda v: v['database'].update(storage='21Gi'),
+        'database without projectId': lambda v: v.pop('projectId'),
+        'database with a built image': lambda v: v.update(image={'repository':'x','tag':'y'}),
+        'alias named app': lambda v: v.update(hostAliases=[{'name':'app','target':'app.svc-1.svc.cluster.local'}]),
+        'alias to an external host': lambda v: v.update(hostAliases=[{'name':'api','target':'evil.example.com'}]),
+        'duplicate alias': lambda v: v.update(hostAliases=[{'name':'api','target':'app.svc-1.svc.cluster.local'}]*2),
+    }
+    for label, change in mutations.items():
+        data = copy.deepcopy(db); change(data); values.write_text(json.dumps(data))
+        result = subprocess.run([HELM,'template','demo',str(chart),'-f',str(values),'--kube-version',VERSIONS['kubernetes']+'.0'],capture_output=True)
+        assert result.returncode, f'Must fail before deployment: {label}'
+
+
 def check_platform(directory, targets, bootstrap):
     chart=ROOT/'helm/charts/iris-platform'
     for fixture in sorted((chart/'ci').glob('*.yaml')):
@@ -616,6 +721,7 @@ def main():
         assert rollout['spec']['template']['metadata']['labels']['iris/release-id']=='345' and 'iris/release-id' not in rollout['spec']['selector']['matchLabels'], 'Pods carry the release label for logs/metrics; the immutable selector must not.'
         container = rollout['spec']['template']['spec']['containers'][0]
         check_service_strategies(directory)
+        check_service_projects(directory)
         env = {e['name']: e['value'] for e in container['env']}
         assert (env['IRIS_SERVICE_NAME'],env['IRIS_TARGET_NAME'],env['IRIS_DEPLOYMENT_ID'])==('my-app','aws','6789012'), 'Platform identity reaches the app; large ids must not print as 1e+06.'
         sealed = next(d for d in service_docs if d['kind']=='SealedSecret')
@@ -800,9 +906,11 @@ def main():
     for values in sorted((chart/'ci').glob('*.yaml')):
         docs=render(chart,values,release='demo',namespace='iris-check')
         kinds={d['kind'] for d in docs}
-        assert {'Rollout','Service','Ingress'} <= kinds and 'Deployment' not in kinds
+        database='"database"' in values.read_text()
+        assert ({'StatefulSet','Service'} <= kinds and not kinds & {'Rollout','Ingress'}) if database else ({'Rollout','Service','Ingress'} <= kinds and 'StatefulSet' not in kinds)
+        assert 'Deployment' not in kinds
         has_variables='"variables"' in values.read_text()
-        assert has_variables==('SealedSecret' in kinds)==any('envFrom' in c for d in docs if d['kind']=='Rollout' for c in d['spec']['template']['spec']['containers']), 'SealedSecret and envFrom exist only when variables are set.'
+        assert has_variables==('SealedSecret' in kinds)==any('envFrom' in c for d in docs if d['kind'] in ('Rollout','StatefulSet') for c in d['spec']['template']['spec']['containers']), 'SealedSecret and envFrom exist only when variables are set.'
     print('Pinned charts/images, GitOps schema, baseline, platform TLS/migration/credentials, storage and replicas: passed. No runtime deployment tested.')
 
 

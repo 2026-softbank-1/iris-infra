@@ -1,0 +1,28 @@
+# DATABASE 서비스에 초기화 스크립트(compose 의 ./db:/docker-entrypoint-initdb.d)를 넣는 values 모양입니다(0.9.0).
+# 텍스트는 content, .sql.gz 같은 바이너리는 base64 binaryContent. 데이터 디렉터리가 비어 있는 첫 기동에서만 이름순으로 실행됩니다.
+{
+  "workload": { "kind": "database" },
+  "projectId": "123",
+  "database": {
+    "engine": "postgres",
+    "image": "postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea",
+    "storage": "5Gi",
+    "port": 5432,
+    "initScripts": [
+      { "name": "00-schema.sql", "content": "create table jobs (id serial primary key, payload text not null);\ncreate table items (id serial primary key, name text not null);\n" },
+      { "name": "01-seed.sql", "content": "insert into items (name) values ('keyboard'), ('mouse');\n" },
+      { "name": "02-extra.sql.gz", "binaryContent": "H4sIAAAAAAACE8vMK04tKlHIzCvJV8gsSc0tVtDIS8xN1VQoS8wpTQXy1HPz8zJL8ovUNa25ANoPcXUtAAAA" }
+    ]
+  },
+  "health": { "timeoutSeconds": 300 },
+  "iris": { "deploymentId": 6789013, "serviceName": "postgres", "targetName": "aws" },
+  "release": { "id": 346 },
+  "variables": {
+    "encryptedData": {
+      "POSTGRES_DB": "AgBy3i4TQXwNNqdHFlYAXAmLgbmB8wAUkc+L/xlaMkJKs0kYV2m4",
+      "POSTGRES_PASSWORD": "AgCZq0PbqF7a2WmsU1c9Jr3dMGvN5xQ8yTzL4hKe6oBnA1uX7ws=",
+      "POSTGRES_USER": "AgDq0PbqF7a2WmsU1c9Jr3dMGvN5xQ8yTzL4hKe6oBnA1uX7ws="
+    },
+    "name": "vars-r346"
+  }
+}

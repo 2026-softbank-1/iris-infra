@@ -1,3 +1,4 @@
+{{- if not (include "iris-service.isDatabase" .) }}
 {{- $strategy := include "iris-service.deploymentStrategy" . }}
 apiVersion: argoproj.io/v1alpha1
 kind: Rollout
@@ -48,6 +49,10 @@ spec:
         # 로그·메트릭을 release 단위로 묶는 라벨입니다(OTel k8sattributes → Loki iris_release_id).
         # selector 에는 넣지 않습니다(Rollout selector 는 바꿀 수 없습니다).
         iris/release-id: {{ .Values.release.id | quote }}
+        {{- if .Values.projectId }}
+        # 같은 프로젝트 Pod 끼리 namespace 를 넘어 통신하게 하는 라벨입니다(NetworkPolicy allow-project-*).
+        iris.io/project-id: {{ include "iris-service.projectId" . | quote }}
+        {{- end }}
       annotations:
         # digest 가 같아도 release 마다 rollout 되게 합니다.
         iris/release-id: {{ .Values.release.id | quote }}
@@ -125,3 +130,4 @@ spec:
             preStop:
               sleep:
                 seconds: 15
+{{- end }}

@@ -1,0 +1,19 @@
+# Deploy Worker 가 프로젝트 스택의 APP 서비스에 쓰는 values 모양입니다(0.9.0): 프로젝트 라벨, containerPort 노출, compose 호스트 별칭.
+{
+  "command": ["node", "dist/main.js"],
+  "containerPort": 3000,
+  "health": { "path": "/health", "timeoutSeconds": 300 },
+  "hostAliases": [
+    { "name": "postgres", "target": "app.svc-13.svc.cluster.local" },
+    { "name": "redis", "target": "app.svc-14.svc.cluster.local" }
+  ],
+  "image": {
+    "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "repository": "000000000000.dkr.ecr.ap-northeast-2.amazonaws.com/iris/services/12"
+  },
+  "iris": { "deploymentId": 6789014, "serviceName": "api", "targetName": "aws" },
+  "projectId": "123",
+  "release": { "id": 347, "sourceSha": "0000000000000000000000000000000000000000" },
+  "route": { "host": "api.apps.example.com" },
+  "service": { "exposeContainerPort": true }
+}

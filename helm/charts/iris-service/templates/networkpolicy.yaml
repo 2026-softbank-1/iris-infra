@@ -1,3 +1,4 @@
+{{- if not (include "iris-service.isDatabase" .) }}
 {{- with .Values.networkPolicy.allowedCidrs }}
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -20,6 +21,7 @@ spec:
       ports:
         - port: {{ $.Values.containerPort }}
           protocol: TCP
+{{- end }}
 {{- end }}
 {{- with .Values.networkPolicy.egressDeniedCidrs }}
 ---
@@ -60,4 +62,51 @@ spec:
       ports:
         - {protocol: TCP, port: {{ .port }}}
     {{- end }}
+{{- end }}
+{{- if .Values.projectId }}
+{{- if .Values.networkPolicy.egressDeniedCidrs }}
+---
+# 같은 프로젝트(라벨 iris.io/project-id)의 Pod 로는 namespace 를 넘어 모든 포트로 나갈 수 있습니다.
+# restrict-egress 가 막은 VPC(Pod IP 포함) 안에서의 예외입니다. NetworkPolicy 는 합집합이라 이 정책이 그 예외가 됩니다.
+# restrict-egress 가 없으면 egress 가 이미 열려 있어 만들지 않습니다(이 정책만 있으면 오히려 egress 를 좁힙니다).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-project-egress
+  labels:
+    {{- include "iris-service.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              iris.io/project-id: {{ include "iris-service.projectId" . | quote }}
+{{- end }}
+{{- if include "iris-service.isDatabase" . }}
+---
+# 데이터베이스는 같은 프로젝트 Pod 에서만 받습니다. 그 외(다른 프로젝트·플랫폼·인터넷)는 모두 막습니다.
+# kubelet probe 는 노드에서 오므로 NetworkPolicy 대상이 아닙니다.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-project-ingress
+  labels:
+    {{- include "iris-service.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "iris-service.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              iris.io/project-id: {{ include "iris-service.projectId" . | quote }}
+{{- end }}
 {{- end }}

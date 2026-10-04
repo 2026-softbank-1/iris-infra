@@ -9,6 +9,19 @@ spec:
   selector:
     {{- include "iris-service.selectorLabels" . | nindent 4 }}
   ports:
+    {{- if include "iris-service.isDatabase" . }}
+    # 같은 프로젝트 앱은 app.svc-{id}:{database.port}(별칭이면 {alias}:{port})로 접속합니다.
+    - name: db
+      port: {{ include "iris-service.databasePort" . }}
+      targetPort: db
+    {{- else }}
     - name: http
       port: {{ .Values.service.port }}
       targetPort: http
+    {{- if and .Values.service.exposeContainerPort (ne (int .Values.containerPort) (int .Values.service.port)) }}
+    # 다른 서비스가 compose 와 같은 {별칭}:{containerPort} 로 부를 수 있게 같은 포트로도 엽니다.
+    - name: container
+      port: {{ .Values.containerPort }}
+      targetPort: http
+    {{- end }}
+    {{- end }}
