@@ -105,6 +105,14 @@ GitHub Actions 변수와 자동 배포 절차는 [Terraform CI runbook](../../..
 
 `ci-control-api.tf`는 Control API Pod Identity 역할(`<project>-<environment>-control-api`) 하나의 생성·인라인 정책 관리와 EKS Pod Identity 전달(`iam:PassRole`, `pods.eks.amazonaws.com` 한정)만 허용하는 별도 정책을 CI 역할에 붙입니다. 이 역할은 `runtime_role_arns` 에 넣지 않으므로 EKS/EC2 PassRole 범위가 넓어지지 않고, `ci-eks.tf` 정책의 6144자 한도도 늘지 않습니다. 같은 정책이 Control API 가 AssumeRole 하는 `<project>-<environment>-onprem-ecr-pull` 역할의 생성·인라인 정책 관리도 허용합니다(이 역할은 다른 서비스에 넘기지 않으므로 PassRole 은 없습니다). 두 역할의 권한은 foundation `control-api-identity.tf`·`onprem-ecr-pull.tf` 에 있습니다. account를 foundation보다 먼저 적용합니다.
 
+같은 정책 문서에서 기존 VM 범용 갱신기의 `<project>-<environment>-onprem-ecr-renewer`와
+`<project>-<environment>-onprem-ecr-renewal-pull` 두 역할만 추가로 관리합니다. issuer인
+`onprem-ecr-renewer`만 `pods.eks.amazonaws.com`에 PassRole할 수 있고, pull 역할은
+AssumeRole 용도로만 사용합니다. foundation `onprem-ecr-renewal.tf`가 권한을 소유하고
+management가 전용 Pod Identity association을 소유합니다. 새 정책 문서/attachment를
+추가하지 않아 기존 account-plan 권한 검사기의 10개 문서 제한을 유지합니다.
+온프렘 bootstrap 및 기존 svc28 Job 전환은 [갱신기 runbook](../../../runtime/onprem-auth-renewal/README.md)을 따릅니다.
+
 `ci-access.tf`는 request/resource owner tags의 SG/LT/compute 변경과 private bridge t3.micro RunInstances를 별도 관리형 정책으로 제공합니다. read-only discovery는 지정 리전에서만 `*`, 새 ENI는 RunInstances 인증의 지역/리소스 예외입니다. AMI는 지정 리전의 Amazon 소유 이미지로 제한하며 IAM의 `ec2:Owner` 조건에는 `amazon` 별칭을 사용합니다. `DescribeImages`의 숫자 `OwnerId`와 이 조건값을 혼동하지 않습니다([AWS 예제](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ExamplePolicies_EC2.html)). IAM 허용 범위는 Amazon 소유 AMI들이며 실제 bridge 선택은 foundation의 고정 AL2023 x86_64 SSM parameter를 유지합니다. instance/volume에는 owner tag가 필요합니다.
 
 `aws_instance`의 burstable instance 조회는 `DescribeInstanceCreditSpecifications`도 호출하므로 지역 discovery 목록에 포함합니다. IAM 수정은 관리자가 account plan을 검토하고 apply해야 실제 CI 역할에 반영됩니다. foundation workflow는 account stack을 적용하지 않습니다. scoped 정책은 자기 IAM 갱신을 허용하지 않지만 임시 Admin 활성화 시 그 권한도 허용됩니다. account 적용 후 수정 코드가 반영된 workflow에서 foundation의 새 plan을 확인하여 재시도합니다. mock 테스트는 개별 정책의 AMI·subnet/SG·ENI·instance·volume·생성 태그·PassRole 제한을 검사하지만 실제 EC2 생성 성공은 배포 후 확인합니다.

@@ -23,6 +23,14 @@ resource "aws_eks_pod_identity_association" "control_api" {
   depends_on      = [module.eks]
 }
 
+resource "aws_eks_pod_identity_association" "onprem_ecr_renewer" {
+  cluster_name    = module.eks.name
+  namespace       = "iris-platform"
+  service_account = "iris-onprem-ecr-renewer"
+  role_arn        = data.terraform_remote_state.foundation.outputs.onprem_ecr_renewer_role_arn
+  depends_on      = [module.eks]
+}
+
 resource "aws_eks_pod_identity_association" "deploy_worker" {
   cluster_name    = module.eks.name
   namespace       = "iris-platform"

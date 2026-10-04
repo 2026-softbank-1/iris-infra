@@ -116,14 +116,29 @@ def main():
     local_ca = '/var/run/secrets/kubernetes.io/serviceaccount/ca.crt'
     remote_ca = ssl.create_default_context(cafile='/code/server-ca.crt')
     identity = ecr = None
-    if mode == 'ecr':
+    if mode in ('ecr', 'ecr-all'):
         import boto3
         identity = boto3.client('sts', region_name='ap-northeast-2').get_caller_identity()
         ecr = boto3.client('ecr', region_name='ap-northeast-2')
     with httpx.Client(base_url='https://kubernetes.default.svc', verify=local_ca, timeout=30,
                       headers={'Authorization': 'Bearer ' + local_token}) as local:
         with httpx.Client(verify=remote_ca, timeout=30) as remote:
-            print(json.dumps(run(mode, namespace, secret, local, remote, identity=identity, ecr=ecr)))
+            if mode == 'ecr-all':
+                from all_services import run_all
+
+                def ecr_factory(credentials):
+                    return boto3.client('ecr', region_name='ap-northeast-2',
+                        aws_access_key_id=credentials['AccessKeyId'],
+                        aws_secret_access_key=credentials['SecretAccessKey'],
+                        aws_session_token=credentials['SessionToken'])
+
+                result = run_all(namespace, secret, local, remote, identity=identity,
+                                 sts=boto3.client('sts', region_name='ap-northeast-2'), ecr_factory=ecr_factory)
+            else:
+                result = run(mode, namespace, secret, local, remote, identity=identity, ecr=ecr)
+            print(json.dumps(result))
+            if not result.get('ok', True):
+                raise SystemExit(1)
 
 
 if __name__ == '__main__':
