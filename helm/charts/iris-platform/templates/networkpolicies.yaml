@@ -102,3 +102,29 @@ spec:
               app.kubernetes.io/name: prometheus
       ports:
         - {protocol: TCP, port: 9090}
+{{- if and .Values.consoleGateway.enabled .Values.consoleGateway.digest }}
+---
+# The Console Gateway takes HTTPS/WebSocket traffic only from the ALB. Its egress (workload EKS API on 443,
+# DNS, Pod Identity agent) is already what the baseline application-boundary allows; it has no RDS access.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-console-gateway-alb
+  labels:
+    {{- include "iris-platform.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name | quote }}
+      app.kubernetes.io/component: console-gateway
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        {{- range .Values.network.albSubnetCidrs }}
+        - ipBlock: {cidr: {{ . | quote }}}
+        {{- end }}
+      ports:
+        - {protocol: TCP, port: 8080}
+{{- end }}

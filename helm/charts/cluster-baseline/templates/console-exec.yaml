@@ -1,0 +1,63 @@
+{{- with .Values.consoleExec }}{{- if .enabled }}
+# Console Gateway (management) opens a shell in user service Pods (iris-was ADR 0033). The workload EKS Access
+# Entry maps the Gateway's IAM role to group `iris-console` and attaches no access policy, so everything the
+# Gateway may do is written here and nowhere else.
+#
+# `pods/exec` gets both `get` and `create`: Kubernetes authorizes the WebSocket upgrade of an exec request as `get`
+# in some versions and as `create` in others, and the Gateway uses the WebSocket protocol. Neither verb reaches
+# anything but exec. The runbook verifies a real exec on the cluster version in use.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: iris-console-exec
+rules:
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get, list]
+  - apiGroups: [""]
+    resources: [pods/exec]
+    verbs: [get, create]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: iris-console-exec
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: iris-console-exec
+subjects:
+  - apiGroup: rbac.authorization.k8s.io
+    kind: Group
+    name: iris-console
+---
+# The ClusterRole is cluster-wide, so a bug or compromise in the Gateway must not reach kube-system,
+# observability (privileged) or iris-apps. This policy confines group `iris-console` to the `app` container
+# of Pods in user service namespaces (`svc-{service_id}`); every other caller is skipped by the match condition.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: iris-console-exec-scope
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: [v1]
+        operations: [CONNECT]
+        resources: [pods/exec]
+  matchConditions:
+    - name: console-gateway-only
+      expression: "'iris-console' in request.userInfo.groups"
+  validations:
+    - expression: "request.namespace.startsWith('svc-') && object.container == 'app'"
+      message: "The console may only open a shell in the app container of a user service Pod (namespace svc-*)."
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: iris-console-exec-scope
+spec:
+  policyName: iris-console-exec-scope
+  validationActions: [Deny]
+{{- end }}{{- end }}

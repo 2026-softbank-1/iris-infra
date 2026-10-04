@@ -6,7 +6,7 @@ variables {
 run "control_api_deployment_boundary" {
   command = plan
   assert {
-    condition = length(aws_iam_policy.control_api.policy) <= 6144 && length(jsondecode(aws_iam_policy.control_api.policy).Statement) == 3 && alltrue([
+    condition = length(aws_iam_policy.control_api.policy) <= 6144 && length(jsondecode(aws_iam_policy.control_api.policy).Statement) == 5 && alltrue([
       for s in jsondecode(aws_iam_policy.control_api.policy).Statement : !contains(s.Action, "iam:*") && !contains(s.Action, "iam:AttachRolePolicy")
     ])
     error_message = "CI may administer the Control API roles only with inline policies and without attaching managed policies."
@@ -29,6 +29,20 @@ run "control_api_deployment_boundary" {
       for s in jsondecode(aws_iam_policy.runtime_iam.policy).Statement : !contains(s.Resource, "arn:aws:iam::123456789012:role/iris-dev-control-api") if s.Sid == "PassEksRoles"
     ]) && !contains(local.runtime_role_arns, "arn:aws:iam::123456789012:role/iris-dev-control-api")
     error_message = "The Control API role must stay outside the broad EKS runtime role inventory."
+  }
+  assert {
+    condition     = one([for s in jsondecode(aws_iam_policy.control_api.policy).Statement : s if s.Sid == "ConsoleGatewayRole"]).Resource == "arn:aws:iam::123456789012:role/iris-dev-console-gateway" && !contains(one([for s in jsondecode(aws_iam_policy.control_api.policy).Statement : s if s.Sid == "ConsoleGatewayRole"]).Action, "iam:PutRolePolicy") && !contains(one([for s in jsondecode(aws_iam_policy.control_api.policy).Statement : s if s.Sid == "ConsoleGatewayRole"]).Action, "iam:AttachRolePolicy")
+    error_message = "CI may administer only the Console Gateway role and may never put or attach a permission policy on it."
+  }
+  assert {
+    condition     = one([for s in jsondecode(aws_iam_policy.control_api.policy).Statement : s if s.Sid == "PassConsoleGatewayRole"]).Resource == "arn:aws:iam::123456789012:role/iris-dev-console-gateway" && one([for s in jsondecode(aws_iam_policy.control_api.policy).Statement : s if s.Sid == "PassConsoleGatewayRole"]).Action == ["iam:PassRole"] && jsonencode(one([for s in jsondecode(aws_iam_policy.control_api.policy).Statement : s if s.Sid == "PassConsoleGatewayRole"]).Condition) == jsonencode({ StringEquals = { "iam:PassedToService" = "pods.eks.amazonaws.com" } })
+    error_message = "Only the Console Gateway role may be passed, and only to EKS Pod Identity."
+  }
+  assert {
+    condition = alltrue([
+      for s in jsondecode(aws_iam_policy.runtime_iam.policy).Statement : !contains(s.Resource, "arn:aws:iam::123456789012:role/iris-dev-console-gateway") if s.Sid == "PassEksRoles"
+    ]) && !contains(local.runtime_role_arns, "arn:aws:iam::123456789012:role/iris-dev-console-gateway")
+    error_message = "The Console Gateway role must stay outside the broad EKS runtime role inventory."
   }
   assert {
     condition     = aws_iam_role_policy_attachment.control_api.role == aws_iam_role.terraform_apply.name

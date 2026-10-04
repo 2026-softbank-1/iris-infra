@@ -116,6 +116,8 @@ trust는 기존 Control API 문장을 보존하며 갱신기의 Pod Identity tag
 선행 조건이 아닙니다. scoped CI 운영으로 복귀할 때는 갱신한 account 정책을 적용해야 합니다.
 온프렘 권한 확장 및 기존 Job 전환은 [갱신기 runbook](../../../runtime/onprem-auth-renewal/README.md)을 따릅니다.
 
+같은 정책 문서가 서비스 화면의 셸을 여는 Console Gateway Pod Identity 역할(`<project>-<environment>-console-gateway`) 하나도 관리합니다. 별도 문장 `ConsoleGatewayRole` 이 생성·수정·삭제·태그만 허용하고(권한 정책 put/attach 는 허용하지 않음, 이 역할에는 권한 정책이 없어야 합니다) `PassConsoleGatewayRole` 이 `pods.eks.amazonaws.com` 한정 `iam:PassRole` 만 허용합니다. 이 역할도 `runtime_role_arns` 에 넣지 않으며 EKS Access Entry·Pod Identity association 의 ARN 은 `ci-eks.tf` 정책이 이미 덮습니다. 이번에도 새 정책 문서를 만들지 않아 검사기의 10개 문서 한도(관리형 7 + 인라인 3)를 유지합니다. account를 foundation보다 먼저 적용합니다.
+
 `ci-access.tf`는 request/resource owner tags의 SG/LT/compute 변경과 private bridge t3.micro RunInstances를 별도 관리형 정책으로 제공합니다. read-only discovery는 지정 리전에서만 `*`, 새 ENI는 RunInstances 인증의 지역/리소스 예외입니다. AMI는 지정 리전의 Amazon 소유 이미지로 제한하며 IAM의 `ec2:Owner` 조건에는 `amazon` 별칭을 사용합니다. `DescribeImages`의 숫자 `OwnerId`와 이 조건값을 혼동하지 않습니다([AWS 예제](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ExamplePolicies_EC2.html)). IAM 허용 범위는 Amazon 소유 AMI들이며 실제 bridge 선택은 foundation의 고정 AL2023 x86_64 SSM parameter를 유지합니다. instance/volume에는 owner tag가 필요합니다.
 
 `aws_instance`의 burstable instance 조회는 `DescribeInstanceCreditSpecifications`도 호출하므로 지역 discovery 목록에 포함합니다. IAM 수정은 관리자가 account plan을 검토하고 apply해야 실제 CI 역할에 반영됩니다. foundation workflow는 account stack을 적용하지 않습니다. scoped 정책은 자기 IAM 갱신을 허용하지 않지만 임시 Admin 활성화 시 그 권한도 허용됩니다. account 적용 후 수정 코드가 반영된 workflow에서 foundation의 새 plan을 확인하여 재시도합니다. mock 테스트는 개별 정책의 AMI·subnet/SG·ENI·instance·volume·생성 태그·PassRole 제한을 검사하지만 실제 EC2 생성 성공은 배포 후 확인합니다.

@@ -300,3 +300,14 @@ resource "aws_eks_access_policy_association" "argocd" {
   policy_arn    = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
   access_scope { type = "cluster" }
 }
+# Console Gateway (management Pod) opens a shell in user service Pods. The Access Entry only maps the caller
+# to the Kubernetes group below and attaches NO access policy; the group's permissions come from the
+# `iris-console-exec` ClusterRole (pods get/list, pods/exec create) that cluster-baseline binds to it.
+resource "aws_eks_access_entry" "console_gateway" {
+  count             = var.console_gateway_role_arn == "" ? 0 : 1
+  cluster_name      = aws_eks_cluster.this.name
+  principal_arn     = var.console_gateway_role_arn
+  type              = "STANDARD"
+  kubernetes_groups = ["iris-console"]
+  tags              = local.tags
+}

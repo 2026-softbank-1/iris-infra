@@ -60,6 +60,16 @@ variable "argocd_deploy_role_arn" {
   type        = string
 }
 
+variable "console_gateway_role_arn" {
+  description = "Console Gateway IAM role that may exec into user service Pods through Kubernetes group iris-console. Empty means no Access Entry (management)."
+  type        = string
+  default     = ""
+  validation {
+    condition     = var.console_gateway_role_arn == "" || can(regex("^arn:aws:iam::${var.aws_account_id}:role/.+$", var.console_gateway_role_arn))
+    error_message = "Provide an IAM role ARN in the deployment account, or leave empty."
+  }
+}
+
 variable "bridge_security_group_id" {
   description = "bridge_security_group_id"
   type        = string

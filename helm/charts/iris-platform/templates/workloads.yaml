@@ -27,6 +27,10 @@ spec:
       annotations:
         checksum/config: {{ toJson $settings | sha256sum | quote }}
         checksum/shared: {{ toJson (dict "database" $.Values.database "was" $.Values.was "awsRegion" $.Values.awsRegion) | sha256sum | quote }}
+        {{- /* Only the API gets the Console Gateway settings; Workers keep their pod template untouched. */}}
+        {{- if and (eq $component "api") $.Values.consoleGateway.enabled $.Values.consoleGateway.digest }}
+        checksum/console: {{ toJson (dict "host" $.Values.api.host "secret" $.Values.consoleGateway.ticketSigningSecret) | sha256sum | quote }}
+        {{- end }}
       labels:
         {{- include "iris-platform.labels" $ | nindent 8 }}
         app.kubernetes.io/component: {{ $component }}
@@ -75,6 +79,13 @@ spec:
             {{- end }}
           env:
             {{- include "iris-platform.database-env" (dict "root" $ "secret" $.Values.database.secret) | nindent 12 }}
+            {{- if and (eq $component "api") $.Values.consoleGateway.enabled $.Values.consoleGateway.digest }}
+            # Ed25519 private key that signs console tickets; only the API gets it (the Gateway holds the public key).
+            # Optional: until the operator creates the Secret the API reports the console as NOT_CONFIGURED.
+            - name: CONSOLE_TICKET_PRIVATE_KEY
+              valueFrom:
+                secretKeyRef: {name: {{ $.Values.consoleGateway.ticketSigningSecret | quote }}, key: CONSOLE_TICKET_PRIVATE_KEY, optional: true}
+            {{- end }}
             {{- if eq $component "build-worker" }}
             {{- range $key := list "GITHUB_APP_ID" "GITHUB_APP_PRIVATE_KEY" "GITHUB_PUBLIC_INSTALLATION_ID" }}
             - name: {{ $key }}

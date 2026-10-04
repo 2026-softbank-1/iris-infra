@@ -9,8 +9,9 @@ Management EKS의 `iris-platform` namespace에 Iris 플랫폼을 배포하는 Ch
 | Deploy Worker | `deployWorker.digest`, `python -m app.workers.deploy_worker` | `deploy-worker` Pod Identity, DB·별도 GitOps App·Argo reader token |
 | Migration | `api.digest`, `alembic upgrade head` | 같은 DB Secret, Worker AWS 권한 없음 |
 | Error Check Agent | `errorAgent.image.digest`, `python -m ai_error_check_agent.api --host 0.0.0.0 --port 8001` | 내부 ClusterIP 8001, LLM·Agent API key |
+| Console Gateway | `consoleGateway.digest`(iris-was 이미지), `uvicorn app.console_gateway.main:app --host 0.0.0.0 --port 8080` | ALB(API 와 같은 host 의 `/v1/pods`·`/v1/exec`) → ClusterIP 8080, DB·Secret 없음, `console-gateway` Pod Identity(권한 정책 없음 — workload EKS Access Entry 로만 인증) |
 
-API와 Build Worker는 replica 1, Deploy Worker는 최대 3입니다(job 선점이 `FOR UPDATE SKIP LOCKED`라 중복 처리하지 않습니다). Worker에는 존재하지 않는 HTTP health probe를 넣지 않습니다. Build Worker 종료 유예는 최소 120초입니다. API 종료 유예는 기본 30초이고 운영은 90초입니다(롤아웃과 겹친 AI 진단이 끝나도록 iris-was 의 종료 대기 60초보다 길게 둡니다). Error Agent는 기본 비활성화입니다. Code Analyzer는 운영 서버·이미지 준비 후 별도로 설계합니다.
+API와 Build Worker는 replica 1, Deploy Worker는 최대 3입니다(job 선점이 `FOR UPDATE SKIP LOCKED`라 중복 처리하지 않습니다). Worker에는 존재하지 않는 HTTP health probe를 넣지 않습니다. Build Worker 종료 유예는 최소 120초입니다. API 종료 유예는 기본 30초이고 운영은 90초입니다(롤아웃과 겹친 AI 진단이 끝나도록 iris-was 의 종료 대기 60초보다 길게 둡니다). Error Agent는 기본 비활성화입니다. Console Gateway(서비스 화면의 셸)도 기본 비활성화이고 replica 는 1 고정(`Recreate`)입니다. 1회용 ticket 검사가 메모리라 두 Pod 가 동시에 뜨면 안 되기 때문입니다. Code Analyzer는 운영 서버·이미지 준비 후 별도로 설계합니다.
 
 **버전(digest)은 이 저장소에 두지 않습니다.** 각 서비스 레포의 수동 배포 workflow가 `iris-gitops-environments/platform/aws-dev-management/<repo>.yaml`에 컴포넌트별 digest만 커밋하고(`was.yaml`: `api`·`buildWorker`·`deployWorker`, `error-check-agent.yaml`: `errorAgent.image`), Argo CD Application `iris-platform`이 이 저장소의 values와 병합해 자동 sync합니다. digest가 없는 컴포넌트는 렌더링하지 않으므로 컴포넌트를 따로 배포할 수 있습니다. Error Agent는 `enabled`와 digest가 모두 있어야 배포됩니다.
 
@@ -33,6 +34,10 @@ API와 Build Worker는 replica 1, Deploy Worker는 최대 3입니다(job 선점�
 | `deployWorker.githubSecret` | Build App과 다른 GitOps App Secret |
 | `deployWorker.argocdUrl`, `argocdSecret` | HTTPS Argo CD URL, 읽기 전용 project token Secret |
 | `deployWorker.caConfigMap`, `caKey` | Argo 내부 CA와 GitHub 등 공개 HTTPS CA를 포함한 완전한 bundle |
+| `consoleGateway.enabled`, `digest` | 켜면 SA(`console-gateway`)·ConfigMap 이 생기고, digest(GitOps `was.yaml`)가 있어야 Deployment·Service·Ingress·NetworkPolicy 가 생깁니다. API 에는 digest 가 있을 때만 Gateway 주소(`https://{api.host}`·`wss://{api.host}`)가 들어갑니다 |
+| `consoleGateway.ticketSigningSecret`, `ticketPublicKey` | API 만 읽는 개인키 Secret 이름(키 `CONSOLE_TICKET_PRIVATE_KEY`, optional)과 Gateway 의 검증용 **공개키** PEM(schema 가 `PUBLIC KEY` 헤더만 허용) |
+| `consoleGateway.awsCluster` | workload EKS 의 `name`·`endpoint`(https)·`ca`(base64). 모두 비밀이 아닙니다 |
+| `consoleGateway.allowedOrigins`, 시간·세션 한도 | CORS·WebSocket Origin 허용 목록과 유휴/최대 시간, 사용자당 동시 세션 |
 | `network.albSubnetCidrs` | management ALB가 위치한 public subnet CIDR 목록 |
 | `network.rdsSubnetCidrs` | RDS subnet CIDR 목록; failover 가능한 모든 subnet 포함 |
 | `errorAgent.enabled`, `image.repository`, `secret`, `model`, `env` | Agent 활성화 여부·ECR 저장소·아래 두 Secret 키·LLM 모델·추가 비밀 아닌 환경변수(ConfigMap) (digest는 `error-check-agent.yaml`) |
@@ -60,6 +65,8 @@ GitOps digest 커밋이 들어오면 Argo가 **자동 sync**합니다: 준비 �
 ## Ingress·CA·회전
 
 API Ingress는 기존 `iris-platform-external` group에 host 규칙을 추가합니다. ALB 이름·scheme·certificate·redirect는 baseline 앵커가 소유합니다. `listen-ports`는 LBC에서 Ingress마다 적용되므로 API Ingress도 앵커와 같은 HTTP 80·HTTPS 443을 선언합니다(없으면 HTTPS 규칙이 생기지 않습니다). target type은 IP, Service/Pod는 8000, ALB health는 `/readyz`의 **204**입니다. Kubernetes startup/liveness는 `/healthz`, readiness는 `/readyz`입니다.
+
+Console Gateway 는 같은 API host 의 정확한 두 경로(`/v1/pods`, `/v1/exec`)만 받는 별도 Ingress(`group.order: -1`, API 의 `/` 보다 먼저 평가)와 ALB→8080 NetworkPolicy 를 가집니다. 켜는 절차와 값은 [Console Gateway runbook](../../../docs/runbooks/console-gateway.md)을 참고합니다.
 
 Chart의 NetworkPolicy는 baseline에 ALB→API 8000, DB client→RDS 5432, Deploy Worker→argocd-server Pod 8080, API→observability Loki 3100·Prometheus 9090(로그·메트릭 조회) 허용을 더합니다. 정책은 합산되며 기본 namespace 내부·DNS·외부 HTTPS 허용을 더 제한하지 않습니다. RDS SG, 라우팅과 실제 subnet CIDR도 별도로 맞춰야 합니다.
 

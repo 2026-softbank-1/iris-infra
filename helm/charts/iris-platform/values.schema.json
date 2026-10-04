@@ -8,6 +8,7 @@
     "buildWorker",
     "deployWorker",
     "errorAgent",
+    "consoleGateway",
     "migration",
     "network",
     "awsRegion"
@@ -498,6 +499,179 @@
               "model": {
                 "type": "string",
                 "minLength": 1
+              }
+            }
+          }
+        }
+      ]
+    },
+    "consoleGateway": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "enabled",
+        "replicas",
+        "terminationGracePeriodSeconds",
+        "ticketSigningSecret",
+        "ticketPublicKey",
+        "awsCluster",
+        "allowedOrigins",
+        "idleTimeoutSeconds",
+        "maxSessionSeconds",
+        "maxSessionsPerUser",
+        "resources"
+      ],
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^(sha256:[a-f0-9]{64})?$"
+        },
+        "replicas": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1
+        },
+        "terminationGracePeriodSeconds": {
+          "type": "integer",
+          "minimum": 30,
+          "maximum": 300
+        },
+        "ticketSigningSecret": {
+          "type": "string",
+          "pattern": "^([a-z0-9]([-a-z0-9]*[a-z0-9])?)?$"
+        },
+        "ticketPublicKey": {
+          "type": "string",
+          "pattern": "^(-----BEGIN PUBLIC KEY-----\\n[A-Za-z0-9+/=\\n]+-----END PUBLIC KEY-----\\n?)?$"
+        },
+        "awsCluster": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "name",
+            "endpoint",
+            "ca"
+          ],
+          "properties": {
+            "name": {
+              "type": "string",
+              "pattern": "^([A-Za-z0-9][A-Za-z0-9_-]{0,99})?$"
+            },
+            "endpoint": {
+              "type": "string",
+              "pattern": "^(https://[A-Za-z0-9.-]+)?$"
+            },
+            "ca": {
+              "type": "string",
+              "pattern": "^([A-Za-z0-9+/]+={0,2})?$"
+            }
+          }
+        },
+        "allowedOrigins": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^https?://[a-z0-9.-]+(:[0-9]+)?$"
+          }
+        },
+        "idleTimeoutSeconds": {
+          "type": "integer",
+          "minimum": 60,
+          "maximum": 3600
+        },
+        "maxSessionSeconds": {
+          "type": "integer",
+          "minimum": 300,
+          "maximum": 14400
+        },
+        "maxSessionsPerUser": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10
+        },
+        "resources": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "requests",
+            "limits"
+          ],
+          "properties": {
+            "requests": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "cpu",
+                "memory"
+              ],
+              "properties": {
+                "cpu": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "memory": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            },
+            "limits": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "cpu",
+                "memory"
+              ],
+              "properties": {
+                "cpu": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "memory": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "enabled": {
+                "const": true
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "ticketSigningSecret": {
+                "minLength": 1
+              },
+              "ticketPublicKey": {
+                "minLength": 1
+              },
+              "awsCluster": {
+                "properties": {
+                  "name": {
+                    "minLength": 1
+                  },
+                  "endpoint": {
+                    "minLength": 1
+                  },
+                  "ca": {
+                    "minLength": 1
+                  }
+                }
+              },
+              "allowedOrigins": {
+                "minItems": 1
               }
             }
           }

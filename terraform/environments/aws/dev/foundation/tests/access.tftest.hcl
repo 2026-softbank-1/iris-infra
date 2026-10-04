@@ -99,6 +99,29 @@ run "control_api_boundary" {
   }
 }
 
+run "console_gateway_boundary" {
+  command = apply
+  assert {
+    condition = aws_iam_role.console_gateway.name == "${var.project}-${var.environment}-console-gateway" && jsonencode(jsondecode(aws_iam_role.console_gateway.assume_role_policy).Statement) == jsonencode([{
+      Effect = "Allow", Action = ["sts:AssumeRole", "sts:TagSession"], Principal = { Service = "pods.eks.amazonaws.com" },
+      Condition = { StringEquals = {
+        "aws:RequestTag/eks-cluster-name"           = var.management_cluster_name,
+        "aws:RequestTag/kubernetes-namespace"       = "iris-platform",
+        "aws:RequestTag/kubernetes-service-account" = "console-gateway"
+      } }
+    }]) && output.console_gateway_role_arn == aws_iam_role.console_gateway.arn
+    error_message = "Only management iris-platform/console-gateway may assume the Console Gateway role."
+  }
+  assert {
+    condition     = length(aws_iam_role.console_gateway.inline_policy) == 0
+    error_message = "The Console Gateway role signs a caller identity locally and needs no AWS permission; what it may do is decided by the workload Access Entry group."
+  }
+  assert {
+    condition     = !contains([aws_iam_role.build_worker.name, aws_iam_role.deploy_worker.name, aws_iam_role.control_api.name], aws_iam_role.console_gateway.name)
+    error_message = "The Console Gateway must not share a role with the API or the Workers."
+  }
+}
+
 run "onprem_ecr_pull_boundary" {
   command = apply
   assert {

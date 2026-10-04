@@ -23,6 +23,16 @@ resource "aws_eks_pod_identity_association" "control_api" {
   depends_on      = [module.eks]
 }
 
+# Console Gateway signs a caller identity for the workload EKS Access Entry. The service account is the
+# chart's fixed `console-gateway`; its role has no AWS permission.
+resource "aws_eks_pod_identity_association" "console_gateway" {
+  cluster_name    = module.eks.name
+  namespace       = "iris-platform"
+  service_account = "console-gateway"
+  role_arn        = data.terraform_remote_state.foundation.outputs.console_gateway_role_arn
+  depends_on      = [module.eks]
+}
+
 resource "aws_eks_pod_identity_association" "deploy_worker" {
   cluster_name    = module.eks.name
   namespace       = "iris-platform"

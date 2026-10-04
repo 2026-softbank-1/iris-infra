@@ -26,6 +26,7 @@ override_data {
     argocd_management_role_arn              = "arn:aws:iam::123456789012:role/argocd"
     argocd_deploy_role_arns                 = { management = "arn:aws:iam::123456789012:role/argocd-management-deploy", workload = "arn:aws:iam::123456789012:role/argocd-workload-deploy" }
     build_worker_role_arn                   = "arn:aws:iam::123456789012:role/build-worker"
+    console_gateway_role_arn                = "arn:aws:iam::123456789012:role/console-gateway"
   } }
 }
 variables {
@@ -38,5 +39,13 @@ run "foundation_contract" {
   assert {
     condition     = output.target.id == "aws-dev-workload" && output.target.subnet_ids_by_az == data.terraform_remote_state.foundation.outputs.workload_subnet_ids_by_az && output.target.argocd_role_arn == data.terraform_remote_state.foundation.outputs.argocd_deploy_role_arns["workload"] && output.target.ssm_bridge_instance_id == "i-0123456789abcdef0" && output.target.additional_operator_principal_arns == var.additional_operator_principal_arns
     error_message = "Consume only the correct foundation target contract, without cross-root state."
+  }
+}
+
+run "console_gateway_access" {
+  command = plan
+  assert {
+    condition     = length(module.eks.console_gateway_access_entry_principals) == 1 && module.eks.console_gateway_access_entry_principals[0] == data.terraform_remote_state.foundation.outputs.console_gateway_role_arn
+    error_message = "The workload cluster must map exactly the foundation Console Gateway role to group iris-console."
   }
 }
