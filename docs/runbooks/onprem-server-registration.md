@@ -145,6 +145,7 @@ argocd cluster get onprem-$KEY        # Connection Status: Successful
 ## 알려진 위험
 
 - **management Argo 가 서버의 Secret 을 읽을 수 있습니다.** 배포 역할 ClusterRole(`iris-onprem-service-deployer`)은 Argo 캐시를 위해 클러스터 전체 `*/*` get/list/watch 를 갖습니다. 쓰기만 `svc-*` 앱 리소스와 `iris-system` ConfigMap 으로 좁혀져 있습니다. 그래서 cluster Secret 의 SA 토큰을 가진 쪽(management Argo, 봉인 키)은 서버의 모든 Secret(`iris-system/iris-server-secret`, 사용자 변수가 풀린 Secret 포함)을 읽을 수 있습니다. management Sealed Secrets 키와 Argo 접근은 서버 관리자 권한과 같은 무게로 다룹니다. 읽기를 좁히려면 Secret 을 뺀 규칙 목록과 Argo `resource.exclusions` 를 함께 바꿔야 합니다(별도 작업).
+- **management Argo 가 서버의 Pod 에 exec 할 수 있습니다**(서비스 콘솔, [ADR 0008](../decisions/0008-onprem-console-via-argocd-terminal.md)). 배포 역할 ClusterRole 에 `pods/exec`(get·create)가 있고, Argo CD 터미널을 쓰는 프로젝트 role `iris-console` 토큰을 가진 쪽(Console Gateway)이 `svc-*` Application 의 Pod 에 셸을 열 수 있습니다. Argo 는 그 Application 의 리소스 트리 밖 Pod 를 거절합니다. 이미 `CONNECTED` 인 서버는 `install.sh` 를 다시 실행할 수 없으니 규칙 추가는 [콘솔 runbook 4단계 B](console-gateway.md#적용-순서)의 서버 소유자 절차를 따릅니다.
 - 사용자 서버는 기존 VM 과 같은 `tag:iris-onprem` 을 씁니다. 정책에 그 태그에서 나가는 grant 가 있으면 deny 테스트가 실패합니다.
 - 재사용 auth key 를 가진 누구나 `tag:iris-onprem` 장치로 가입할 수 있습니다.
 
