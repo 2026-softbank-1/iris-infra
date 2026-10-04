@@ -1,0 +1,118 @@
+{{- if include "iris-service.isDatabase" . }}
+{{- $db := .Values.database }}
+{{- $uid := include "iris-service.databaseUid" . | int }}
+# 개발·데모용 단일 인스턴스 데이터베이스입니다. 복제·백업이 없고, 서비스를 지우면 PVC(데이터)도 지웁니다.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: app
+  labels:
+    {{- include "iris-service.labels" . | nindent 4 }}
+  annotations:
+    iris/database-engine: {{ $db.engine }}
+spec:
+  # 단일 인스턴스입니다. replicas 0 만 정지로 받아들이고 나머지는 1 입니다.
+  replicas: {{ min 1 (int .Values.replicas) }}
+  serviceName: app
+  selector:
+    matchLabels:
+      {{- include "iris-service.selectorLabels" . | nindent 6 }}
+  # Argo 가 StatefulSet 을 지우면(서비스 삭제) PVC 와 gp3 볼륨도 지웁니다. 0 으로 줄일 때는 남깁니다.
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Delete
+    whenScaled: Retain
+  updateStrategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        {{- include "iris-service.selectorLabels" . | nindent 8 }}
+        iris/release-id: {{ .Values.release.id | quote }}
+        iris.io/project-id: {{ include "iris-service.projectId" . | quote }}
+      annotations:
+        iris/release-id: {{ .Values.release.id | quote }}
+    spec:
+      automountServiceAccountToken: false
+      # 같은 namespace Service 의 docker-link env(APP_PORT 등)가 엔진 설정 env 와 섞이지 않게 합니다.
+      enableServiceLinks: false
+      terminationGracePeriodSeconds: 60
+      # Pod Security restricted 수준까지 만족합니다(svc-* 는 baseline). 공식 이미지는 root 가 아니어도
+      # 엔진 사용자 uid 로 바로 실행되고, fsGroup 이 PVC 를 그 그룹이 쓸 수 있게 합니다.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: {{ $uid }}
+        runAsGroup: {{ $uid }}
+        fsGroup: {{ $uid }}
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: app
+          image: {{ $db.image | quote }}
+          {{- if eq $db.engine "redis" }}
+          # 공식 entrypoint 와 같은 동작(--protected-mode no)에 AOF 와 REDIS_PASSWORD(있으면 requirepass)를 더합니다.
+          command:
+            - sh
+            - -c
+            - 'if [ -n "$REDIS_PASSWORD" ]; then set -- --requirepass "$REDIS_PASSWORD"; fi; exec redis-server --dir /data --appendonly yes --protected-mode no "$@"'
+          {{- else if eq $db.engine "mysql" }}
+          # 볼륨 루트의 lost+found 때문에 초기화가 거절되지 않게 하위 디렉터리를 datadir 로 씁니다.
+          args:
+            - mysqld
+            - --datadir=/var/lib/mysql/data
+          {{- end }}
+          ports:
+            - name: db
+              containerPort: {{ include "iris-service.databaseNativePort" . }}
+          {{- if eq $db.engine "postgres" }}
+          env:
+            # 볼륨 루트의 lost+found 를 피해 하위 디렉터리에 초기화합니다. env 가 envFrom 보다 우선합니다.
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          {{- end }}
+          {{- with .Values.variables }}
+          # 자격 증명(POSTGRES_PASSWORD, MYSQL_*, MONGO_INITDB_ROOT_*, REDIS_PASSWORD 등)은 사용자 변수로 받습니다.
+          envFrom:
+            - secretRef:
+                name: {{ .name }}
+          {{- end }}
+          resources:
+            {{- toYaml $db.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          # 첫 기동의 초기화(initdb 등) 동안은 엔진이 TCP 를 열지 않습니다. 최대 5분 기다립니다.
+          startupProbe:
+            tcpSocket:
+              port: db
+            periodSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            tcpSocket:
+              port: db
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: db
+            periodSeconds: 10
+            failureThreshold: 6
+          volumeMounts:
+            - name: data
+              mountPath: {{ include "iris-service.databaseMountPath" . }}
+  # volumeClaimTemplates 는 만든 뒤 바꿀 수 없어 chart 버전 라벨을 넣지 않습니다. 용량도 처음 값으로 고정됩니다.
+  volumeClaimTemplates:
+    - apiVersion: v1
+      kind: PersistentVolumeClaim
+      metadata:
+        name: data
+        labels:
+          {{- include "iris-service.selectorLabels" . | nindent 10 }}
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: {{ $db.storageClassName | quote }}
+        volumeMode: Filesystem
+        resources:
+          requests:
+            storage: {{ $db.storage | quote }}
+{{- end }}

@@ -11,6 +11,10 @@ GitOps 저장소의 `services/{service_id}/prod/values.yaml`(Deploy Worker 작�
 | NetworkPolicy | `allow-load-balancer` | `networkPolicy.allowedCidrs` 가 있을 때만. 그 CIDR 에서 containerPort 로만 허용 |
 | SealedSecret | `variables.name` | `variables` 가 있을 때만. sync-wave -1. Sealed Secrets controller 가 같은 이름의 Secret 으로 풉니다 |
 | NetworkPolicy | `restrict-egress` | `networkPolicy.egressDeniedCidrs`(기본 VPC·link-local) 를 막고 같은 namespace·DNS·VPC 밖·`egressAllowed`(cidr·port)만 허용 |
+| NetworkPolicy | `allow-project-egress` | `projectId` 가 있고 `restrict-egress` 가 있을 때(0.8.0). 라벨 `iris.io/project-id` 가 같은 Pod 로 namespace 를 넘어 모든 포트 egress 허용 |
+| NetworkPolicy | `allow-project-ingress` | `workload.kind: database` 일 때(0.8.0). 같은 `projectId` Pod 에서만 ingress 허용, 그 외 차단 |
+| Service(ExternalName) | `hostAliases[].name` | `hostAliases` 가 있을 때(0.8.0). `{name}` → `target`(`app.svc-{id}.svc.cluster.local`) |
+| StatefulSet | `app` | `workload.kind: database` 일 때(0.8.0) Rollout·Ingress 대신. 아래 [데이터베이스](#데이터베이스-workloadkind-database-080) |
 
 `imagePullSecrets` 가 있으면 Pod spec 에 그대로 넣습니다(0.8.0, 사용자가 등록한 온프레미스 서버의 ECR pull Secret `iris-ecr-pull`).
 
@@ -39,3 +43,50 @@ Pod 라벨 `iris/release-id` 는 로그·메트릭 수집(OTel → Loki `iris_re
 - `ci/` 의 values 는 Deploy Worker 출력(AWS)과 로컬 k3d 모양입니다. `make helm-check` 가 lint·render 에 씁니다.
 - 바꾸면 `Chart.yaml` version 을 올려 merge 하고, merge commit 에 tag `iris-service-<version>` 을 만든 뒤 별도 PR 로 `helm/gitops/values.yaml` `services.chartRevision` 을 올립니다. tag 보다 chartRevision 이 먼저 main 에 들어가면 모든 서비스 sync 가 실패합니다.
 - namespace 에 `elbv2.k8s.aws/pod-readiness-gate-inject: enabled` 라벨이 있어야 rollout 이 ALB target health 를 기다립니다(ApplicationSet `managedNamespaceMetadata`). 롤링·카나리는 새 Pod 가 Service 에 바로 잡혀 이 gate 를 받고, 블루그린의 새 묶음은 전환 전까지 Service 밖이라 gate 를 받지 않습니다.
+
+## 프로젝트 내부 통신 (0.8.0)
+
+같은 프로젝트의 서비스는 namespace(`svc-{id}`)가 달라도 서로 부를 수 있어야 합니다. `restrict-egress` 는 VPC(Pod IP 포함)를 막으므로
+0.7.x 까지는 다른 namespace Pod 로 나갈 수 없었습니다.
+
+- `projectId`(문자열 또는 정수): Pod 라벨 `iris.io/project-id`. selector 에는 넣지 않습니다(Rollout·StatefulSet selector 는 바꿀 수 없습니다).
+  `allow-project-egress` 가 같은 라벨 Pod 로의 egress 를 모든 포트로 엽니다. NetworkPolicy 는 합집합이라 `restrict-egress` 의 VPC 차단에 대한 예외가 됩니다.
+  `restrict-egress` 가 없으면(egressDeniedCidrs 가 빈 값) egress 가 이미 열려 있어 만들지 않습니다.
+- 앱 Pod 의 ingress 는 0.7.x 그대로 열려 있습니다(ALB 가 Pod IP 로 보냄). 다른 프로젝트 Pod 는 자기 `restrict-egress` 때문에 나오지 못합니다.
+  데이터베이스만 `allow-project-ingress` 로 받는 쪽에서도 막습니다.
+- `service.exposeContainerPort: true`: app Service 에 `name: container, port: containerPort` 를 더합니다. compose 처럼 `api:3000` 으로 부를 수 있게 합니다.
+  `containerPort` 가 `service.port`(80)와 같으면 이미 열려 있어 더하지 않습니다.
+- `hostAliases: [{name, target}]`: 이 namespace 에 ExternalName Service `{name}` 을 만들어 `{name}` → `target` CNAME 으로 풉니다.
+  앱 코드의 `postgres:5432`·`api:3000` 이 코드 수정 없이 `app.svc-{id}.svc.cluster.local` 로 갑니다. 포트는 대상 app Service 의 포트입니다
+  (데이터베이스는 `database.port`, 앱은 `exposeContainerPort` 의 containerPort).
+  - `name`: DNS-1035 label(소문자 시작, 소문자·숫자·`-`, 63자), `app` 금지, 중복 금지, 20개까지. compose 서비스 이름이 이 규칙에 맞지 않으면(밑줄·대문자) Deploy Worker 가 넣지 않습니다.
+  - `target`: `app.svc-{id}.svc.cluster.local` 만 허용합니다. 외부 도메인이나 다른 namespace 의 Service 로의 ExternalName 은 만들 수 없습니다.
+    같은 프로젝트인지는 WAS 가 확인하고, 다른 프로젝트를 가리켜도 NetworkPolicy 가 막습니다.
+  - ExternalName Service 는 ClusterIP 가 없어 docker-link env(`POSTGRES_PORT` 등)를 만들지 않습니다.
+
+## 데이터베이스 (`workload.kind: database`, 0.8.0)
+
+개발·데모용 단일 인스턴스입니다. 복제·백업이 없고, 서비스를 지우면 데이터도 지워집니다. 빌드가 없어 `image`·`command` 는 거절하고 `database.image` 를 씁니다.
+
+| 키 | 필수 | 의미 |
+|---|---|---|
+| `workload.kind` | ✅ | `database` |
+| `projectId` | ✅ | 같은 프로젝트 Pod 만 접속할 수 있게 합니다 |
+| `database.engine` | ✅ | `postgres`·`mysql`·`mongodb`·`redis` |
+| `database.image` | ✅ | 엔진별 Docker 공식 이미지(`[docker.io/][library/]{postgres,mysql,mongo,redis}[:tag]@sha256:…`)만, digest 필수 |
+| `database.storage` | | `1Gi`~`20Gi`, 기본 `5Gi`. **만든 뒤에는 바꿀 수 없습니다**(StatefulSet volumeClaimTemplates 불변 — 바꾸면 Argo sync 가 실패) |
+| `database.port` | | app Service 포트. 기본은 엔진 포트(5432·3306·27017·6379). 컨테이너는 엔진 기본 포트로 듣습니다 |
+| `database.storageClassName`·`database.resources` | | chart·타깃 기본값(gp3, 요청 100m/256Mi·제한 1CPU/1Gi). Deploy Worker 는 넣지 않습니다 |
+| `variables` | | 자격 증명. 엔진 공식 env(`POSTGRES_USER/PASSWORD/DB`, `MYSQL_*`, `MONGO_INITDB_ROOT_*`, `REDIS_PASSWORD`)를 `envFrom` 으로 받습니다 |
+
+`route`·`health`·`deploymentStrategy`·`service.exposeContainerPort`·`iris`·`release.sourceSha` 는 받아들이되 쓰지 않습니다. `replicas` 는 0(정지) 또는 1 입니다.
+
+- StatefulSet `app`(serviceName `app`), volumeClaimTemplate `data`(RWO, `storageClassName`). `persistentVolumeClaimRetentionPolicy.whenDeleted: Delete` 라
+  Argo 가 StatefulSet 을 지우면(서비스 삭제) PVC 와 볼륨(gp3 reclaimPolicy Delete)도 지워집니다. 0 으로 줄일 때는 남깁니다.
+- Service `app`: `name: db, port: database.port → targetPort db`. Ingress 와 `allow-load-balancer` 는 없습니다.
+- 보안: `runAsNonRoot`, 엔진 사용자 uid(postgres alpine 70, 그 밖 999)로 바로 실행, `fsGroup` 같은 값(`OnRootMismatch`), `seccompProfile: RuntimeDefault`,
+  `allowPrivilegeEscalation: false`, capabilities 모두 drop, `automountServiceAccountToken: false`, `enableServiceLinks: false`. Pod Security restricted 도 만족합니다(svc-* 는 baseline).
+- 엔진별: postgres `PGDATA=/var/lib/postgresql/data/pgdata`(볼륨 루트의 lost+found 회피), mysql `--datadir=/var/lib/mysql/data`, mongodb `/data/db`,
+  redis `/data` + `--appendonly yes` + `REDIS_PASSWORD` 가 있으면 `--requirepass`(공식 entrypoint 처럼 `--protected-mode no`).
+- probe: TCP. startup 5초×60(첫 초기화 동안 엔진은 TCP 를 열지 않음), readiness 5초, liveness 10초×6.
+- Pod 라벨 `iris/release-id` 가 release 마다 바뀌어 배포마다 Pod 가 다시 뜹니다(볼륨은 유지). Argo health 는 StatefulSet Ready 로 판정합니다.

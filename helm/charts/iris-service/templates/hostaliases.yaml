@@ -1,0 +1,20 @@
+{{- /* compose 호스트명(api, postgres 등)을 같은 프로젝트 다른 서비스의 app Service 로 잇는 DNS 별칭입니다.
+     앱 코드가 쓰는 {name}:{port} 가 그대로 app.svc-{id}.svc.cluster.local:{port} 로 풀립니다. */ -}}
+{{- $seen := dict }}
+{{- range .Values.hostAliases }}
+{{- if hasKey $seen .name }}
+{{- fail (printf "hostAliases: duplicate name %q" .name) }}
+{{- end }}
+{{- $_ := set $seen .name true }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .name }}
+  labels:
+    {{- include "iris-service.labels" $ | nindent 4 }}
+    iris.io/host-alias: "true"
+spec:
+  type: ExternalName
+  externalName: {{ .target }}
+{{- end }}
