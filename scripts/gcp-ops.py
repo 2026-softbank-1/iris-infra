@@ -87,8 +87,8 @@ def preflight(t):
     endpoints = c["controlPlaneEndpointsConfig"]
     need("https://" + endpoints["dnsEndpointConfig"]["endpoint"] == t["endpoint"] and endpoints["dnsEndpointConfig"].get("allowExternalTraffic"), "DNS endpoint changed")
     need(not endpoints.get("ipEndpointsConfig", {}).get("enabled", True), "IP API access must remain disabled")
-    need(c.get("datapathProvider") == "ADVANCED_DATAPATH" and c.get("workloadIdentityConfig", {}).get("workloadPool") == t["project_id"] + ".svc.id.goog", "Dataplane/identity mismatch")
-    need(c.get("gatewayApiConfig", {}).get("channel") == "CHANNEL_STANDARD", "Gateway API not enabled")
+    need(c.get("networkConfig", {}).get("datapathProvider") == "ADVANCED_DATAPATH" and c.get("workloadIdentityConfig", {}).get("workloadPool") == t["project_id"] + ".svc.id.goog", "Dataplane/identity mismatch")
+    need(c.get("networkConfig", {}).get("gatewayApiConfig", {}).get("channel") == "CHANNEL_STANDARD", "Gateway API not enabled")
     account = cloud(t, "iam", "service-accounts", "describe", t["ecr_service_account"])
     need(account["uniqueId"] == t["ecr_service_account_id"], "Pull service account changed")
     return c
